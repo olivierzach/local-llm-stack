@@ -1,0 +1,25 @@
+base_model: Qwen/Qwen3-4B-Instruct-2507
+output_dir: /workspace/models/adapters/qwen3-4b-smoke-lora
+
+# This is an intentionally tiny smoke config. Replace the dataset before doing
+# useful training.
+dataset_path: /workspace/data/datasets/processed/smoke.jsonl
+max_seq_length: 2048
+num_train_epochs: 1
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 8
+learning_rate: 0.0002
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+
