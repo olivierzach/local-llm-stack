@@ -1,0 +1,211 @@
+name: ${COMPOSE_PROJECT_NAME:-local-llm-stack}
+
+x-vllm-common: &vllm-common
+  image: ${VLLM_IMAGE:-nvcr.io/nvidia/vllm:25.09-py3}
+  restart: unless-stopped
+  ipc: host
+  shm_size: "16gb"
+  gpus: all
+  environment:
+    HF_TOKEN: ${HF_TOKEN:-}
+    HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
+    HF_HOME: /home/vllm/.cache/huggingface
+    VLLM_NO_USAGE_STATS: "1"
+  volumes:
+    - ./data/huggingface:/home/vllm/.cache/huggingface
+    - ./models:/models
+  networks:
+    - llm
+
+services:
+  vllm-fast:
+    <<: *vllm-common
+    ports:
+      - "${BIND_HOST:-0.0.0.0}:${VLLM_FAST_PORT:-8001}:8000"
+    command:
+      - python3
+      - -m
+      - vllm.entrypoints.openai.api_server
+      - --model
+      - ${FAST_MODEL:-Qwen/Qwen3-4B-Instruct-2507}
+      - --served-model-name
+      - local-fast
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --max-model-len
+      - ${FAST_MAX_MODEL_LEN:-32768}
+      - --gpu-memory-utilization
+      - ${FAST_GPU_MEMORY_UTILIZATION:-0.30}
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - hermes
+
+  vllm-balanced:
+    <<: *vllm-common
+    ports:
+      - "${BIND_HOST:-0.0.0.0}:${VLLM_BALANCED_PORT:-8002}:8000"
+    command:
+      - python3
+      - -m
+      - vllm.entrypoints.openai.api_server
+      - --model
+      - ${BALANCED_MODEL:-Qwen/Qwen3-14B}
+      - --served-model-name
+      - local-balanced
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --max-model-len
+      - ${BALANCED_MAX_MODEL_LEN:-32768}
+      - --gpu-memory-utilization
+      - ${BALANCED_GPU_MEMORY_UTILIZATION:-0.58}
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - hermes
+      - --enable-lora
+
+  vllm-large:
+    <<: *vllm-common
+    profiles: ["large"]
+    ports:
+      - "${BIND_HOST:-0.0.0.0}:${VLLM_LARGE_PORT:-8003}:8000"
+    command:
+      - python3
+      - -m
+      - vllm.entrypoints.openai.api_server
+      - --model
+      - ${LARGE_MODEL:-Qwen/Qwen3-32B}
+      - --served-model-name
+      - local-large
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --max-model-len
+      - ${LARGE_MAX_MODEL_LEN:-16384}
+      - --gpu-memory-utilization
+      - ${LARGE_GPU_MEMORY_UTILIZATION:-0.88}
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - hermes
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: litellm
+      POSTGRES_USER: litellm
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-postgres}
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U litellm -d litellm"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - llm
+
+  litellm:
+    image: ${LITELLM_IMAGE:-ghcr.io/berriai/litellm:main-latest}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      vllm-fast:
+        condition: service_started
+      vllm-balanced:
+        condition: service_started
+    ports:
+      - "${BIND_HOST:-0.0.0.0}:${LITELLM_PORT:-4000}:4000"
+    environment:
+      DATABASE_URL: postgresql://litellm:${POSTGRES_PASSWORD:-change-me-postgres}@postgres:5432/litellm
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-change-me-local-router}
+      LITELLM_SALT_KEY: ${LITELLM_SALT_KEY:-change-me-32-random-chars-minimum}
+      STORE_MODEL_IN_DB: "True"
+      UI_USERNAME: admin
+      UI_PASSWORD: ${LITELLM_MASTER_KEY:-sk-change-me-local-router}
+    volumes:
+      - ./config/litellm.yaml:/app/config.yaml:ro
+      - ./logs/litellm:/app/logs
+    command: ["--config", "/app/config.yaml", "--host", "0.0.0.0", "--port", "4000"]
+    networks:
+      - llm
+
+  open-webui:
+    image: ${OPEN_WEBUI_IMAGE:-ghcr.io/open-webui/open-webui:main}
+    restart: unless-stopped
+    depends_on:
+      - litellm
+    ports:
+      - "${BIND_HOST:-0.0.0.0}:${OPEN_WEBUI_PORT:-3000}:8080"
+    environment:
+      WEBUI_SECRET_KEY: ${OPEN_WEBUI_SECRET_KEY:-change-me-open-webui-secret}
+      OPENAI_API_BASE_URL: http://litellm:4000/v1
+      OPENAI_API_KEY: ${LITELLM_MASTER_KEY:-sk-change-me-local-router}
+      ENABLE_OLLAMA_API: "false"
+      ENABLE_SIGNUP: "false"
+    volumes:
+      - ./data/open-webui:/app/backend/data
+    networks:
+      - llm
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    user: "65534:65534"
+    restart: unless-stopped
+    ports:
+      - "${BIND_HOST:-0.0.0.0}:${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./data/prometheus:/prometheus
+    networks:
+      - llm
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    user: "472:472"
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    ports:
+      - "${BIND_HOST:-0.0.0.0}:${GRAFANA_PORT:-3001}:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-change-me-grafana}
+    volumes:
+      - ./data/grafana:/var/lib/grafana
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - llm
+
+  training:
+    build:
+      context: ./training
+    profiles: ["training"]
+    restart: unless-stopped
+    ipc: host
+    shm_size: "16gb"
+    gpus: all
+    ports:
+      - "${BIND_HOST:-0.0.0.0}:${JUPYTER_PORT:-8888}:8888"
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+      HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
+      HF_HOME: /workspace/data/huggingface
+    volumes:
+      - ./data:/workspace/data
+      - ./models:/workspace/models
+      - ./training:/workspace/training
+      - ./evals:/workspace/evals
+    command: ["jupyter", "lab", "--ip=0.0.0.0", "--port=8888", "--no-browser", "--allow-root", "--NotebookApp.token=local-lab"]
+    networks:
+      - llm
+
+networks:
+  llm:
+    driver: bridge
+
