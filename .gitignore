@@ -1,0 +1,16 @@
+.env
+
+data/huggingface/
+data/open-webui/
+data/postgres/
+data/prometheus/
+data/grafana/
+
+logs/
+models/adapters/
+models/merged/
+evals/results/
+
+*.pyc
+__pycache__/
+.ipynb_checkpoints/
