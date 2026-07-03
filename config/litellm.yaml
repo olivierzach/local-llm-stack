@@ -1,0 +1,59 @@
+model_list:
+  - model_name: local-fast
+    litellm_params:
+      model: openai/local-fast
+      api_base: http://vllm-fast:8000/v1
+      api_key: none
+    model_info:
+      mode: chat
+      input_cost_per_token: 0
+      output_cost_per_token: 0
+
+  - model_name: local-balanced
+    litellm_params:
+      model: openai/local-balanced
+      api_base: http://vllm-balanced:8000/v1
+      api_key: none
+    model_info:
+      mode: chat
+      input_cost_per_token: 0
+      output_cost_per_token: 0
+
+  - model_name: local-coder
+    litellm_params:
+      model: openai/local-balanced
+      api_base: http://vllm-balanced:8000/v1
+      api_key: none
+    model_info:
+      mode: chat
+      input_cost_per_token: 0
+      output_cost_per_token: 0
+
+  - model_name: local-large
+    litellm_params:
+      model: openai/local-large
+      api_base: http://vllm-large:8000/v1
+      api_key: none
+    model_info:
+      mode: chat
+      input_cost_per_token: 0
+      output_cost_per_token: 0
+
+router_settings:
+  routing_strategy: least-busy
+  num_retries: 1
+  timeout: 180
+  allowed_fails: 2
+  cooldown_time: 30
+
+litellm_settings:
+  drop_params: true
+  set_verbose: false
+  request_timeout: 180
+  telemetry: false
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: os.environ/DATABASE_URL
+  store_model_in_db: true
+
