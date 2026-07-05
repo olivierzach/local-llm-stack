@@ -1,209 +1,183 @@
-# Troubleshooting Notes
+# vLLM Deep Dive
 
-## 2026-07-02: Containers Created, `/v1/models` Works, Chat Returns 500
+vLLM is the model server in this stack. It loads model weights, exposes an OpenAI-compatible API, schedules inference work on the GPU, and streams generated tokens back to LiteLLM or direct clients.
 
-Observed after first startup:
+The default stack starts two vLLM services:
 
 ```text
-make smoke
-== Models ==
-{"data":[{"id":"local-fast" ...},{"id":"local-balanced" ...},{"id":"local-coder" ...},{"id":"local-large" ...}],"object":"list"}
-
-== Chat ==
-curl: (22) The requested URL returned error: 500
-make: *** [Makefile:37: smoke] Error 22
+vllm-fast      -> local-fast      -> port 8001
+vllm-balanced  -> local-balanced  -> port 8002
 ```
 
-What this means:
+The optional large service starts only with the `large` Compose profile:
 
-- LiteLLM is reachable on port `4000`; otherwise `/v1/models` would fail.
-- The router config loaded; otherwise the model aliases would not list.
-- The failure is probably between LiteLLM and a vLLM backend during generation, or vLLM is still loading the model.
-- Docker showed containers as `Created` in the startup output, not necessarily `Running` or healthy.
+```text
+vllm-large     -> local-large     -> port 8003
+```
 
-First checks:
+## Startup Path
+
+Each vLLM service uses the shared Compose block in `docker-compose.yml`:
+
+```text
+image: nvcr.io/nvidia/vllm:25.09-py3
+gpus: all
+ipc: host
+shm_size: 16gb
+HF_HOME: /home/vllm/.cache/huggingface
+```
+
+The command starts the OpenAI-compatible API server:
+
+```text
+python3 -m vllm.entrypoints.openai.api_server
+```
+
+The important arguments are:
+
+```text
+--model                  Hugging Face model repo or local model path
+--served-model-name      API model name returned by /v1/models
+--host 0.0.0.0           listen inside the container
+--port 8000              container port used by LiteLLM
+--max-model-len          context length limit
+--gpu-memory-utilization fraction of GPU memory vLLM may reserve
+```
+
+## Model Names
+
+There are two names to keep straight.
+
+The `--model` value is the real model source:
+
+```text
+Qwen/Qwen3-4B-Instruct-2507
+Qwen/Qwen3-14B
+Qwen/Qwen3-32B
+```
+
+The `--served-model-name` value is the local API name:
+
+```text
+local-fast
+local-balanced
+local-large
+```
+
+LiteLLM routes requests by those local names. For example, `local-fast` points to:
+
+```text
+http://vllm-fast:8000/v1
+```
+
+## Downloads And Cache
+
+vLLM downloads missing Hugging Face model files on first start. The cache is bind-mounted so downloads survive container restarts:
+
+```text
+host:      ./data/huggingface
+container: /home/vllm/.cache/huggingface
+```
+
+Set `HF_TOKEN` in `.env` when using gated or private models.
+
+Useful checks:
 
 ```bash
-cd /home/statsparrot/projects/local-llm-stack
-DOCKER_COMPOSE="sudo docker compose" make ps
-DOCKER_COMPOSE="sudo docker compose" make logs
+sudo docker compose logs -f vllm-fast
+du -sh data/huggingface
+curl -sS http://localhost:8001/v1/models
 ```
 
-Focused logs:
+## Memory Controls
 
-```bash
-sudo docker compose logs --tail=200 litellm
-sudo docker compose logs --tail=200 vllm-fast
-sudo docker compose logs --tail=200 vllm-balanced
+The main memory controls live in `.env`:
+
+```text
+FAST_MAX_MODEL_LEN=32768
+FAST_GPU_MEMORY_UTILIZATION=0.30
+BALANCED_MAX_MODEL_LEN=32768
+BALANCED_GPU_MEMORY_UTILIZATION=0.58
+LARGE_MAX_MODEL_LEN=16384
+LARGE_GPU_MEMORY_UTILIZATION=0.88
 ```
 
-Backend reachability checks from the Spark:
+Lower `*_MAX_MODEL_LEN` if vLLM fails while allocating KV cache. Lower `*_GPU_MEMORY_UTILIZATION` if multiple backends compete for memory.
+
+Start with `vllm-fast`. Add `vllm-balanced` only after fast is healthy. Stop a smaller backend before starting `vllm-large` if the host is under memory pressure.
+
+## Tool Choice Flags
+
+Open WebUI can send OpenAI-compatible tool fields such as:
+
+```json
+{"tool_choice": "auto"}
+```
+
+vLLM rejects that field unless tool parsing is enabled. This stack starts each vLLM service with:
+
+```text
+--enable-auto-tool-choice
+--tool-call-parser hermes
+```
+
+That lets vLLM accept and parse tool-call-shaped requests. It does not make vLLM execute tools; the application layer is still responsible for tool execution.
+
+## Thinking Mode
+
+Qwen3 models can spend much of the output budget on a thinking block before producing the visible answer. This stack disables thinking by default at the vLLM server layer:
+
+```text
+--default-chat-template-kwargs
+'{"enable_thinking": false}'
+```
+
+Clients can still override chat-template kwargs per request when they intentionally want thinking mode.
+
+## LoRA
+
+`vllm-balanced` starts with:
+
+```text
+--enable-lora
+```
+
+LoRA adapters should be stored under:
+
+```text
+./models/adapters
+```
+
+Merged or exported models should be stored under:
+
+```text
+./models/merged
+```
+
+Keep adapter loading changes isolated to the vLLM service that needs them. Do not change the LiteLLM aliases until the backend reports the intended served model name from `/v1/models`.
+
+## Health Checks
+
+Direct vLLM checks should pass before debugging LiteLLM or Open WebUI:
 
 ```bash
 curl -sS http://localhost:8001/v1/models
 curl -sS http://localhost:8002/v1/models
+sudo docker compose logs --tail=200 vllm-fast
+sudo docker compose logs --tail=200 vllm-balanced
 ```
 
-If vLLM is still downloading or loading models, wait and rerun:
+Common startup states:
+
+```text
+downloading files     -> wait and watch data/huggingface
+loading weights       -> memory use rises
+allocating KV cache   -> failures usually need lower context or utilization
+serving API           -> /v1/models returns the served model name
+```
+
+After direct vLLM checks pass, run the routed smoke test:
 
 ```bash
 make smoke
 ```
-
-If vLLM logs show memory or context-length failures, lower the defaults in `.env`:
-
-```text
-FAST_MAX_MODEL_LEN=8192
-BALANCED_MAX_MODEL_LEN=8192
-FAST_GPU_MEMORY_UTILIZATION=0.25
-BALANCED_GPU_MEMORY_UTILIZATION=0.50
-```
-
-Then restart:
-
-```bash
-DOCKER_COMPOSE="sudo docker compose" make down
-DOCKER_COMPOSE="sudo docker compose" make up
-```
-
-If `local-fast` works but `local-balanced` fails, keep `local-fast` running first and start larger models one at a time.
-
-## vLLM Restarts With Driver Requirement Error
-
-Observed log:
-
-```text
-ERROR: This container was built for NVIDIA Driver Release 595.45 or later, but
-       version 580.159.03 was detected and compatibility mode is UNAVAILABLE.
-/opt/nvidia/nvidia_entrypoint.sh: line 55: exec: --: invalid option
-```
-
-Cause:
-
-- The `26.03.post1` NVIDIA vLLM container requires a newer host NVIDIA driver than this Spark currently has.
-- The Compose command also started with `--model`, so the image entrypoint tried to execute an option instead of the vLLM API server.
-
-Fix applied:
-
-- Pin `VLLM_IMAGE=nvcr.io/nvidia/vllm:25.09-py3` in `.env` and `.env.example`.
-- Start vLLM with `python3 -m vllm.entrypoints.openai.api_server ...` in `docker-compose.yml`.
-
-Restart after the fix:
-
-```bash
-cd /home/statsparrot/projects/local-llm-stack
-sudo docker compose down
-sudo docker compose pull vllm-fast vllm-balanced
-sudo docker compose up -d
-sudo docker compose logs -f vllm-fast
-```
-
-Then test:
-
-```bash
-curl -sS http://localhost:8001/v1/models
-make smoke
-```
-
-## 2026-07-02: First Successful Smoke Test
-
-Command:
-
-```bash
-make smoke
-```
-
-Result:
-
-```text
-== Models ==
-local-fast, local-balanced, local-coder, local-large listed
-
-== Chat ==
-assistant content: local stack ok
-```
-
-Meaning:
-
-- LiteLLM is reachable on port `4000`.
-- LiteLLM loaded the model aliases.
-- vLLM `local-fast` loaded `Qwen/Qwen3-4B-Instruct-2507`.
-- LiteLLM can route chat completions to vLLM.
-- The end-to-end API path works for `local-fast`.
-
-## Prometheus Restarts With `queries.active: permission denied`
-
-Observed log:
-
-```text
-Error opening query log file file=/prometheus/queries.active err="open /prometheus/queries.active: permission denied"
-panic: Unable to create mmap-ed active query log
-```
-
-Cause:
-
-- `./data/prometheus` is bind-mounted to `/prometheus`.
-- The Prometheus container process must be able to write there.
-- If the host directory is owned only by `statsparrot`, the container user cannot create `queries.active`.
-
-Fix:
-
-```bash
-cd /home/statsparrot/projects/local-llm-stack
-sudo chown -R 65534:65534 data/prometheus
-sudo chown -R 472:472 data/grafana
-sudo docker compose up -d prometheus grafana
-```
-
-The Compose file pins Prometheus to UID `65534` and Grafana to UID `472` so ownership is predictable.
-
-## Open WebUI Error: `auto` Tool Choice Requires vLLM Flags
-
-Observed error in Open WebUI:
-
-```text
-litellm.BadRequestError: OpenAIException - "auto" tool choice requires --enable-auto-tool-choice and --tool-call-parser to be set. Received Model Group=local-fast
-```
-
-Cause:
-
-- Open WebUI sent an OpenAI-style request with `tool_choice: "auto"`.
-- vLLM rejects that parameter unless the server is started with tool-call parsing enabled.
-
-Fix applied in `docker-compose.yml` for each vLLM service:
-
-```text
---enable-auto-tool-choice
---tool-call-parser hermes
-```
-
-Restart vLLM after the fix:
-
-```bash
-cd /home/statsparrot/projects/local-llm-stack
-sudo docker compose up -d --force-recreate vllm-fast
-make smoke
-```
-
-If Open WebUI still sends tool settings that the selected model cannot satisfy, disable tools/features in that Open WebUI chat or use a model with stronger tool-call tuning.
-
-## 17. Why Open WebUI Needed Tool-Choice Flags
-
-Open WebUI can send OpenAI-compatible tool fields even when you are mostly using normal chat. One common field is:
-
-```json
-"tool_choice": "auto"
-```
-
-That tells the model server: if tools are available, let the model decide whether to call one.
-
-vLLM refuses `tool_choice: "auto"` unless tool-call parsing is explicitly enabled. That is why this stack starts vLLM with:
-
-```text
---enable-auto-tool-choice
---tool-call-parser hermes
-```
-
-This does not mean vLLM executes tools. It means vLLM is allowed to accept tool-choice requests and parse tool-call-shaped model output. The application layer still executes any actual tool.
-
-For normal chat, this setting mostly prevents Open WebUI from triggering a request validation error.

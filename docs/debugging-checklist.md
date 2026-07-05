@@ -1,56 +1,111 @@
-# Troubleshooting Notes
+# Debugging Checklist
 
-## 2026-07-02: Containers Created, `/v1/models` Works, Chat Returns 500
+Debug from the bottom of the stack upward. Prove the host, then vLLM, then LiteLLM, then Open WebUI, then monitoring.
 
-Observed after first startup:
-
-```text
-make smoke
-== Models ==
-{"data":[{"id":"local-fast" ...},{"id":"local-balanced" ...},{"id":"local-coder" ...},{"id":"local-large" ...}],"object":"list"}
-
-== Chat ==
-curl: (22) The requested URL returned error: 500
-make: *** [Makefile:37: smoke] Error 22
-```
-
-What this means:
-
-- LiteLLM is reachable on port `4000`; otherwise `/v1/models` would fail.
-- The router config loaded; otherwise the model aliases would not list.
-- The failure is probably between LiteLLM and a vLLM backend during generation, or vLLM is still loading the model.
-- Docker showed containers as `Created` in the startup output, not necessarily `Running` or healthy.
-
-First checks:
+## 1. Host Basics
 
 ```bash
 cd /home/statsparrot/projects/local-llm-stack
-DOCKER_COMPOSE="sudo docker compose" make ps
-DOCKER_COMPOSE="sudo docker compose" make logs
+make check
+make gpu-check
 ```
 
-Focused logs:
+If Docker requires sudo:
 
 ```bash
-sudo docker compose logs --tail=200 litellm
-sudo docker compose logs --tail=200 vllm-fast
-sudo docker compose logs --tail=200 vllm-balanced
+DOCKER_BIN="sudo docker" make check
+DOCKER_BIN="sudo docker" make gpu-check
 ```
 
-Backend reachability checks from the Spark:
+Expected result:
+
+```text
+Docker works
+Compose works
+NVIDIA GPU is visible inside a container
+```
+
+Do not continue to vLLM until `make gpu-check` can see the GPU from inside a container.
+
+## 2. Initialization
+
+```bash
+make init
+```
+
+If monitoring ownership fails, apply the required host ownership:
+
+```bash
+sudo chown -R 65534:65534 data/prometheus
+sudo chown -R 472:472 data/grafana
+make init
+```
+
+Prometheus runs as UID `65534`. Grafana runs as UID `472`. Those containers must be able to write their bind-mounted data directories.
+
+## 3. Container State
+
+```bash
+make up
+make ps
+```
+
+If Docker requires sudo:
+
+```bash
+DOCKER_COMPOSE="sudo docker compose" make up
+DOCKER_COMPOSE="sudo docker compose" make ps
+```
+
+Look for containers that are restarting, exited, or stuck before serving traffic:
+
+```bash
+sudo docker compose logs --tail=200
+sudo docker compose logs --tail=200 vllm-fast
+sudo docker compose logs --tail=200 litellm
+```
+
+## 4. vLLM Direct
+
+Test the model server before testing the router:
 
 ```bash
 curl -sS http://localhost:8001/v1/models
 curl -sS http://localhost:8002/v1/models
 ```
 
-If vLLM is still downloading or loading models, wait and rerun:
+Expected result:
 
-```bash
-make smoke
+```text
+local-fast
+local-balanced
 ```
 
-If vLLM logs show memory or context-length failures, lower the defaults in `.env`:
+If a direct vLLM check fails:
+
+```bash
+sudo docker compose logs -f vllm-fast
+du -sh data/huggingface
+nvidia-smi
+```
+
+Common causes:
+
+```text
+model is still downloading
+model is still loading
+HF_TOKEN is missing for a gated model
+host NVIDIA driver is too old for the selected image
+context length or GPU utilization is too high
+```
+
+If `finish_reason` is `length` and the response contains or implies a long thinking block, confirm the vLLM service is running with:
+
+```text
+--default-chat-template-kwargs '{"enable_thinking": false}'
+```
+
+Try smaller memory settings in `.env`:
 
 ```text
 FAST_MAX_MODEL_LEN=8192
@@ -59,100 +114,101 @@ FAST_GPU_MEMORY_UTILIZATION=0.25
 BALANCED_GPU_MEMORY_UTILIZATION=0.50
 ```
 
-Then restart:
+Restart vLLM after changing `.env`:
 
 ```bash
-DOCKER_COMPOSE="sudo docker compose" make down
-DOCKER_COMPOSE="sudo docker compose" make up
+sudo docker compose up -d --force-recreate vllm-fast vllm-balanced
 ```
 
-If `local-fast` works but `local-balanced` fails, keep `local-fast` running first and start larger models one at a time.
+## 5. LiteLLM Router
 
-## vLLM Restarts With Driver Requirement Error
-
-Observed log:
-
-```text
-ERROR: This container was built for NVIDIA Driver Release 595.45 or later, but
-       version 580.159.03 was detected and compatibility mode is UNAVAILABLE.
-/opt/nvidia/nvidia_entrypoint.sh: line 55: exec: --: invalid option
-```
-
-Cause:
-
-- The `26.03.post1` NVIDIA vLLM container requires a newer host NVIDIA driver than this Spark currently has.
-- The Compose command also started with `--model`, so the image entrypoint tried to execute an option instead of the vLLM API server.
-
-Fix applied:
-
-- Pin `VLLM_IMAGE=nvcr.io/nvidia/vllm:25.09-py3` in `.env` and `.env.example`.
-- Start vLLM with `python3 -m vllm.entrypoints.openai.api_server ...` in `docker-compose.yml`.
-
-Restart after the fix:
+After direct vLLM checks pass:
 
 ```bash
-cd /home/statsparrot/projects/local-llm-stack
-sudo docker compose down
-sudo docker compose pull vllm-fast vllm-balanced
-sudo docker compose up -d
-sudo docker compose logs -f vllm-fast
+curl -sS http://localhost:4000/v1/models \
+  -H "Authorization: Bearer $(grep '^LITELLM_MASTER_KEY=' .env | cut -d= -f2-)"
 ```
 
-Then test:
-
-```bash
-curl -sS http://localhost:8001/v1/models
-make smoke
-```
-
-## 2026-07-02: First Successful Smoke Test
-
-Command:
+Then run:
 
 ```bash
 make smoke
 ```
 
-Result:
-
-```text
-== Models ==
-local-fast, local-balanced, local-coder, local-large listed
-
-== Chat ==
-assistant content: local stack ok
-```
-
-Meaning:
-
-- LiteLLM is reachable on port `4000`.
-- LiteLLM loaded the model aliases.
-- vLLM `local-fast` loaded `Qwen/Qwen3-4B-Instruct-2507`.
-- LiteLLM can route chat completions to vLLM.
-- The end-to-end API path works for `local-fast`.
-
-## Prometheus Restarts With `queries.active: permission denied`
-
-Observed log:
-
-```text
-Error opening query log file file=/prometheus/queries.active err="open /prometheus/queries.active: permission denied"
-panic: Unable to create mmap-ed active query log
-```
-
-Cause:
-
-- `./data/prometheus` is bind-mounted to `/prometheus`.
-- The Prometheus container process must be able to write there.
-- If the host directory is owned only by `statsparrot`, the container user cannot create `queries.active`.
-
-Fix:
+If `/v1/models` works but chat fails, LiteLLM is up and the failure is usually between LiteLLM and a vLLM backend. Check:
 
 ```bash
-cd /home/statsparrot/projects/local-llm-stack
+sudo docker compose logs --tail=200 litellm
+sudo docker compose logs --tail=200 vllm-fast
+sed -n '1,220p' config/litellm.yaml
+```
+
+Verify that each LiteLLM `api_base` points at the matching Compose service:
+
+```text
+local-fast     -> http://vllm-fast:8000/v1
+local-balanced -> http://vllm-balanced:8000/v1
+local-large    -> http://vllm-large:8000/v1
+```
+
+## 6. Open WebUI
+
+After `make smoke` passes, open:
+
+```text
+http://<spark-lan-ip>:3000
+```
+
+Check the Open WebUI container:
+
+```bash
+sudo docker compose logs --tail=200 open-webui
+```
+
+The API settings should point at LiteLLM inside the Compose network:
+
+```text
+OPENAI_API_BASE_URL=http://litellm:4000/v1
+OPENAI_API_KEY=${LITELLM_MASTER_KEY}
+ENABLE_OLLAMA_API=false
+```
+
+If the UI loads but chat fails, retest `make smoke` before changing browser settings.
+
+## 7. Monitoring
+
+Prometheus:
+
+```bash
+curl -sS http://localhost:9090/-/ready
+sudo docker compose logs --tail=200 prometheus
+```
+
+Grafana:
+
+```text
+http://<spark-lan-ip>:3001
+```
+
+If either service reports permission errors, reapply ownership:
+
+```bash
 sudo chown -R 65534:65534 data/prometheus
 sudo chown -R 472:472 data/grafana
 sudo docker compose up -d prometheus grafana
 ```
 
-The Compose file pins Prometheus to UID `65534` and Grafana to UID `472` so ownership is predictable.
+## 8. Request Path Order
+
+Use this order when isolating a failure:
+
+```text
+1. GPU visible in a container
+2. vLLM direct /v1/models
+3. LiteLLM /v1/models
+4. make smoke
+5. Open WebUI chat
+6. Prometheus and Grafana
+```
+
+Do not debug a higher layer until the lower layer is proven healthy.

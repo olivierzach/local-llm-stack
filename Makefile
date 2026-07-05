@@ -2,12 +2,15 @@ SHELL := /usr/bin/env bash
 DOCKER_COMPOSE ?= docker compose
 
 
-.PHONY: init check gpu-check up down logs ps smoke large-up training-up
+.PHONY: init test check gpu-check up down logs ps smoke large-up training-up
 
 init:
 	cp -n .env.example .env
 	chmod +x scripts/*.sh
 	./scripts/init-dirs.sh
+
+test:
+	./tests/test.sh
 
 check:
 	./scripts/host-check.sh
