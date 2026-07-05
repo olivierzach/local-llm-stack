@@ -125,14 +125,21 @@ That lets vLLM accept and parse tool-call-shaped requests. It does not make vLLM
 
 ## Thinking Mode
 
-Qwen3 models can spend much of the output budget on a thinking block before producing the visible answer. This stack disables thinking by default at the vLLM server layer:
+Qwen3 models can spend much of the output budget on a thinking block before producing the visible answer. The pinned NVIDIA vLLM image used by this stack does not support the newer `--default-chat-template-kwargs` server flag, so thinking mode is controlled at request time for now.
+
+Use one of these when concise complete answers matter:
 
 ```text
---default-chat-template-kwargs
-'{"enable_thinking": false}'
+/no_think
 ```
 
-Clients can still override chat-template kwargs per request when they intentionally want thinking mode.
+or send request-level chat template kwargs:
+
+```json
+{"chat_template_kwargs": {"enable_thinking": false}}
+```
+
+Do not add `--default-chat-template-kwargs` to `docker-compose.yml` unless the selected vLLM image supports it.
 
 ## LoRA
 

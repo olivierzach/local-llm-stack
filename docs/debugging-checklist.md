@@ -99,10 +99,10 @@ host NVIDIA driver is too old for the selected image
 context length or GPU utilization is too high
 ```
 
-If `finish_reason` is `length` and the response contains or implies a long thinking block, confirm the vLLM service is running with:
+If `finish_reason` is `length` and the response contains or implies a long thinking block, use `/no_think` in the prompt or send request-level chat template kwargs:
 
-```text
---default-chat-template-kwargs '{"enable_thinking": false}'
+```json
+{"chat_template_kwargs": {"enable_thinking": false}}
 ```
 
 Try smaller memory settings in `.env`:

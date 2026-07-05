@@ -49,12 +49,9 @@ test_docs_links_exist() {
   pass "docs index markdown links exist"
 }
 
-test_vllm_thinking_disabled_by_default() {
-  local count
-  count="$(grep -c -- '--default-chat-template-kwargs' "$ROOT/docker-compose.yml")"
-  [[ "$count" -eq 3 ]] || fail "expected thinking-off kwargs on all vLLM services"
-  grep -q -- '''{"enable_thinking": false}''' "$ROOT/docker-compose.yml" || fail "missing enable_thinking false kwargs"
-  pass "vLLM services disable thinking by default"
+test_vllm_avoids_unsupported_thinking_flag() {
+  ! grep -q -- '--default-chat-template-kwargs' "$ROOT/docker-compose.yml" || fail "pinned vLLM image does not support default chat-template kwargs"
+  pass "vLLM config avoids unsupported thinking flag"
 }
 
 test_init_skip_chown_creates_dirs() {
@@ -111,7 +108,7 @@ test_shell_syntax
 test_diff_whitespace
 test_docs_pages_restored
 test_docs_links_exist
-test_vllm_thinking_disabled_by_default
+test_vllm_avoids_unsupported_thinking_flag
 test_init_skip_chown_creates_dirs
 test_init_chown_failure_is_clear
 test_init_chown_success_calls_expected_owners
