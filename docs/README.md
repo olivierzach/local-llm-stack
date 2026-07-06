@@ -14,3 +14,4 @@ Start here:
 8. [Memory, GPU, And Disk](memory-gpu-disk.md)
 9. [Request Flow](request-flow.md)
 10. [Debugging Checklist](debugging-checklist.md)
+11. [Model Zoo](model-zoo.md)

@@ -39,6 +39,36 @@ model_list:
       input_cost_per_token: 0
       output_cost_per_token: 0
 
+  - model_name: local-qwen30-a3b
+    litellm_params:
+      model: openai/local-qwen30-a3b
+      api_base: http://vllm-qwen30a3b:8000/v1
+      api_key: none
+    model_info:
+      mode: chat
+      input_cost_per_token: 0
+      output_cost_per_token: 0
+
+  - model_name: local-deepseek-r1-qwen32b
+    litellm_params:
+      model: openai/local-deepseek-r1-qwen32b
+      api_base: http://vllm-deepseek32b:8000/v1
+      api_key: none
+    model_info:
+      mode: chat
+      input_cost_per_token: 0
+      output_cost_per_token: 0
+
+  - model_name: local-mistral-small
+    litellm_params:
+      model: openai/local-mistral-small
+      api_base: http://vllm-mistral24b:8000/v1
+      api_key: none
+    model_info:
+      mode: chat
+      input_cost_per_token: 0
+      output_cost_per_token: 0
+
 router_settings:
   routing_strategy: least-busy
   num_retries: 1

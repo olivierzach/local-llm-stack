@@ -54,6 +54,18 @@ test_vllm_avoids_unsupported_thinking_flag() {
   pass "vLLM config avoids unsupported thinking flag"
 }
 
+test_model_zoo_config() {
+  for service in vllm-qwen30a3b vllm-deepseek32b vllm-mistral24b model-cache; do
+    grep -q "^  ${service}:" "$ROOT/docker-compose.yml" || fail "missing compose service: $service"
+  done
+
+  for alias in local-qwen30-a3b local-deepseek-r1-qwen32b local-mistral-small; do
+    grep -q "model_name: ${alias}" "$ROOT/config/litellm.yaml" || fail "missing LiteLLM alias: $alias"
+  done
+
+  pass "optional model services and aliases are configured"
+}
+
 test_init_skip_chown_creates_dirs() {
   run_in_tmp env SKIP_CHOWN=1 "$ROOT/scripts/init-dirs.sh"
   pass "init creates directories when chown is skipped"
@@ -109,6 +121,7 @@ test_diff_whitespace
 test_docs_pages_restored
 test_docs_links_exist
 test_vllm_avoids_unsupported_thinking_flag
+test_model_zoo_config
 test_init_skip_chown_creates_dirs
 test_init_chown_failure_is_clear
 test_init_chown_success_calls_expected_owners
