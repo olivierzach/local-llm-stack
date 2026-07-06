@@ -2,7 +2,7 @@
 
 Self-hosted private assistant and fine-tuning lab for this Spark host.
 
-Deep explainers live in [docs/README.md](docs/README.md).
+Deep explainers live in [docs/README.md](docs/README.md). For a full reproducible setup, start with [Spark Setup Runbook](docs/spark-setup-runbook.md).
 
 ## What This Runs
 
@@ -78,6 +78,7 @@ LiteLLM exposes these aliases:
 - `local-balanced`
 - `local-coder`
 - `local-large`
+- `local-vision` (starts with `make vision-up`)
 
 The default stack starts `local-fast` and `local-balanced`. Start the large backend separately:
 
@@ -91,6 +92,33 @@ If the large model causes memory pressure, stop another vLLM backend first:
 docker compose stop vllm-balanced
 make large-up
 ```
+
+## AI Engineering Tools
+
+Create a small host-side Python environment for tracing, load tests, and evals:
+
+```bash
+python -m venv .venv
+. .venv/bin/activate
+python -m pip install -r tools/requirements.txt
+```
+
+Useful commands:
+
+```bash
+set -a; source .env; set +a
+python scripts/request-trace.py --model local-fast --prompt "Reply with exactly: trace ok"
+python scripts/load-test.py --model local-fast --concurrency 2 --requests 4 --max-tokens 64
+python scripts/run-evals.py --models local-fast local-balanced --prompt-file evals/prompts/smoke.jsonl
+make throughput-eval
+make download-vision
+make vision-up
+make vision-eval
+```
+
+Read [Request Trace Lab](docs/request-trace.md), [vLLM Concurrency Lab](docs/vllm-concurrency.md), and [Evals Lab](docs/evals.md). Read [Throughput Evals Lab](docs/throughput-evals.md) for tok/s measurement and [Vision Model Lab](docs/vision-models.md) for multimodal serving.
+
+The root `requirements.txt` includes both host tooling and training dependencies. Use `tools/requirements.txt` for the lightweight local CLI/test environment; use the training container for LoRA work so PyTorch matches the NVIDIA/CUDA stack.
 
 ## Fine-Tuning Lab
 
@@ -108,9 +136,10 @@ Directory layout:
 - `data/datasets/processed`: chat JSONL datasets
 - `models/adapters`: LoRA outputs
 - `models/merged`: merged/exported models
-- `evals/results`: evaluation outputs
+- `evals/results`: legacy evaluation outputs
+- `evals/runs`: JSONL outputs from `scripts/run-evals.py` and load-test records
 
-The included `training/configs/qwen3-lora-smoke.yaml` and `data/datasets/processed/smoke.jsonl` are only for proving the plumbing works.
+The included `training/configs/qwen3-lora-smoke.yaml`, `data/datasets/processed/smoke.jsonl`, and `data/datasets/processed/smoke_lora.jsonl` are only for proving the plumbing works. See [LoRA Adapter Lab](docs/lora-adapters.md).
 
 ## Notes
 

@@ -24,6 +24,7 @@ Cache many models if disk allows it. Run only the models that fit in memory at t
 | `local-qwen30-a3b` | `vllm-qwen30a3b` | `Qwen/Qwen3-30B-A3B-Instruct-2507` | `8004` | `qwen30a3b` |
 | `local-deepseek-r1-qwen32b` | `vllm-deepseek32b` | `deepseek-ai/DeepSeek-R1-Distill-Qwen-32B` | `8005` | `deepseek32b` |
 | `local-mistral-small` | `vllm-mistral24b` | `mistralai/Mistral-Small-3.2-24B-Instruct-2506` | `8006` | `mistral24b` |
+| `local-vision` | `vllm-vision` | `Qwen/Qwen3-VL-4B-Instruct` | `8008` | `vision` |
 
 ## Download Models
 
@@ -34,6 +35,7 @@ make download-qwen32
 make download-qwen30
 make download-deepseek32
 make download-mistral24
+make download-vision
 ```
 
 For any other Hugging Face repo:
