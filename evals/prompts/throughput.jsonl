@@ -1,0 +1,3 @@
+{"id":"short-decode","prompt":"/no_think Write exactly five short numbered facts about local inference.","max_tokens":96}
+{"id":"medium-prefill","prompt":"/no_think Summarize this request path in one concise paragraph: client to Open WebUI to LiteLLM to vLLM to model weights to token stream to client. Include one sentence about where routing happens and one sentence about where batching happens.","max_tokens":128}
+{"id":"json-throughput","prompt":"Return only JSON with keys component, metric, and unit. Use metric output_tokens_per_second and unit tokens_per_second.","max_tokens":64,"expect_json":true}

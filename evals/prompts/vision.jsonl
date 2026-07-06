@@ -1,0 +1,2 @@
+{"id":"red-square-color","prompt":"What color is the square? Answer with one word.","image_path":"evals/assets/red-square.png","max_tokens":8,"expect_exact":"red"}
+{"id":"red-square-shape","prompt":"What simple shape is shown? Answer with one word.","image_path":"evals/assets/red-square.png","max_tokens":8,"expect_exact":"square"}

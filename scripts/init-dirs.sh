@@ -11,6 +11,7 @@ mkdir -p \
   data/datasets/raw \
   data/datasets/processed \
   evals/results \
+  evals/runs \
   logs/litellm \
   models/adapters \
   models/merged
@@ -37,6 +38,7 @@ chmod_if_owned \
   data/datasets/processed \
   evals \
   evals/results \
+  evals/runs \
   logs \
   logs/litellm \
   models \

@@ -1,0 +1,3 @@
+{"id":"exact-local-stack-ok","prompt":"Reply with exactly: local stack ok","max_tokens":16,"expect_exact":"local stack ok"}
+{"id":"concise-bullets","messages":[{"role":"system","content":"You answer in compact lists."},{"role":"user","content":"Give two short benefits of request tracing."}],"max_tokens":80}
+{"id":"no-think-short","prompt":"/no_think Answer in one sentence: what does LiteLLM do in this stack?","max_tokens":80}

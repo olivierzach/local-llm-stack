@@ -1,0 +1,2 @@
+{"id":"json-health","prompt":"Return only valid JSON with keys status and component. Use status ok and component litellm.","max_tokens":64,"expect_json":true}
+{"id":"json-routing","messages":[{"role":"system","content":"Return only valid JSON. No markdown."},{"role":"user","content":"Create an object with route set to local-fast and retries set to 1."}],"max_tokens":64,"expect_json":true}

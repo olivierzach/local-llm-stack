@@ -1,0 +1,3 @@
+{"id":"alias-local-fast","prompt":"Reply with exactly: routed local-fast","max_tokens":16,"expect_exact":"routed local-fast"}
+{"id":"alias-local-balanced","prompt":"Reply with exactly: routed local-balanced","max_tokens":16,"expect_exact":"routed local-balanced"}
+{"id":"router-tool-fields","messages":[{"role":"user","content":"In one short sentence, say whether OpenAI-compatible APIs define a request shape rather than a model provider."}],"max_tokens":80}
