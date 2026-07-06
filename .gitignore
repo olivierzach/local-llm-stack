@@ -10,7 +10,11 @@ logs/
 models/adapters/
 models/merged/
 evals/results/
+evals/runs/
 
+.venv-tools/
+
+.venv/
 *.pyc
 __pycache__/
 .ipynb_checkpoints/

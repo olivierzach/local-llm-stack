@@ -1,14 +1,15 @@
 base_model: Qwen/Qwen3-4B-Instruct-2507
 output_dir: /workspace/models/adapters/qwen3-4b-smoke-lora
 
-# This is an intentionally tiny smoke config. Replace the dataset before doing
-# useful training.
-dataset_path: /workspace/data/datasets/processed/smoke.jsonl
+# This is an intentionally tiny smoke config. It teaches the training and
+# serving path; replace the dataset before doing useful training.
+dataset_path: /workspace/data/datasets/processed/smoke_lora.jsonl
 max_seq_length: 2048
 num_train_epochs: 1
 per_device_train_batch_size: 1
 gradient_accumulation_steps: 8
 learning_rate: 0.0002
+logging_steps: 1
 
 lora:
   r: 16

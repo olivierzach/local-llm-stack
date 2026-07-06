@@ -69,6 +69,26 @@ model_list:
       input_cost_per_token: 0
       output_cost_per_token: 0
 
+  - model_name: local-balanced-smoke-lora
+    litellm_params:
+      model: openai/local-balanced-smoke-lora
+      api_base: http://vllm-lora:8000/v1
+      api_key: none
+    model_info:
+      mode: chat
+      input_cost_per_token: 0
+      output_cost_per_token: 0
+
+  - model_name: local-vision
+    litellm_params:
+      model: openai/local-vision
+      api_base: http://vllm-vision:8000/v1
+      api_key: none
+    model_info:
+      mode: chat
+      input_cost_per_token: 0
+      output_cost_per_token: 0
+
 router_settings:
   routing_strategy: least-busy
   num_retries: 1

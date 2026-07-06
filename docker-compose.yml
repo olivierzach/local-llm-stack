@@ -172,6 +172,59 @@ services:
       - --tool-call-parser
       - hermes
 
+  vllm-lora:
+    <<: *vllm-common
+    profiles: ["lora"]
+    ports:
+      - "${BIND_HOST:-0.0.0.0}:${VLLM_LORA_PORT:-8007}:8000"
+    command:
+      - python3
+      - -m
+      - vllm.entrypoints.openai.api_server
+      - --model
+      - ${LORA_BASE_MODEL:-Qwen/Qwen3-4B-Instruct-2507}
+      - --served-model-name
+      - local-balanced-smoke-lora
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --max-model-len
+      - ${LORA_MAX_MODEL_LEN:-32768}
+      - --gpu-memory-utilization
+      - ${LORA_GPU_MEMORY_UTILIZATION:-0.35}
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - hermes
+      - --enable-lora
+      - --lora-modules
+      - local-balanced-smoke-lora=${LORA_ADAPTER_PATH:-/models/adapters/qwen3-4b-smoke-lora/current}
+
+  vllm-vision:
+    <<: *vllm-common
+    profiles: ["vision"]
+    ports:
+      - "${BIND_HOST:-0.0.0.0}:${VLLM_VISION_PORT:-8008}:8000"
+    command:
+      - python3
+      - -m
+      - vllm.entrypoints.openai.api_server
+      - --model
+      - ${VISION_MODEL:-Qwen/Qwen3-VL-4B-Instruct}
+      - --served-model-name
+      - local-vision
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --max-model-len
+      - ${VISION_MAX_MODEL_LEN:-32768}
+      - --gpu-memory-utilization
+      - ${VISION_GPU_MEMORY_UTILIZATION:-0.45}
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - hermes
+
   model-cache:
     image: ${VLLM_IMAGE:-nvcr.io/nvidia/vllm:25.09-py3}
     profiles: ["tools"]
