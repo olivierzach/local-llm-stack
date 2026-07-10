@@ -11,6 +11,12 @@ compacted and retried automatically.
 
 ```bash
 cd /home/statsparrot/projects/local-llm-stack
+make context-guard-up
+```
+
+For a foreground debug run instead:
+
+```bash
 make context-guard
 ```
 
@@ -21,6 +27,12 @@ Base URL: http://<spark-host>:4010/v1
 API key:  LITELLM_MASTER_KEY
 Model:    local-gpt-oss-120b
 ```
+
+For OpenClaw, the provider that currently points at Spark LiteLLM on `:4000`
+must point at `:4010` instead. If the status line still says `tokens ?/120k`
+for this 4k GPT-OSS launch, the client metadata is still wrong; set that model
+to `4096` context tokens or route through this proxy with
+`CONTEXT_GUARD_MODEL_CONTEXTS=local-gpt-oss-120b:4096`.
 
 The proxy does three things for `/v1/chat/completions`:
 
@@ -75,4 +87,21 @@ model context window reported by vLLM:
 
 ```bash
 curl -sS http://localhost:8009/v1/models
+```
+
+
+## Run As A Service
+
+Start or restart the persistent proxy:
+
+```bash
+make context-guard-up
+docker compose logs -f context-guard
+```
+
+On this Spark host, if Docker group membership is not active in the shell, use:
+
+```bash
+sg docker -c 'docker compose up -d context-guard'
+sg docker -c 'docker compose logs -f context-guard'
 ```

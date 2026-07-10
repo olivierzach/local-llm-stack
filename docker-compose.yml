@@ -307,6 +307,30 @@ services:
     networks:
       - llm
 
+  context-guard:
+    image: ${LITELLM_IMAGE:-ghcr.io/berriai/litellm:main-latest}
+    restart: unless-stopped
+    depends_on:
+      - litellm
+    ports:
+      - "${BIND_HOST:-0.0.0.0}:${CONTEXT_GUARD_PORT:-4010}:4010"
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-change-me-local-router}
+      CONTEXT_GUARD_PORT: "4010"
+      CONTEXT_GUARD_UPSTREAM_BASE_URL: http://litellm:4000/v1
+      CONTEXT_GUARD_DEFAULT_OUTPUT_TOKENS: ${CONTEXT_GUARD_DEFAULT_OUTPUT_TOKENS:-512}
+      CONTEXT_GUARD_MIN_OUTPUT_TOKENS: ${CONTEXT_GUARD_MIN_OUTPUT_TOKENS:-64}
+      CONTEXT_GUARD_HEADROOM_TOKENS: ${CONTEXT_GUARD_HEADROOM_TOKENS:-128}
+      CONTEXT_GUARD_KEEP_LAST_MESSAGES: ${CONTEXT_GUARD_KEEP_LAST_MESSAGES:-8}
+      CONTEXT_GUARD_SUMMARY_TOKENS: ${CONTEXT_GUARD_SUMMARY_TOKENS:-512}
+      CONTEXT_GUARD_MODEL_CONTEXTS: ${CONTEXT_GUARD_MODEL_CONTEXTS:-local-fast:32768,local-balanced:32768,local-coder:32768,local-balanced-smoke-lora:32768,local-gpt-oss-120b:4096}
+    volumes:
+      - ./scripts/context-guard-proxy.py:/app/context-guard-proxy.py:ro
+    entrypoint: ["python"]
+    command: ["/app/context-guard-proxy.py", "--host", "0.0.0.0", "--port", "4010", "--upstream-base-url", "http://litellm:4000/v1"]
+    networks:
+      - llm
+
   open-webui:
     image: ${OPEN_WEBUI_IMAGE:-ghcr.io/open-webui/open-webui:main}
     restart: unless-stopped
