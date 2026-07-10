@@ -26,6 +26,7 @@ DEFAULT_DIRECT_BASE_URLS = {
     "local-mistral-small": "http://localhost:8006/v1",
     "local-balanced-smoke-lora": "http://localhost:8007/v1",
     "local-vision": "http://localhost:8008/v1",
+    "local-gpt-oss-120b": "http://localhost:8009/v1",
 }
 
 

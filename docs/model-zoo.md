@@ -25,6 +25,7 @@ Cache many models if disk allows it. Run only the models that fit in memory at t
 | `local-deepseek-r1-qwen32b` | `vllm-deepseek32b` | `deepseek-ai/DeepSeek-R1-Distill-Qwen-32B` | `8005` | `deepseek32b` |
 | `local-mistral-small` | `vllm-mistral24b` | `mistralai/Mistral-Small-3.2-24B-Instruct-2506` | `8006` | `mistral24b` |
 | `local-vision` | `vllm-vision` | `Qwen/Qwen3-VL-4B-Instruct` | `8008` | `vision` |
+| `local-gpt-oss-120b` | `vllm-gptoss120b` | `openai/gpt-oss-120b` | `8009` | `gptoss120b` |
 
 ## Download Models
 
@@ -35,6 +36,7 @@ make download-qwen32
 make download-qwen30
 make download-deepseek32
 make download-mistral24
+make download-gptoss120
 make download-vision
 ```
 
@@ -55,7 +57,7 @@ DOCKER_COMPOSE="sudo docker compose" make download-qwen32
 Stop other vLLM services first when testing large models:
 
 ```bash
-sudo docker compose stop vllm-fast vllm-balanced vllm-large vllm-qwen30a3b vllm-deepseek32b vllm-mistral24b
+sudo docker compose stop vllm-fast vllm-balanced vllm-large vllm-qwen30a3b vllm-deepseek32b vllm-mistral24b vllm-gptoss120b
 ```
 
 Then start one candidate:
@@ -65,6 +67,7 @@ make large-up
 make qwen30-up
 make deepseek32-up
 make mistral24-up
+make gptoss120-up
 ```
 
 or with sudo:
@@ -94,3 +97,9 @@ MODEL=local-qwen30-a3b make smoke
 ```
 
 Change the model alias and port for the candidate you started.
+
+`local-gpt-oss-120b` is configured with a conservative `GPTOSS120B_MAX_MODEL_LEN=8192`
+and `GPTOSS120B_MAX_NUM_SEQS=1` default because the MXFP4 weights target an
+80 GB-class single GPU and KV cache still consumes additional memory during
+inference. Increase context only after the model loads and a short inference
+passes with memory headroom.

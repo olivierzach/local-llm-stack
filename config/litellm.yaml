@@ -69,6 +69,16 @@ model_list:
       input_cost_per_token: 0
       output_cost_per_token: 0
 
+  - model_name: local-gpt-oss-120b
+    litellm_params:
+      model: openai/local-gpt-oss-120b
+      api_base: http://vllm-gptoss120b:8000/v1
+      api_key: none
+    model_info:
+      mode: chat
+      input_cost_per_token: 0
+      output_cost_per_token: 0
+
   - model_name: local-balanced-smoke-lora
     litellm_params:
       model: openai/local-balanced-smoke-lora

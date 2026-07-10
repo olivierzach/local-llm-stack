@@ -11,6 +11,7 @@ x-vllm-common: &vllm-common
     HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
     HF_HOME: /home/vllm/.cache/huggingface
     VLLM_NO_USAGE_STATS: "1"
+    TIKTOKEN_ENCODINGS_BASE: /home/vllm/.cache/huggingface/tiktoken/
   volumes:
     - ./data/huggingface:/home/vllm/.cache/huggingface
     - ./models:/models
@@ -171,6 +172,30 @@ services:
       - --enable-auto-tool-choice
       - --tool-call-parser
       - hermes
+
+  vllm-gptoss120b:
+    <<: *vllm-common
+    profiles: ["gptoss120b"]
+    ports:
+      - "${BIND_HOST:-0.0.0.0}:${VLLM_GPTOSS120B_PORT:-8009}:8000"
+    command:
+      - python3
+      - -m
+      - vllm.entrypoints.openai.api_server
+      - --model
+      - ${GPTOSS120B_MODEL:-openai/gpt-oss-120b}
+      - --served-model-name
+      - local-gpt-oss-120b
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --max-model-len
+      - ${GPTOSS120B_MAX_MODEL_LEN:-8192}
+      - --gpu-memory-utilization
+      - ${GPTOSS120B_GPU_MEMORY_UTILIZATION:-0.92}
+      - --max-num-seqs
+      - ${GPTOSS120B_MAX_NUM_SEQS:-1}
 
   vllm-lora:
     <<: *vllm-common

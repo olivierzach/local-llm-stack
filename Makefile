@@ -2,7 +2,7 @@ SHELL := /usr/bin/env bash
 DOCKER_COMPOSE ?= docker compose
 
 
-.PHONY: init test check gpu-check up down logs ps smoke large-up qwen30-up deepseek32-up mistral24-up download-model download-qwen32 download-qwen30 download-deepseek32 download-mistral24 download-vision training-up lora-train lora-serve lora-eval throughput-eval vision-up vision-eval
+.PHONY: init test check gpu-check up down logs ps smoke large-up qwen30-up deepseek32-up mistral24-up gptoss120-up download-model download-qwen32 download-qwen30 download-deepseek32 download-mistral24 download-gptoss120 download-vision training-up lora-train lora-serve lora-eval throughput-eval vision-up vision-eval
 
 init:
 	cp -n .env.example .env
@@ -33,6 +33,9 @@ deepseek32-up:
 mistral24-up:
 	$(DOCKER_COMPOSE) --profile mistral24b up -d vllm-mistral24b
 
+gptoss120-up:
+	$(DOCKER_COMPOSE) --profile gptoss120b up -d vllm-gptoss120b
+
 download-model:
 	@if [[ -z "$${MODEL:-}" ]]; then echo 'Usage: make download-model MODEL=org/model-id' >&2; exit 2; fi
 	./scripts/download-model.sh "$${MODEL}"
@@ -48,6 +51,9 @@ download-deepseek32:
 
 download-mistral24:
 	set -a; source .env; set +a; ./scripts/download-model.sh "$${MISTRAL24B_MODEL:-mistralai/Mistral-Small-3.2-24B-Instruct-2506}"
+
+download-gptoss120:
+	set -a; source .env; set +a; ./scripts/download-model.sh "$${GPTOSS120B_MODEL:-openai/gpt-oss-120b}"
 
 download-vision:
 	set -a; source .env; set +a; ./scripts/download-model.sh "$${VISION_MODEL:-Qwen/Qwen3-VL-4B-Instruct}"
@@ -76,7 +82,7 @@ vision-eval:
 	set -a; source .env; set +a; python scripts/run-evals.py --models local-vision --prompt-file evals/prompts/vision.jsonl
 
 down:
-	$(DOCKER_COMPOSE) --profile large --profile qwen30a3b --profile deepseek32b --profile mistral24b --profile training --profile lora --profile vision down
+	$(DOCKER_COMPOSE) --profile large --profile qwen30a3b --profile deepseek32b --profile mistral24b --profile gptoss120b --profile training --profile lora --profile vision down
 
 logs:
 	$(DOCKER_COMPOSE) logs -f --tail=200

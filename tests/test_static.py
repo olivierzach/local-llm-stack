@@ -100,10 +100,10 @@ def test_optional_model_services_and_aliases_are_configured() -> None:
     litellm = yaml.safe_load((ROOT / "config/litellm.yaml").read_text())
     aliases = {entry["model_name"] for entry in litellm["model_list"]}
 
-    for service in ["vllm-qwen30a3b", "vllm-deepseek32b", "vllm-mistral24b", "model-cache"]:
+    for service in ["vllm-qwen30a3b", "vllm-deepseek32b", "vllm-mistral24b", "vllm-gptoss120b", "model-cache"]:
         assert f"  {service}:" in compose
 
-    for alias in ["local-qwen30-a3b", "local-deepseek-r1-qwen32b", "local-mistral-small"]:
+    for alias in ["local-qwen30-a3b", "local-deepseek-r1-qwen32b", "local-mistral-small", "local-gpt-oss-120b"]:
         assert alias in aliases
 
 
