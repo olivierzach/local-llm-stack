@@ -411,9 +411,7 @@ class ContextGuardHandler(BaseHTTPRequestHandler):
 
         if max_tokens < self.config.min_output_tokens:
             max_tokens = min(self.config.default_output_tokens, max(self.config.min_output_tokens, budget))
-        if max_tokens > budget and budget >= self.config.min_output_tokens:
-            max_tokens = budget
-        sanitized["max_tokens"] = max(1, max_tokens)
+        sanitized["max_tokens"] = max(1, min(max_tokens, budget))
         return sanitized
 
     def compact_payload(self, payload: dict[str, Any], headers: dict[str, str]) -> tuple[dict[str, Any], bool]:
@@ -570,10 +568,12 @@ def build_config(args: argparse.Namespace) -> ProxyConfig:
     default_contexts = {
         "local-fast": env_int("FAST_MAX_MODEL_LEN", 32768),
         "local-balanced": env_int("BALANCED_MAX_MODEL_LEN", 32768),
+        "local-coder": env_int("BALANCED_MAX_MODEL_LEN", 32768),
         "local-large": env_int("LARGE_MAX_MODEL_LEN", 16384),
         "local-qwen30-a3b": env_int("QWEN30A3B_MAX_MODEL_LEN", 32768),
         "local-deepseek-r1-qwen32b": env_int("DEEPSEEK32B_MAX_MODEL_LEN", 16384),
         "local-mistral-small": env_int("MISTRAL24B_MAX_MODEL_LEN", 32768),
+        "local-balanced-smoke-lora": env_int("LORA_MAX_MODEL_LEN", 32768),
         "local-vision": env_int("VISION_MAX_MODEL_LEN", 32768),
         "local-gpt-oss-120b": env_int("GPTOSS120B_MAX_MODEL_LEN", 8192),
     }

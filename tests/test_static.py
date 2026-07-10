@@ -107,6 +107,74 @@ def test_optional_model_services_and_aliases_are_configured() -> None:
         assert alias in aliases
 
 
+def load_context_guard_module():
+    import importlib.util
+    import sys
+
+    module_path = ROOT / "scripts/context-guard-proxy.py"
+    spec = importlib.util.spec_from_file_location("context_guard_proxy", module_path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_context_guard_caps_output_to_remaining_budget() -> None:
+    from types import SimpleNamespace
+
+    module = load_context_guard_module()
+    config = module.ProxyConfig(
+        upstream_base_url="http://localhost:4000/v1",
+        timeout_s=1,
+        allow_no_auth=True,
+        default_context_tokens=100,
+        model_contexts={"tiny": 100},
+        fallback_model_contexts={},
+        headroom_tokens=8,
+        default_output_tokens=32,
+        min_output_tokens=16,
+        keep_last_messages=2,
+        summary_tokens=32,
+        compact_source_chars=1000,
+        chars_per_token=1.0,
+        compact_model=None,
+        discover_model_context=False,
+        verbose=False,
+    )
+    handler = object.__new__(module.ContextGuardHandler)
+    handler.server = SimpleNamespace(config=config)
+    payload = {
+        "model": "tiny",
+        "messages": [{"role": "user", "content": "x" * 76}],
+        "max_tokens": -57,
+    }
+
+    sanitized = handler.sanitize_max_tokens(payload)
+    estimate = module.estimate_payload_tokens(sanitized, config.chars_per_token)
+    budget = max(1, config.context_limit_for("tiny") - estimate - config.headroom_tokens)
+
+    assert sanitized["max_tokens"] <= budget
+    assert sanitized["max_tokens"] >= 1
+
+
+def test_context_guard_fallback_contexts_include_routed_aliases() -> None:
+    from types import SimpleNamespace
+
+    module = load_context_guard_module()
+    config = module.build_config(
+        SimpleNamespace(
+            upstream_base_url="http://localhost:4000/v1",
+            timeout=1,
+            allow_no_auth=False,
+            verbose=False,
+        )
+    )
+
+    assert config.fallback_model_contexts["local-coder"] == config.fallback_model_contexts["local-balanced"]
+    assert config.fallback_model_contexts["local-balanced-smoke-lora"] == module.env_int("LORA_MAX_MODEL_LEN", 32768)
+
+
 def test_eval_prompt_files_exist_and_parse() -> None:
     prompt_dir = ROOT / "evals/prompts"
     for name in ["smoke", "json", "router", "throughput", "vision"]:
