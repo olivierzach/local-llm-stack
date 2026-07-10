@@ -22,3 +22,4 @@ Start here:
 15. [LoRA Adapter Lab](lora-adapters.md)
 16. [Throughput Evals Lab](throughput-evals.md)
 17. [Vision Model Lab](vision-models.md)
+18. [Context Guard Proxy](context-guard.md)
