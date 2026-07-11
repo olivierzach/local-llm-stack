@@ -5,7 +5,7 @@ LiteLLM is the router and API gateway.
 It exposes one OpenAI-compatible API:
 
 ```text
-http://192.168.1.31:4000/v1
+http://<spark-lan-ip>:4000/v1
 ```
 
 It maps friendly model names to backend servers.
@@ -26,7 +26,7 @@ Without LiteLLM, every client would need to know every backend URL.
 With LiteLLM, clients only need:
 
 ```text
-base_url: http://192.168.1.31:4000/v1
+base_url: http://<spark-lan-ip>:4000/v1
 model: local-fast
 ```
 

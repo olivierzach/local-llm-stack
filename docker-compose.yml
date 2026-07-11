@@ -22,7 +22,7 @@ services:
   vllm-fast:
     <<: *vllm-common
     ports:
-      - "${BIND_HOST:-0.0.0.0}:${VLLM_FAST_PORT:-8001}:8000"
+      - "${BIND_HOST:-127.0.0.1}:${VLLM_FAST_PORT:-8001}:8000"
     command:
       - python3
       - -m
@@ -50,7 +50,7 @@ services:
   vllm-balanced:
     <<: *vllm-common
     ports:
-      - "${BIND_HOST:-0.0.0.0}:${VLLM_BALANCED_PORT:-8002}:8000"
+      - "${BIND_HOST:-127.0.0.1}:${VLLM_BALANCED_PORT:-8002}:8000"
     command:
       - python3
       - -m
@@ -76,7 +76,7 @@ services:
     <<: *vllm-common
     profiles: ["large"]
     ports:
-      - "${BIND_HOST:-0.0.0.0}:${VLLM_LARGE_PORT:-8003}:8000"
+      - "${BIND_HOST:-127.0.0.1}:${VLLM_LARGE_PORT:-8003}:8000"
     command:
       - python3
       - -m
@@ -102,7 +102,7 @@ services:
     <<: *vllm-common
     profiles: ["qwen30a3b"]
     ports:
-      - "${BIND_HOST:-0.0.0.0}:${VLLM_QWEN30A3B_PORT:-8004}:8000"
+      - "${BIND_HOST:-127.0.0.1}:${VLLM_QWEN30A3B_PORT:-8004}:8000"
     command:
       - python3
       - -m
@@ -127,7 +127,7 @@ services:
     <<: *vllm-common
     profiles: ["deepseek32b"]
     ports:
-      - "${BIND_HOST:-0.0.0.0}:${VLLM_DEEPSEEK32B_PORT:-8005}:8000"
+      - "${BIND_HOST:-127.0.0.1}:${VLLM_DEEPSEEK32B_PORT:-8005}:8000"
     command:
       - python3
       - -m
@@ -152,7 +152,7 @@ services:
     <<: *vllm-common
     profiles: ["mistral24b"]
     ports:
-      - "${BIND_HOST:-0.0.0.0}:${VLLM_MISTRAL24B_PORT:-8006}:8000"
+      - "${BIND_HOST:-127.0.0.1}:${VLLM_MISTRAL24B_PORT:-8006}:8000"
     command:
       - python3
       - -m
@@ -177,7 +177,7 @@ services:
     <<: *vllm-common
     profiles: ["gptoss120b"]
     ports:
-      - "${BIND_HOST:-0.0.0.0}:${VLLM_GPTOSS120B_PORT:-8009}:8000"
+      - "${BIND_HOST:-127.0.0.1}:${VLLM_GPTOSS120B_PORT:-8009}:8000"
     command:
       - python3
       - -m
@@ -201,7 +201,7 @@ services:
     <<: *vllm-common
     profiles: ["lora"]
     ports:
-      - "${BIND_HOST:-0.0.0.0}:${VLLM_LORA_PORT:-8007}:8000"
+      - "${BIND_HOST:-127.0.0.1}:${VLLM_LORA_PORT:-8007}:8000"
     command:
       - python3
       - -m
@@ -229,7 +229,7 @@ services:
     <<: *vllm-common
     profiles: ["vision"]
     ports:
-      - "${BIND_HOST:-0.0.0.0}:${VLLM_VISION_PORT:-8008}:8000"
+      - "${BIND_HOST:-127.0.0.1}:${VLLM_VISION_PORT:-8008}:8000"
     command:
       - python3
       - -m
@@ -292,7 +292,7 @@ services:
       vllm-balanced:
         condition: service_started
     ports:
-      - "${BIND_HOST:-0.0.0.0}:${LITELLM_PORT:-4000}:4000"
+      - "${BIND_HOST:-127.0.0.1}:${LITELLM_PORT:-4000}:4000"
     environment:
       DATABASE_URL: postgresql://litellm:${POSTGRES_PASSWORD:-change-me-postgres}@postgres:5432/litellm
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-change-me-local-router}
@@ -313,7 +313,7 @@ services:
     depends_on:
       - litellm
     ports:
-      - "${BIND_HOST:-0.0.0.0}:${CONTEXT_GUARD_PORT:-4010}:4010"
+      - "${BIND_HOST:-127.0.0.1}:${CONTEXT_GUARD_PORT:-4010}:4010"
     environment:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-change-me-local-router}
       CONTEXT_GUARD_PORT: "4010"
@@ -337,7 +337,7 @@ services:
     depends_on:
       - litellm
     ports:
-      - "${BIND_HOST:-0.0.0.0}:${OPEN_WEBUI_PORT:-3000}:8080"
+      - "${BIND_HOST:-127.0.0.1}:${OPEN_WEBUI_PORT:-3000}:8080"
     environment:
       WEBUI_SECRET_KEY: ${OPEN_WEBUI_SECRET_KEY:-change-me-open-webui-secret}
       OPENAI_API_BASE_URL: http://litellm:4000/v1
@@ -354,7 +354,7 @@ services:
     user: "65534:65534"
     restart: unless-stopped
     ports:
-      - "${BIND_HOST:-0.0.0.0}:${PROMETHEUS_PORT:-9090}:9090"
+      - "${BIND_HOST:-127.0.0.1}:${PROMETHEUS_PORT:-9090}:9090"
     volumes:
       - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./data/prometheus:/prometheus
@@ -368,7 +368,7 @@ services:
     depends_on:
       - prometheus
     ports:
-      - "${BIND_HOST:-0.0.0.0}:${GRAFANA_PORT:-3001}:3000"
+      - "${BIND_HOST:-127.0.0.1}:${GRAFANA_PORT:-3001}:3000"
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-change-me-grafana}
@@ -387,7 +387,7 @@ services:
     shm_size: "16gb"
     gpus: all
     ports:
-      - "${BIND_HOST:-0.0.0.0}:${JUPYTER_PORT:-8888}:8888"
+      - "${BIND_HOST:-127.0.0.1}:${JUPYTER_PORT:-8888}:8888"
     environment:
       HF_TOKEN: ${HF_TOKEN:-}
       HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
@@ -397,7 +397,7 @@ services:
       - ./models:/workspace/models
       - ./training:/workspace/training
       - ./evals:/workspace/evals
-    command: ["jupyter", "lab", "--ip=0.0.0.0", "--port=8888", "--no-browser", "--allow-root", "--NotebookApp.token=local-lab"]
+    command: ["jupyter", "lab", "--ip=0.0.0.0", "--port=8888", "--no-browser", "--allow-root", "--NotebookApp.token=${JUPYTER_TOKEN:-change-me-jupyter-token}"]
     networks:
       - llm
 

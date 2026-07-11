@@ -5,7 +5,7 @@ Debug from the bottom of the stack upward. Prove the host, then vLLM, then LiteL
 ## 1. Host Basics
 
 ```bash
-cd /home/statsparrot/projects/local-llm-stack
+cd /path/to/local-llm-stack
 make check
 make gpu-check
 ```

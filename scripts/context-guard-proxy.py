@@ -549,7 +549,7 @@ class ContextGuardHandler(BaseHTTPRequestHandler):
 
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Run a compact-and-retry proxy in front of LiteLLM.")
-    p.add_argument("--host", default=os.getenv("CONTEXT_GUARD_HOST", "0.0.0.0"))
+    p.add_argument("--host", default=os.getenv("CONTEXT_GUARD_HOST", "127.0.0.1"))
     p.add_argument("--port", type=int, default=env_int("CONTEXT_GUARD_PORT", 4010))
     p.add_argument(
         "--upstream-base-url",

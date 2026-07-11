@@ -19,7 +19,7 @@ In this stack:
 ```text
 Open WebUI container port: 8080
 Spark exposed port:       3000
-Browser URL:              http://192.168.1.31:3000
+Browser URL:              http://<spark-lan-ip>:3000
 ```
 
 Open WebUI is configured with:

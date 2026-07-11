@@ -9,7 +9,7 @@ The expected host is an ARM64 Spark/GB10 machine with an NVIDIA driver that supp
 Check the host:
 
 ```bash
-cd /home/statsparrot/projects/local-llm-stack
+cd /path/to/local-llm-stack
 uname -m
 nvidia-smi
 docker compose version
@@ -18,7 +18,7 @@ docker compose version
 If the current user cannot access Docker directly, either add the user to the `docker` group and start a new shell:
 
 ```bash
-sudo usermod -aG docker statsparrot
+sudo usermod -aG docker "$USER"
 newgrp docker
 ```
 
@@ -32,7 +32,7 @@ DOCKER_BIN="sudo docker"
 ## 2. Initialize The Checkout
 
 ```bash
-cd /home/statsparrot/projects/local-llm-stack
+cd /path/to/local-llm-stack
 make init
 ```
 
@@ -329,7 +329,7 @@ Keep prompt sets, docs, configs, and tiny source fixtures in git. Keep model wei
 Use this checklist when reproducing from scratch:
 
 ```bash
-cd /home/statsparrot/projects/local-llm-stack
+cd /path/to/local-llm-stack
 make init
 python3 -m venv .venv
 . .venv/bin/activate

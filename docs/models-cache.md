@@ -34,7 +34,7 @@ HF_TOKEN=...
 The Hugging Face cache is mounted here:
 
 ```text
-/home/statsparrot/projects/local-llm-stack/data/huggingface
+/path/to/local-llm-stack/data/huggingface
 ```
 
 Inside the vLLM container, that same folder appears as:

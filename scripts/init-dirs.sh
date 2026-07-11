@@ -16,6 +16,50 @@ mkdir -p \
   models/adapters \
   models/merged
 
+random_hex() {
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -hex 32
+    return
+  fi
+  LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 48
+  printf '\n'
+}
+
+replace_env_placeholder() {
+  local key="$1"
+  local placeholder="$2"
+  local value="$3"
+  local tmp
+
+  if [[ ! -f .env ]]; then
+    return 0
+  fi
+
+  if ! grep -q "^${key}=" .env; then
+    printf '%s=%s\n' "$key" "$value" >>.env
+    return 0
+  fi
+
+  if ! grep -q "^${key}=${placeholder}$" .env; then
+    return 0
+  fi
+
+  tmp="$(mktemp)"
+  awk -v key="$key" -v value="$value" '
+    BEGIN { prefix = key "=" }
+    index($0, prefix) == 1 { $0 = prefix value }
+    { print }
+  ' .env >"$tmp"
+  mv "$tmp" .env
+}
+
+replace_env_placeholder LITELLM_MASTER_KEY "sk-change-me-local-router" "sk-local-$(random_hex)"
+replace_env_placeholder LITELLM_SALT_KEY "change-me-32-random-chars-minimum" "$(random_hex)"
+replace_env_placeholder OPEN_WEBUI_SECRET_KEY "change-me-open-webui-secret" "$(random_hex)"
+replace_env_placeholder POSTGRES_PASSWORD "change-me-postgres" "$(random_hex)"
+replace_env_placeholder GRAFANA_ADMIN_PASSWORD "change-me-grafana" "$(random_hex)"
+replace_env_placeholder JUPYTER_TOKEN "change-me-jupyter-token" "$(random_hex)"
+
 # vLLM's non-root user is usually UID 2000, GID 0. Group-writable cache dirs
 # work with both root and non-root vLLM containers. Keep this non-recursive and
 # skip container-owned runtime dirs so rerunning init remains safe after startup.

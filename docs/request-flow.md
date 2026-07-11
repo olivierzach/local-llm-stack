@@ -33,13 +33,13 @@ If `/v1/models` works but chat fails, LiteLLM is up but vLLM is unreachable or n
 ## Path 3: Browser UI
 
 ```text
-Mac Mini browser -> Spark port 3000 -> Open WebUI -> LiteLLM -> vLLM -> model
+Browser -> Spark port 3000 -> Open WebUI -> LiteLLM -> vLLM -> model
 ```
 
 Open:
 
 ```text
-http://192.168.1.31:3000
+http://<spark-lan-ip>:3000
 ```
 
 Debug from the bottom up:

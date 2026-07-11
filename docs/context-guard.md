@@ -10,7 +10,7 @@ Point local tools at it instead of LiteLLM when you want oversized requests to b
 compacted and retried automatically.
 
 ```bash
-cd /home/statsparrot/projects/local-llm-stack
+cd /path/to/local-llm-stack
 make context-guard-up
 ```
 

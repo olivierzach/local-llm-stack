@@ -5,10 +5,10 @@ A service is reached by combining a host address and a port.
 For this stack:
 
 ```text
-Spark LAN IP: 192.168.1.31
-Open WebUI:   http://192.168.1.31:3000
-LiteLLM API:  http://192.168.1.31:4000/v1
-vLLM fast:    http://192.168.1.31:8001/v1
+Spark LAN IP: <spark-lan-ip>
+Open WebUI:   http://<spark-lan-ip>:3000
+LiteLLM API:  http://<spark-lan-ip>:4000/v1
+vLLM fast:    http://<spark-lan-ip>:8001/v1
 ```
 
 ## Host Port vs Container Port
@@ -31,7 +31,7 @@ Spark host port 3000 -> container port 8080
 From another machine, use the left side:
 
 ```text
-http://192.168.1.31:3000
+http://<spark-lan-ip>:3000
 ```
 
 The browser never directly uses the container port. Docker receives traffic on the Spark host port and forwards it into the container.
@@ -41,12 +41,12 @@ The browser never directly uses the container port. Docker receives traffic on t
 This stack uses bindings like:
 
 ```yaml
-"${BIND_HOST:-0.0.0.0}:${OPEN_WEBUI_PORT:-3000}:8080"
+"${BIND_HOST:-127.0.0.1}:${OPEN_WEBUI_PORT:-3000}:8080"
 ```
 
-`0.0.0.0` means listen on all Spark network interfaces. That allows another device on the LAN, like the Mac Mini, to connect.
+`127.0.0.1` means listen only on the host. Set `BIND_HOST=0.0.0.0` to allow another device on the LAN to connect.
 
-If `BIND_HOST=127.0.0.1`, only the Spark itself can connect.
+If `BIND_HOST=0.0.0.0`, Docker listens on all host network interfaces.
 
 ## Tailscale
 

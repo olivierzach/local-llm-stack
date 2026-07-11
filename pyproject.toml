@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "local-llm-stack-tools"
 version = "0.1.0"
 description = "Operational tooling and static checks for the local LLM stack"
+license = "MIT"
 requires-python = ">=3.10"
 dependencies = [
   "requests>=2.32,<3",

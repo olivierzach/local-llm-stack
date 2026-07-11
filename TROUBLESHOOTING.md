@@ -24,7 +24,7 @@ What this means:
 First checks:
 
 ```bash
-cd /home/statsparrot/projects/local-llm-stack
+cd /path/to/local-llm-stack
 DOCKER_COMPOSE="sudo docker compose" make ps
 DOCKER_COMPOSE="sudo docker compose" make logs
 ```
@@ -91,7 +91,7 @@ Fix applied:
 Restart after the fix:
 
 ```bash
-cd /home/statsparrot/projects/local-llm-stack
+cd /path/to/local-llm-stack
 sudo docker compose down
 sudo docker compose pull vllm-fast vllm-balanced
 sudo docker compose up -d
@@ -144,12 +144,12 @@ Cause:
 
 - `./data/prometheus` is bind-mounted to `/prometheus`.
 - The Prometheus container process must be able to write there.
-- If the host directory is owned only by `statsparrot`, the container user cannot create `queries.active`.
+- If the host directory is owned only by your host user, the container user cannot create `queries.active`.
 
 Fix:
 
 ```bash
-cd /home/statsparrot/projects/local-llm-stack
+cd /path/to/local-llm-stack
 sudo chown -R 65534:65534 data/prometheus
 sudo chown -R 472:472 data/grafana
 sudo docker compose up -d prometheus grafana
@@ -180,7 +180,7 @@ Fix applied in `docker-compose.yml` for each vLLM service:
 Restart vLLM after the fix:
 
 ```bash
-cd /home/statsparrot/projects/local-llm-stack
+cd /path/to/local-llm-stack
 sudo docker compose up -d --force-recreate vllm-fast
 make smoke
 ```

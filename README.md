@@ -14,10 +14,10 @@ Deep explainers live in [docs/README.md](docs/README.md). For a full reproducibl
 
 ## First-Time Host Setup
 
-The current user was not in the `docker` group during inspection. Pick one:
+If your user is not in the `docker` group yet, pick one:
 
 ```bash
-sudo usermod -aG docker statsparrot
+sudo usermod -aG docker "$USER"
 newgrp docker
 ```
 
@@ -26,11 +26,11 @@ or run Docker/Compose commands with `sudo`. For the Makefile, use `DOCKER_COMPOS
 Then initialize the project:
 
 ```bash
-cd /home/statsparrot/projects/local-llm-stack
+cd /path/to/local-llm-stack
 make init
 ```
 
-`.env` has already been generated locally with random secrets. Set `HF_TOKEN` if a selected model is gated.
+`make init` creates `.env` from `.env.example` and replaces placeholder secrets with random local values. Set `HF_TOKEN` if a selected model is gated.
 
 ## Validate the Host
 
@@ -128,7 +128,7 @@ Start the training notebook only when needed:
 make training-up
 ```
 
-Open `http://<spark-lan-ip>:8888` with token `local-lab`.
+Open `http://<spark-lan-ip>:8888` with the token from `JUPYTER_TOKEN` in `.env`.
 
 Directory layout:
 
@@ -144,5 +144,5 @@ The included `training/configs/qwen3-lora-smoke.yaml`, `data/datasets/processed/
 ## Notes
 
 - The vLLM image defaults to NVIDIA's container image because this is an ARM64 GB10 host. The default tag is pinned to `nvcr.io/nvidia/vllm:25.09-py3` for the installed 580-series driver. Newer vLLM images can require newer NVIDIA drivers; if vLLM restarts with a driver requirement error, either upgrade the host driver or choose an older compatible `VLLM_IMAGE` in `.env`.
-- This stack binds to LAN by default through `BIND_HOST=0.0.0.0`. Set `BIND_HOST=127.0.0.1` for machine-local-only access.
+- This stack binds to localhost by default through `BIND_HOST=127.0.0.1`. Set `BIND_HOST=0.0.0.0` only when you want LAN access.
 - Do not expose this directly to the public internet without adding TLS, stronger auth policy, rate limiting, backups, and log retention.

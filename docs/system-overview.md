@@ -2,7 +2,7 @@
 
 This project turns the Spark into a private LLM server.
 
-The Mac Mini, or any other approved client, is just a viewer/client. The Spark runs the web UI, router, model servers, model files, and GPU inference.
+A browser or any other approved client is just a viewer/client. The Spark runs the web UI, router, model servers, model files, and GPU inference.
 
 ```text
 Browser or app
