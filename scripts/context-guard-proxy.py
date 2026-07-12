@@ -451,53 +451,83 @@ class ContextGuardHandler(BaseHTTPRequestHandler):
         if not isinstance(messages, list):
             return trimmed
 
+        leading, conversational = split_messages(messages)
+        latest = next(
+            (item for item in reversed(conversational) if item.get("role") == "user"),
+            conversational[-1] if conversational else None,
+        )
+
         while len(messages) > 1:
-            estimate = estimate_payload_tokens(trimmed, self.config.chars_per_token)
-            max_tokens = int(trimmed.get("max_tokens") or self.config.default_output_tokens)
-            if estimate + max_tokens + self.config.headroom_tokens <= limit:
-                break
+            if self.payload_fits(trimmed, limit):
+                return trimmed
             remove_index = next(
-                (i for i, item in enumerate(messages) if item.get("role") not in {"system", "developer"}),
-                1,
+                (
+                    i
+                    for i, item in enumerate(messages)
+                    if item.get("role") not in {"system", "developer"} and item is not latest
+                ),
+                None,
             )
+            if remove_index is None:
+                break
             messages.pop(remove_index)
             trimmed["messages"] = messages
             trimmed = self.sanitize_max_tokens(trimmed)
+
+        if self.payload_fits(trimmed, limit) or latest is None:
+            return trimmed
+
+        for reset_messages in (leading + [latest], [latest]):
+            reset = dict(trimmed)
+            reset["messages"] = reset_messages
+            reset = self.sanitize_max_tokens(reset)
+            if self.payload_fits(reset, limit) or reset_messages == [latest]:
+                return reset
         return trimmed
 
+    def payload_fits(self, payload: dict[str, Any], limit: int) -> bool:
+        estimate = estimate_payload_tokens(payload, self.config.chars_per_token)
+        max_tokens = int(payload.get("max_tokens") or self.config.default_output_tokens)
+        return estimate + max_tokens + self.config.headroom_tokens <= limit
+
     def summarize_messages(self, messages: list[dict[str, Any]], *, model: str, headers: dict[str, str]) -> str:
-        compact_model = normalize_model_name(self.config.compact_model or model)
+        request_model = normalize_model_name(model)
+        summary_models = [normalize_model_name(self.config.compact_model or "local-fast")]
+        if request_model not in summary_models:
+            summary_models.append(request_model)
         transcript = transcript_from_messages(messages, self.config.compact_source_chars)
-        summary_payload = {
-            "model": compact_model,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        "Compact this chat transcript for continuing the same session. "
-                        "Preserve user goals, decisions, constraints, file paths, commands, "
-                        "errors, and unresolved tasks. Do not invent facts."
-                    ),
-                },
-                {"role": "user", "content": transcript},
-            ],
-            "temperature": 0,
-            "max_tokens": self.config.summary_tokens,
-            "stream": False,
-        }
-        try:
-            response = requests.post(
-                self.upstream_base_chat_url(),
-                headers=headers,
-                json=summary_payload,
-                timeout=self.config.timeout_s,
-            )
-            response.raise_for_status()
-            summary = extract_response_text(response.json()).strip()
-            if summary:
-                return summary
-        except Exception:
-            pass
+
+        for compact_model in summary_models:
+            summary_payload = {
+                "model": compact_model,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            "Compact this chat transcript for continuing the same session. "
+                            "Preserve user goals, decisions, constraints, file paths, commands, "
+                            "errors, and unresolved tasks. Do not invent facts."
+                        ),
+                    },
+                    {"role": "user", "content": transcript},
+                ],
+                "temperature": 0,
+                "max_tokens": self.config.summary_tokens,
+                "stream": False,
+            }
+            try:
+                response = requests.post(
+                    self.upstream_base_chat_url(),
+                    headers=headers,
+                    json=summary_payload,
+                    timeout=self.config.timeout_s,
+                )
+                response.raise_for_status()
+                summary = extract_response_text(response.json()).strip()
+                if summary:
+                    return summary
+            except Exception:
+                continue
         return "The earlier conversation was compacted. Recent transcript excerpt:\n\n" + transcript[-4000:]
 
     def post_upstream(self, headers: dict[str, str], payload: dict[str, Any]) -> requests.Response | None:
@@ -591,7 +621,7 @@ def build_config(args: argparse.Namespace) -> ProxyConfig:
         summary_tokens=env_int("CONTEXT_GUARD_SUMMARY_TOKENS", 512),
         compact_source_chars=env_int("CONTEXT_GUARD_COMPACT_SOURCE_CHARS", 12000),
         chars_per_token=float(os.getenv("CONTEXT_GUARD_CHARS_PER_TOKEN", "4.0")),
-        compact_model=os.getenv("CONTEXT_GUARD_COMPACT_MODEL") or None,
+        compact_model=os.getenv("CONTEXT_GUARD_COMPACT_MODEL", "local-fast") or None,
         discover_model_context=env_bool("CONTEXT_GUARD_DISCOVER_MODEL_CONTEXT", True),
         verbose=args.verbose,
     )

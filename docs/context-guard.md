@@ -56,10 +56,14 @@ CONTEXT_GUARD_MIN_OUTPUT_TOKENS=64
 CONTEXT_GUARD_HEADROOM_TOKENS=128
 CONTEXT_GUARD_KEEP_LAST_MESSAGES=8
 CONTEXT_GUARD_SUMMARY_TOKENS=512
+CONTEXT_GUARD_COMPACT_MODEL=local-fast
 ```
 
 By default, the Compose service passes each model's `*_MAX_MODEL_LEN` setting to
-the guard. If a client advertises the wrong context size, pin it explicitly:
+the guard and uses `local-fast` for summarizing older history before falling
+back to the requested model. If compaction still cannot fit, it resets the
+request to the newest user prompt. If a client advertises the wrong context
+size, pin it explicitly:
 
 ```bash
 CONTEXT_GUARD_MODEL_CONTEXTS=local-gpt-oss-120b:16384 make context-guard
