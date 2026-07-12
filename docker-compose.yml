@@ -49,6 +49,7 @@ services:
 
   vllm-balanced:
     <<: *vllm-common
+    profiles: ["balanced"]
     ports:
       - "${BIND_HOST:-127.0.0.1}:${VLLM_BALANCED_PORT:-8002}:8000"
     command:
@@ -287,10 +288,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      vllm-fast:
-        condition: service_started
-      vllm-balanced:
-        condition: service_started
     ports:
       - "${BIND_HOST:-127.0.0.1}:${LITELLM_PORT:-4000}:4000"
     environment:

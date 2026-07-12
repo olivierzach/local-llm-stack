@@ -30,7 +30,7 @@ which environment variables to pass
 which services depend on each other
 ```
 
-Then this starts the stack:
+Then this starts the default stack. Profiled model services such as `vllm-balanced` and larger backends require explicit startup commands.
 
 ```bash
 sudo docker compose up -d

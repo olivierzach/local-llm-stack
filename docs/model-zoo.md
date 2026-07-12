@@ -2,7 +2,7 @@
 
 These optional services let you cache and test larger models without making them part of the default startup path.
 
-The default `make up` still starts only `vllm-fast`, `vllm-balanced`, LiteLLM, Open WebUI, Postgres, Prometheus, and Grafana.
+The default `make up` starts `vllm-fast`, LiteLLM, Context Guard, Open WebUI, Postgres, Prometheus, and Grafana. Start `vllm-balanced` explicitly with `make balanced-up`.
 
 ## Cache vs Serve
 

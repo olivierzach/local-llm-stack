@@ -2,7 +2,7 @@ SHELL := /usr/bin/env bash
 DOCKER_COMPOSE ?= docker compose
 
 
-.PHONY: init test check gpu-check up down logs ps smoke large-up qwen30-up deepseek32-up mistral24-up gptoss120-up download-model download-qwen32 download-qwen30 download-deepseek32 download-mistral24 download-gptoss120 download-vision training-up lora-train lora-serve lora-eval throughput-eval vision-up vision-eval context-guard context-guard-up
+.PHONY: init test check gpu-check up down logs ps smoke large-up balanced-up qwen30-up deepseek32-up mistral24-up gptoss120-up download-model download-qwen32 download-qwen30 download-deepseek32 download-mistral24 download-gptoss120 download-vision training-up lora-train lora-serve lora-eval throughput-eval vision-up vision-eval context-guard context-guard-up
 
 init:
 	cp -n .env.example .env
@@ -20,6 +20,9 @@ gpu-check:
 
 up:
 	$(DOCKER_COMPOSE) up -d
+
+balanced-up:
+	$(DOCKER_COMPOSE) --profile balanced up -d vllm-balanced
 
 large-up:
 	$(DOCKER_COMPOSE) --profile large up -d vllm-large

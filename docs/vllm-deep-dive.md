@@ -2,10 +2,15 @@
 
 vLLM is the model server in this stack. It loads model weights, exposes an OpenAI-compatible API, schedules inference work on the GPU, and streams generated tokens back to LiteLLM or direct clients.
 
-The default stack starts two vLLM services:
+The default stack starts one vLLM service:
 
 ```text
 vllm-fast      -> local-fast      -> port 8001
+```
+
+The balanced service starts only with `make balanced-up` or the `balanced` Compose profile:
+
+```text
 vllm-balanced  -> local-balanced  -> port 8002
 ```
 

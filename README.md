@@ -80,16 +80,17 @@ LiteLLM exposes these aliases:
 - `local-large`
 - `local-vision` (starts with `make vision-up`)
 
-The default stack starts `local-fast` and `local-balanced`. Start the large backend separately:
+The default stack starts `local-fast`. Start `local-balanced` or the large backend separately:
 
 ```bash
+make balanced-up
 make large-up
 ```
 
 If the large model causes memory pressure, stop another vLLM backend first:
 
 ```bash
-docker compose stop vllm-balanced
+docker compose stop vllm-fast vllm-balanced
 make large-up
 ```
 
