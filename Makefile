@@ -2,7 +2,7 @@ SHELL := /usr/bin/env bash
 DOCKER_COMPOSE ?= docker compose
 
 
-.PHONY: init test check gpu-check up down logs ps smoke large-up balanced-up qwen30-up deepseek32-up mistral24-up gptoss120-up download-model download-qwen32 download-qwen30 download-deepseek32 download-mistral24 download-gptoss120 download-vision training-up lora-train lora-serve lora-eval throughput-eval vision-up vision-eval context-guard context-guard-up
+.PHONY: init test check gpu-check up down logs ps smoke large-up balanced-up qwen30-up deepseek32-up mistral24-up gptoss120-up download-model download-qwen32 download-qwen30 download-deepseek32 download-mistral24 download-gptoss120 download-vision training-up lora-train lora-serve lora-eval throughput-eval vision-up vision-eval context-guard context-guard-up aichat-build aichat
 
 init:
 	cp -n .env.example .env
@@ -101,3 +101,9 @@ context-guard:
 
 context-guard-up:
 	$(DOCKER_COMPOSE) up -d context-guard
+
+aichat-build:
+	$(DOCKER_COMPOSE) --profile tui build aichat
+
+aichat:
+	$(DOCKER_COMPOSE) --profile tui run --rm aichat

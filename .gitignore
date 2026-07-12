@@ -5,6 +5,7 @@ data/open-webui/
 data/postgres/
 data/prometheus/
 data/grafana/
+data/aichat/
 
 logs/
 models/adapters/

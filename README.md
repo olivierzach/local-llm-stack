@@ -9,6 +9,7 @@ Deep explainers live in [docs/README.md](docs/README.md). For a full reproducibl
 - vLLM inference backends for `local-fast`, `local-balanced`, and optional `local-large`.
 - LiteLLM router on `:4000` with OpenAI-compatible `/v1` APIs.
 - Open WebUI on `:3000`.
+- Optional AIChat terminal client through Context Guard.
 - Prometheus on `:9090` and Grafana on `:3001`.
 - Optional training notebook on `:8888` with LoRA/QLoRA-oriented Python packages.
 
@@ -93,6 +94,17 @@ If the large model causes memory pressure, stop another vLLM backend first:
 docker compose stop vllm-fast vllm-balanced
 make large-up
 ```
+
+## Terminal UI
+
+Use AIChat for a lightweight terminal chat client routed through Context Guard:
+
+```bash
+make aichat-build
+make aichat
+```
+
+See [Terminal UI](docs/tui.md).
 
 ## AI Engineering Tools
 

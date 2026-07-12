@@ -355,6 +355,28 @@ services:
     networks:
       - llm
 
+  aichat:
+    build:
+      context: ./tools/aichat
+      args:
+        AICHAT_VERSION: ${AICHAT_VERSION:-v0.30.0}
+    profiles: ["tui"]
+    depends_on:
+      - context-guard
+    environment:
+      AICHAT_CONFIG_FILE: /etc/aichat/config.yaml
+      AICHAT_SESSIONS_DIR: /data/sessions
+      AICHAT_MESSAGES_FILE: /data/messages.md
+      SPARK_API_KEY: ${LITELLM_MASTER_KEY:-sk-change-me-local-router}
+    volumes:
+      - ./config/aichat/config.yaml:/etc/aichat/config.yaml:ro
+      - ./data/aichat:/data
+      - .:/workspace:ro
+    stdin_open: true
+    tty: true
+    networks:
+      - llm
+
   prometheus:
     image: prom/prometheus:v2.55.1
     user: "65534:65534"

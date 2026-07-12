@@ -1,0 +1,16 @@
+model: spark:local-gpt-oss-120b
+temperature: 0
+stream: true
+save: true
+save_session: true
+compress_threshold: 28000
+function_calling: false
+use_tools: null
+
+clients:
+  - type: openai-compatible
+    name: spark
+    api_base: http://context-guard:4010/v1
+    models:
+      - name: local-gpt-oss-120b
+        max_input_tokens: 32768

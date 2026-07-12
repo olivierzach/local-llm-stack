@@ -10,6 +10,7 @@ In this project, `docker-compose.yml` defines:
 vllm-fast
 vllm-balanced
 vllm-large
+aichat
 litellm
 open-webui
 postgres
