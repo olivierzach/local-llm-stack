@@ -1,0 +1,32 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "spark/local-gpt-oss-120b",
+  "small_model": "spark/local-fast",
+  "provider": {
+    "spark": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Spark Context Guard",
+      "options": {
+        "baseURL": "http://context-guard:4010/v1",
+        "apiKey": "{env:LITELLM_MASTER_KEY}"
+      },
+      "models": {
+        "local-gpt-oss-120b": {
+          "name": "GPT-OSS 120B via Context Guard",
+          "limit": {
+            "context": 131072,
+            "output": 4096
+          }
+        },
+        "local-fast": {
+          "name": "Local Fast via Context Guard",
+          "limit": {
+            "context": 8192,
+            "output": 512
+          }
+        }
+      }
+    }
+  },
+  "share": "disabled"
+}

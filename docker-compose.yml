@@ -379,6 +379,24 @@ services:
     networks:
       - llm
 
+  opencode:
+    image: ${OPENCODE_IMAGE:-ghcr.io/anomalyco/opencode:latest}
+    profiles: ["tui"]
+    depends_on:
+      - context-guard
+    working_dir: /workspace
+    environment:
+      OPENCODE_CONFIG: /etc/opencode/opencode.json
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-change-me-local-router}
+    volumes:
+      - ./config/opencode/opencode.json:/etc/opencode/opencode.json:ro
+      - ./data/opencode:/root/.local/share/opencode
+      - .:/workspace
+    stdin_open: true
+    tty: true
+    networks:
+      - llm
+
   prometheus:
     image: prom/prometheus:v2.55.1
     user: "65534:65534"

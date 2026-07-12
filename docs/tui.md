@@ -37,3 +37,33 @@ make gptoss120-up
 ```
 
 AIChat session state is stored under `data/aichat/`.
+
+## opencode
+
+opencode is available as a coding-agent TUI through the same Compose profile. It
+uses Context Guard as an OpenAI-compatible provider:
+
+```text
+http://context-guard:4010/v1
+```
+
+Start it in the current repository:
+
+```bash
+make opencode
+```
+
+The default model is:
+
+```text
+spark/local-gpt-oss-120b
+```
+
+The small model is:
+
+```text
+spark/local-fast
+```
+
+opencode session state is stored under `data/opencode/`. The repository is
+mounted read-write at `/workspace` because opencode is a coding agent.

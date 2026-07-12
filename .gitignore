@@ -6,6 +6,7 @@ data/postgres/
 data/prometheus/
 data/grafana/
 data/aichat/
+data/opencode/
 
 logs/
 models/adapters/
