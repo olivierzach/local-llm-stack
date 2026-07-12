@@ -51,23 +51,24 @@ The proxy auto-loads `.env` and also accepts environment overrides.
 ```bash
 CONTEXT_GUARD_PORT=4010
 CONTEXT_GUARD_UPSTREAM_BASE_URL=http://localhost:4000/v1
-CONTEXT_GUARD_DEFAULT_OUTPUT_TOKENS=512
+CONTEXT_GUARD_DEFAULT_OUTPUT_TOKENS=4096
 CONTEXT_GUARD_MIN_OUTPUT_TOKENS=64
 CONTEXT_GUARD_HEADROOM_TOKENS=128
 CONTEXT_GUARD_KEEP_LAST_MESSAGES=8
 CONTEXT_GUARD_SUMMARY_TOKENS=512
 ```
 
-If a client advertises the wrong context size, pin it explicitly:
+By default, the Compose service passes each model's `*_MAX_MODEL_LEN` setting to
+the guard. If a client advertises the wrong context size, pin it explicitly:
 
 ```bash
-CONTEXT_GUARD_MODEL_CONTEXTS=local-gpt-oss-120b:4096 make context-guard
+CONTEXT_GUARD_MODEL_CONTEXTS=local-gpt-oss-120b:16384 make context-guard
 ```
 
-For the larger GPT-OSS launch:
+For a larger GPT-OSS launch, match the live vLLM context limit:
 
 ```bash
-CONTEXT_GUARD_MODEL_CONTEXTS=local-gpt-oss-120b:8192 make context-guard
+CONTEXT_GUARD_MODEL_CONTEXTS=local-gpt-oss-120b:32768 make context-guard
 ```
 
 By default, the proxy requires an incoming `Authorization: Bearer ...` header and

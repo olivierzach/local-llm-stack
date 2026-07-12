@@ -165,15 +165,15 @@ Check the Open WebUI container:
 sudo docker compose logs --tail=200 open-webui
 ```
 
-The API settings should point at LiteLLM inside the Compose network:
+The API settings should point at Context Guard inside the Compose network:
 
 ```text
-OPENAI_API_BASE_URL=http://litellm:4000/v1
+OPENAI_API_BASE_URL=http://context-guard:4010/v1
 OPENAI_API_KEY=${LITELLM_MASTER_KEY}
 ENABLE_OLLAMA_API=false
 ```
 
-If the UI loads but chat fails, retest `make smoke` before changing browser settings.
+If the UI loads but chat fails, retest Context Guard and `make smoke` before changing browser settings.
 
 ## 7. Monitoring
 

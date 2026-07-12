@@ -585,7 +585,7 @@ def build_config(args: argparse.Namespace) -> ProxyConfig:
         model_contexts=parse_model_contexts(os.getenv("CONTEXT_GUARD_MODEL_CONTEXTS")),
         fallback_model_contexts=default_contexts,
         headroom_tokens=env_int("CONTEXT_GUARD_HEADROOM_TOKENS", 128),
-        default_output_tokens=env_int("CONTEXT_GUARD_DEFAULT_OUTPUT_TOKENS", 512),
+        default_output_tokens=env_int("CONTEXT_GUARD_DEFAULT_OUTPUT_TOKENS", 4096),
         min_output_tokens=env_int("CONTEXT_GUARD_MIN_OUTPUT_TOKENS", 64),
         keep_last_messages=env_int("CONTEXT_GUARD_KEEP_LAST_MESSAGES", 8),
         summary_tokens=env_int("CONTEXT_GUARD_SUMMARY_TOKENS", 512),
