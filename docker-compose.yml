@@ -335,12 +335,12 @@ services:
     image: ${OPEN_WEBUI_IMAGE:-ghcr.io/open-webui/open-webui:main}
     restart: unless-stopped
     depends_on:
-      - litellm
+      - context-guard
     ports:
       - "${BIND_HOST:-127.0.0.1}:${OPEN_WEBUI_PORT:-3000}:8080"
     environment:
       WEBUI_SECRET_KEY: ${OPEN_WEBUI_SECRET_KEY:-change-me-open-webui-secret}
-      OPENAI_API_BASE_URL: http://litellm:4000/v1
+      OPENAI_API_BASE_URL: http://context-guard:4010/v1
       OPENAI_API_KEY: ${LITELLM_MASTER_KEY:-sk-change-me-local-router}
       ENABLE_OLLAMA_API: "false"
       ENABLE_SIGNUP: "false"
