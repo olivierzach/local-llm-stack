@@ -66,4 +66,7 @@ spark/local-fast
 ```
 
 opencode session state is stored under `data/opencode/`. The repository is
-mounted read-write at `/workspace` because opencode is a coding agent.
+mounted read-write at `/workspace` because opencode is a coding agent. Runtime
+artifacts such as `data/`, local virtualenvs, logs, and the real `.env` are
+masked inside the container so searches stay focused on source files and local
+secrets are not exposed to the agent.

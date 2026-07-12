@@ -392,6 +392,13 @@ services:
       - ./config/opencode/opencode.json:/etc/opencode/opencode.json:ro
       - ./data/opencode:/root/.local/share/opencode
       - .:/workspace
+      - ./.env.example:/workspace/.env:ro
+    tmpfs:
+      - /workspace/data
+      - /workspace/logs
+      - /workspace/.venv
+      - /workspace/.venv-tools
+      - /workspace/.pytest_cache
     stdin_open: true
     tty: true
     networks:
