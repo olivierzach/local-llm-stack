@@ -619,7 +619,7 @@ def build_config(args: argparse.Namespace) -> ProxyConfig:
         min_output_tokens=env_int("CONTEXT_GUARD_MIN_OUTPUT_TOKENS", 64),
         keep_last_messages=env_int("CONTEXT_GUARD_KEEP_LAST_MESSAGES", 8),
         summary_tokens=env_int("CONTEXT_GUARD_SUMMARY_TOKENS", 512),
-        compact_source_chars=env_int("CONTEXT_GUARD_COMPACT_SOURCE_CHARS", 12000),
+        compact_source_chars=env_int("CONTEXT_GUARD_COMPACT_SOURCE_CHARS", 6000),
         chars_per_token=float(os.getenv("CONTEXT_GUARD_CHARS_PER_TOKEN", "4.0")),
         compact_model=os.getenv("CONTEXT_GUARD_COMPACT_MODEL", "local-fast") or None,
         discover_model_context=env_bool("CONTEXT_GUARD_DISCOVER_MODEL_CONTEXT", True),

@@ -57,11 +57,13 @@ CONTEXT_GUARD_HEADROOM_TOKENS=128
 CONTEXT_GUARD_KEEP_LAST_MESSAGES=8
 CONTEXT_GUARD_SUMMARY_TOKENS=512
 CONTEXT_GUARD_COMPACT_MODEL=local-fast
+CONTEXT_GUARD_COMPACT_SOURCE_CHARS=6000
 ```
 
 By default, the Compose service passes each model's `*_MAX_MODEL_LEN` setting to
 the guard and uses `local-fast` for summarizing older history before falling
-back to the requested model. If compaction still cannot fit, it resets the
+back to the requested model. The compact source is intentionally small enough
+for a low-memory `local-fast` helper. If compaction still cannot fit, it resets the
 request to the newest user prompt. If a client advertises the wrong context
 size, pin it explicitly:
 
