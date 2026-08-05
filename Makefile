@@ -2,7 +2,7 @@ SHELL := /usr/bin/env bash
 DOCKER_COMPOSE ?= docker compose
 
 
-.PHONY: init test check gpu-check up down logs ps smoke large-up balanced-up qwen30-up deepseek32-up mistral24-up gptoss120-up download-model download-qwen32 download-qwen30 download-deepseek32 download-mistral24 download-gptoss120 download-vision training-up lora-train lora-serve lora-eval throughput-eval vision-up vision-eval context-guard context-guard-up aichat-build aichat opencode
+.PHONY: init test check gpu-check up down logs ps smoke large-up balanced-up qwen30-up deepseek32-up mistral24-up gptoss120-up lagunas21-up deepseekv4-install deepseekv4-up deepseekv4-down deepseekv4-status deepseekv4-smoke download-model download-qwen32 download-qwen30 download-deepseek32 download-mistral24 download-gptoss120 download-lagunas21 download-vision training-up lora-train lora-serve lora-eval throughput-eval vision-up vision-eval context-guard context-guard-up aichat-build aichat opencode
 
 init:
 	cp -n .env.example .env
@@ -39,6 +39,26 @@ mistral24-up:
 gptoss120-up:
 	$(DOCKER_COMPOSE) --profile gptoss120b up -d vllm-gptoss120b
 
+lagunas21-up:
+	$(DOCKER_COMPOSE) --profile lagunas21 up -d vllm-lagunas21
+
+deepseekv4-install:
+	set -a; source .env; set +a; ./scripts/deepseek-v4.sh install
+
+deepseekv4-up:
+	$(DOCKER_COMPOSE) stop vllm-fast vllm-balanced vllm-large vllm-qwen30a3b vllm-deepseek32b vllm-mistral24b vllm-gptoss120b vllm-lagunas21 vllm-lora vllm-vision
+	set -a; source .env; set +a; ./scripts/deepseek-v4.sh start
+	$(DOCKER_COMPOSE) up -d --no-deps --force-recreate litellm context-guard
+
+deepseekv4-down:
+	set -a; source .env; set +a; ./scripts/deepseek-v4.sh stop
+
+deepseekv4-status:
+	set -a; source .env; set +a; ./scripts/deepseek-v4.sh status
+
+deepseekv4-smoke:
+	set -a; source .env; set +a; MODEL=local-deepseek-v4-flash ./scripts/smoke-test.sh
+
 download-model:
 	@if [[ -z "$${MODEL:-}" ]]; then echo 'Usage: make download-model MODEL=org/model-id' >&2; exit 2; fi
 	./scripts/download-model.sh "$${MODEL}"
@@ -57,6 +77,9 @@ download-mistral24:
 
 download-gptoss120:
 	set -a; source .env; set +a; ./scripts/download-model.sh "$${GPTOSS120B_MODEL:-openai/gpt-oss-120b}"
+
+download-lagunas21:
+	set -a; source .env; set +a; ./scripts/download-model.sh "$${LAGUNAS21_MODEL:-poolside/Laguna-S-2.1-NVFP4}"
 
 download-vision:
 	set -a; source .env; set +a; ./scripts/download-model.sh "$${VISION_MODEL:-Qwen/Qwen3-VL-4B-Instruct}"
@@ -85,7 +108,8 @@ vision-eval:
 	set -a; source .env; set +a; python scripts/run-evals.py --models local-vision --prompt-file evals/prompts/vision.jsonl
 
 down:
-	$(DOCKER_COMPOSE) --profile large --profile qwen30a3b --profile deepseek32b --profile mistral24b --profile gptoss120b --profile training --profile lora --profile vision down
+	-set -a; source .env; set +a; ./scripts/deepseek-v4.sh stop
+	$(DOCKER_COMPOSE) --profile large --profile qwen30a3b --profile deepseek32b --profile mistral24b --profile gptoss120b --profile lagunas21 --profile training --profile lora --profile vision down
 
 logs:
 	$(DOCKER_COMPOSE) logs -f --tail=200
@@ -106,7 +130,7 @@ aichat-build:
 	$(DOCKER_COMPOSE) --profile tui build aichat
 
 aichat:
-	$(DOCKER_COMPOSE) --profile tui run --rm aichat
+	$(DOCKER_COMPOSE) --profile tui run --rm aichat $(if $(MODEL),--model spark:$(MODEL),)
 
 opencode:
-	$(DOCKER_COMPOSE) --profile tui run --rm opencode
+	$(DOCKER_COMPOSE) --profile tui run --rm opencode $(if $(MODEL),--model spark/$(MODEL),)

@@ -7,10 +7,12 @@ data/prometheus/
 data/grafana/
 data/aichat/
 data/opencode/
+data/deepseek-v4/
 
 logs/
 models/adapters/
 models/merged/
+models/deepseek-v4/
 evals/results/
 evals/runs/
 
