@@ -79,6 +79,26 @@ model_list:
       input_cost_per_token: 0
       output_cost_per_token: 0
 
+  - model_name: local-laguna-s-2.1
+    litellm_params:
+      model: openai/local-laguna-s-2.1
+      api_base: http://vllm-lagunas21:8000/v1
+      api_key: none
+    model_info:
+      mode: chat
+      input_cost_per_token: 0
+      output_cost_per_token: 0
+
+  - model_name: local-deepseek-v4-flash
+    litellm_params:
+      model: openai/deepseek-v4-flash
+      api_base: http://host.docker.internal:8011/v1
+      api_key: none
+    model_info:
+      mode: chat
+      input_cost_per_token: 0
+      output_cost_per_token: 0
+
   - model_name: local-balanced-smoke-lora
     litellm_params:
       model: openai/local-balanced-smoke-lora

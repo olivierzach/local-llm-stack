@@ -28,6 +28,8 @@ DEFAULT_DIRECT_BASE_URLS = {
     "local-balanced-smoke-lora": "http://localhost:8007/v1",
     "local-vision": "http://localhost:8008/v1",
     "local-gpt-oss-120b": "http://localhost:8009/v1",
+    "local-laguna-s-2.1": "http://localhost:8010/v1",
+    "local-deepseek-v4-flash": "http://localhost:8011/v1",
 }
 HOP_BY_HOP_HEADERS = {
     "connection",
@@ -386,6 +388,7 @@ class ContextGuardHandler(BaseHTTPRequestHandler):
         prepared = dict(payload)
         if isinstance(prepared.get("model"), str):
             prepared["model"] = normalize_model_name(prepared["model"])
+        prepared = self.apply_model_defaults(prepared)
         prepared = self.sanitize_max_tokens(prepared)
 
         model = str(prepared.get("model") or "")
@@ -395,6 +398,13 @@ class ContextGuardHandler(BaseHTTPRequestHandler):
         if estimate + max_tokens + self.config.headroom_tokens <= limit:
             return prepared, False
         return self.compact_payload(prepared, headers)
+
+    def apply_model_defaults(self, payload: dict[str, Any]) -> dict[str, Any]:
+        prepared = dict(payload)
+        model = str(prepared.get("model") or "")
+        if model == "local-laguna-s-2.1" and "chat_template_kwargs" not in prepared:
+            prepared["chat_template_kwargs"] = {"enable_thinking": False}
+        return prepared
 
     def sanitize_max_tokens(self, payload: dict[str, Any]) -> dict[str, Any]:
         sanitized = dict(payload)
@@ -606,6 +616,8 @@ def build_config(args: argparse.Namespace) -> ProxyConfig:
         "local-balanced-smoke-lora": env_int("LORA_MAX_MODEL_LEN", 32768),
         "local-vision": env_int("VISION_MAX_MODEL_LEN", 32768),
         "local-gpt-oss-120b": env_int("GPTOSS120B_MAX_MODEL_LEN", 8192),
+        "local-laguna-s-2.1": env_int("LAGUNAS21_MAX_MODEL_LEN", 262144),
+        "local-deepseek-v4-flash": env_int("DEEPSEEKV4_MAX_MODEL_LEN", 32768),
     }
     return ProxyConfig(
         upstream_base_url=args.upstream_base_url,

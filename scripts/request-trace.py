@@ -27,6 +27,7 @@ DEFAULT_DIRECT_BASE_URLS = {
     "local-balanced-smoke-lora": "http://localhost:8007/v1",
     "local-vision": "http://localhost:8008/v1",
     "local-gpt-oss-120b": "http://localhost:8009/v1",
+    "local-laguna-s-2.1": "http://localhost:8010/v1",
 }
 
 

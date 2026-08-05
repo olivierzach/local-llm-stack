@@ -103,7 +103,7 @@ def test_optional_model_services_and_aliases_are_configured() -> None:
     for service in ["vllm-qwen30a3b", "vllm-deepseek32b", "vllm-mistral24b", "vllm-gptoss120b", "model-cache"]:
         assert f"  {service}:" in compose
 
-    for alias in ["local-qwen30-a3b", "local-deepseek-r1-qwen32b", "local-mistral-small", "local-gpt-oss-120b"]:
+    for alias in ["local-qwen30-a3b", "local-deepseek-r1-qwen32b", "local-mistral-small", "local-gpt-oss-120b", "local-deepseek-v4-flash"]:
         assert alias in aliases
 
 
@@ -173,6 +173,7 @@ def test_context_guard_fallback_contexts_include_routed_aliases() -> None:
 
     assert config.fallback_model_contexts["local-coder"] == config.fallback_model_contexts["local-balanced"]
     assert config.fallback_model_contexts["local-balanced-smoke-lora"] == module.env_int("LORA_MAX_MODEL_LEN", 32768)
+    assert config.fallback_model_contexts["local-deepseek-v4-flash"] == module.env_int("DEEPSEEKV4_MAX_MODEL_LEN", 32768)
 
 
 def test_eval_prompt_files_exist_and_parse() -> None:
