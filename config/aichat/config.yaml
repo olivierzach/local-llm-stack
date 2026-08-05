@@ -1,4 +1,4 @@
-model: spark:local-gpt-oss-120b
+model: spark:local-deepseek-v4-flash
 temperature: 0
 stream: true
 save: true
@@ -13,4 +13,8 @@ clients:
     api_base: http://context-guard:4010/v1
     models:
       - name: local-gpt-oss-120b
+        max_input_tokens: 32768
+      - name: local-laguna-s-2.1
+        max_input_tokens: 262144
+      - name: local-deepseek-v4-flash
         max_input_tokens: 32768

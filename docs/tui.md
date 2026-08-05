@@ -14,6 +14,7 @@ Start an interactive chat:
 
 ```bash
 make aichat
+make aichat MODEL=local-deepseek-v4-flash
 ```
 
 The service points at Context Guard inside the Compose network:
@@ -26,7 +27,7 @@ It uses the same `LITELLM_MASTER_KEY` from `.env`, passed to AIChat as
 `SPARK_API_KEY`. The configured model is:
 
 ```text
-local-gpt-oss-120b
+local-deepseek-v4-flash
 ```
 
 This is a client-only integration. Keep vLLM backends under explicit control;
@@ -51,12 +52,13 @@ Start it in the current repository:
 
 ```bash
 make opencode
+make opencode MODEL=local-deepseek-v4-flash
 ```
 
 The default model is:
 
 ```text
-spark/local-gpt-oss-120b
+spark/local-deepseek-v4-flash
 ```
 
 The small model is:
