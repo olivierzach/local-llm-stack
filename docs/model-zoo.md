@@ -26,6 +26,8 @@ Cache many models if disk allows it. Run only the models that fit in memory at t
 | `local-mistral-small` | `vllm-mistral24b` | `mistralai/Mistral-Small-3.2-24B-Instruct-2506` | `8006` | `mistral24b` |
 | `local-vision` | `vllm-vision` | `Qwen/Qwen3-VL-4B-Instruct` | `8008` | `vision` |
 | `local-gpt-oss-120b` | `vllm-gptoss120b` | `openai/gpt-oss-120b` | `8009` | `gptoss120b` |
+| `local-laguna-s-2.1` | `vllm-lagunas21` | `poolside/Laguna-S-2.1-NVFP4` | `8010` | `lagunas21` |
+| `local-deepseek-v4-flash` | host `ds4-server` | DeepSeek-V4-Flash-0731 IQ2 | `8011` | host-native |
 
 ## Download Models
 
@@ -37,6 +39,7 @@ make download-qwen30
 make download-deepseek32
 make download-mistral24
 make download-gptoss120
+make download-lagunas21
 make download-vision
 ```
 
@@ -52,12 +55,39 @@ If Docker requires sudo:
 DOCKER_COMPOSE="sudo docker compose" make download-qwen32
 ```
 
+## DeepSeek V4 Flash On One Spark
+
+The full 284B V4-Flash checkpoint does not fit in one Spark's usable memory at
+FP4/FP8 precision. This route uses the Spark-tuned `Entrpi/ds4` engine and an
+IQ2 mixed quantization instead. The base and speculative drafter downloads use
+about 94 GB (roughly 88 GiB) of disk. V4-Pro does not fit on one Spark.
+
+Install the pinned engine and weights:
+
+```bash
+make deepseekv4-install
+```
+
+Stop all vLLM model services, start the host-native engine, and refresh the
+LiteLLM and Context Guard containers:
+
+```bash
+make deepseekv4-up
+make deepseekv4-smoke
+```
+
+The routed alias is `local-deepseek-v4-flash`. The engine defaults to a 32768
+token shared context budget and binds only to Docker's host bridge. Use
+`DEEPSEEKV4_BIND_HOST=0.0.0.0` only when direct, unauthenticated LAN access is
+intentional. Stop it with `make deepseekv4-down`; logs are in
+`logs/deepseek-v4/ds4-server.log`.
+
 ## Start One Large Candidate
 
 Stop other vLLM services first when testing large models:
 
 ```bash
-sudo docker compose stop vllm-fast vllm-balanced vllm-large vllm-qwen30a3b vllm-deepseek32b vllm-mistral24b vllm-gptoss120b
+sudo docker compose stop vllm-fast vllm-balanced vllm-large vllm-qwen30a3b vllm-deepseek32b vllm-mistral24b vllm-gptoss120b vllm-lagunas21
 ```
 
 Then start one candidate:
@@ -68,12 +98,14 @@ make qwen30-up
 make deepseek32-up
 make mistral24-up
 make gptoss120-up
+make lagunas21-up
 ```
 
 or with sudo:
 
 ```bash
 DOCKER_COMPOSE="sudo docker compose" make qwen30-up
+DOCKER_COMPOSE="sudo docker compose" make lagunas21-up
 ```
 
 Watch memory while it loads:
@@ -103,3 +135,5 @@ and `GPTOSS120B_MAX_NUM_SEQS=1` default because the MXFP4 weights target an
 80 GB-class single GPU and KV cache still consumes additional memory during
 inference. Increase context only after the model loads and a short inference
 passes with memory headroom.
+
+`local-laguna-s-2.1` targets Poolside Laguna S 2.1 NVFP4, the single-DGX-Spark-oriented checkpoint. Poolside lists the base model as a 118B total / 8B-active MoE for agentic coding with a 1M-token native context, while the NVFP4 checkpoint is configured for 262144 tokens and about 71 GB of weights. Keep other large vLLM services stopped before starting it. Native vLLM serving requires a Laguna-capable vLLM release; Poolside currently documents vLLM 0.25.0 or later plus `poolside_v1` tool and reasoning parsers.
