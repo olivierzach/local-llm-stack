@@ -76,11 +76,28 @@ make deepseekv4-up
 make deepseekv4-smoke
 ```
 
-The routed alias is `local-deepseek-v4-flash`. The engine defaults to a 32768
-token shared context budget and binds only to Docker's host bridge. Use
+The routed alias is `local-deepseek-v4-flash`. The pinned engine and model were
+load-tested on one DGX Spark at 32768, 49152, and 65536 tokens. The engine
+defaults to a 65536-token shared context budget and binds only to Docker's host
+bridge. Use
 `DEEPSEEKV4_BIND_HOST=0.0.0.0` only when direct, unauthenticated LAN access is
 intentional. Stop it with `make deepseekv4-down`; logs are in
 `logs/deepseek-v4/ds4-server.log`.
+
+To return to the conservative 32768-token baseline, update the ignored runtime
+configuration and both terminal client limits, then restart:
+
+```bash
+perl -0pi -e 's/^DEEPSEEKV4_MAX_MODEL_LEN=.*$/DEEPSEEKV4_MAX_MODEL_LEN=32768/m' .env
+perl -0pi -e 's/("local-deepseek-v4-flash"\s*:\s*\{.*?"context"\s*:\s*)65536/${1}32768/s' config/opencode/opencode.json
+perl -0pi -e 's/(name: local-deepseek-v4-flash\n\s+max_input_tokens: )65536/${1}32768/' config/aichat/config.yaml
+perl -0pi -e 's/^compress_threshold: .*$/compress_threshold: 28000/m' config/aichat/config.yaml
+make deepseekv4-down
+make deepseekv4-up
+```
+
+Verify the rollback with `make deepseekv4-status` and a small request through
+Context Guard.
 
 ## Start One Large Candidate
 

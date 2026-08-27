@@ -28,7 +28,7 @@
         "local-deepseek-v4-flash": {
           "name": "DeepSeek V4 Flash via Context Guard",
           "limit": {
-            "context": 32768,
+            "context": 65536,
             "output": 4096
           }
         },
