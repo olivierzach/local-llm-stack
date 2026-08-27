@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENGINE_REPO="${DEEPSEEKV4_ENGINE_REPO:-https://github.com/Entrpi/ds4.git}"
 ENGINE_REF="${DEEPSEEKV4_ENGINE_REF:-v0.5.3}"
 ENGINE_DIR="${DEEPSEEKV4_ENGINE_DIR:-$ROOT/data/deepseek-v4/ds4}"
+ENGINE_PATCH="$ROOT/patches/ds4-tokenize-endpoint.patch"
 MODEL_REPO="${DEEPSEEKV4_MODEL_REPO:-antirez/deepseek-v4-gguf}"
 MODEL_FILE="${DEEPSEEKV4_MODEL_FILE:-DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf}"
 DSPARK_REPO="${DEEPSEEKV4_DSPARK_REPO:-bleysg/DeepSeek-V4-Flash-DSpark-drafter-GGUF}"
@@ -15,7 +16,7 @@ PID_FILE="$LOG_DIR/ds4-server.pid"
 LOG_FILE="$LOG_DIR/ds4-server.log"
 SERVICE_NAME="${DEEPSEEKV4_SYSTEMD_UNIT:-local-deepseek-v4.service}"
 PORT="${DEEPSEEKV4_PORT:-8011}"
-CONTEXT="${DEEPSEEKV4_MAX_MODEL_LEN:-32768}"
+CONTEXT="${DEEPSEEKV4_MAX_MODEL_LEN:-65536}"
 BUILD_JOBS="${DEEPSEEKV4_BUILD_JOBS:-4}"
 MODEL_PATH="$MODEL_DIR/$MODEL_FILE"
 DSPARK_PATH="$MODEL_DIR/$DSPARK_FILE"
@@ -128,6 +129,15 @@ install_engine() {
   else
     git -C "$ENGINE_DIR" fetch --depth 1 origin "$ENGINE_REF"
     git -C "$ENGINE_DIR" checkout --detach --force FETCH_HEAD
+  fi
+
+  [[ -f "$ENGINE_PATCH" ]] || die "missing DS4 integration patch: $ENGINE_PATCH"
+  if git -C "$ENGINE_DIR" apply --reverse --check "$ENGINE_PATCH" 2>/dev/null; then
+    echo "deepseek-v4: tokenizer endpoint patch already applied"
+  elif git -C "$ENGINE_DIR" apply --check "$ENGINE_PATCH"; then
+    git -C "$ENGINE_DIR" apply "$ENGINE_PATCH"
+  else
+    die "DS4 tokenizer endpoint patch does not apply to $ENGINE_REF"
   fi
 
   make -C "$ENGINE_DIR" cuda -j"$BUILD_JOBS" CUDA_ARCH=sm_121

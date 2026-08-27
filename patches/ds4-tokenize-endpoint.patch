@@ -1,0 +1,43 @@
+diff --git a/ds4_server.c b/ds4_server.c
+index 4a4377c..f805a3c 100644
+--- a/ds4_server.c
++++ b/ds4_server.c
+@@ -13252,6 +13252,24 @@ static bool send_models(server *s, int fd) {
+     return ok;
+ }
+
++static void handle_tokenize(server *s, int fd, const char *body) {
++    request req;
++    char err[160];
++    const int ctx_size = s->serial_boot_ctx;
++    if (!parse_chat_request(s->engine, s, body, s->default_tokens,
++                            ctx_size, &req, err, sizeof(err))) {
++        http_error(fd, s->enable_cors, 400, err);
++        return;
++    }
++
++    buf b = {0};
++    buf_printf(&b, "{\"count\":%d,\"max_model_len\":%d}\n",
++               req.prompt.len, ctx_size);
++    http_response(fd, s->enable_cors, 200, "application/json", b.ptr);
++    buf_free(&b);
++    request_free(&req);
++}
++
+ static void client_done(server *s) {
+     pthread_mutex_lock(&s->mu);
+     if (s->clients > 0) s->clients--;
+@@ -13688,6 +13706,13 @@ static void *client_main(void *arg) {
+         goto done;
+     }
+
++    if (!strcmp(hr.method, "POST") &&
++        (!strcmp(hr.path, "/tokenize") || !strcmp(hr.path, "/v1/tokenize"))) {
++        handle_tokenize(s, fd, hr.body);
++        http_request_free(&hr);
++        goto done;
++    }
++
+     if (!strcmp(hr.method, "POST") && !strcmp(hr.path, "/v1/batch")) {
+         handle_batch(s, fd, hr.body);
+         http_request_free(&hr);
