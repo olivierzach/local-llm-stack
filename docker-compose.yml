@@ -364,7 +364,11 @@ services:
       CONTEXT_GUARD_UPSTREAM_BASE_URL: http://litellm:4000/v1
       CONTEXT_GUARD_DEFAULT_OUTPUT_TOKENS: ${CONTEXT_GUARD_DEFAULT_OUTPUT_TOKENS:-4096}
       CONTEXT_GUARD_MIN_OUTPUT_TOKENS: ${CONTEXT_GUARD_MIN_OUTPUT_TOKENS:-64}
-      CONTEXT_GUARD_HEADROOM_TOKENS: ${CONTEXT_GUARD_HEADROOM_TOKENS:-128}
+      CONTEXT_GUARD_HEADROOM_TOKENS: ${CONTEXT_GUARD_HEADROOM_TOKENS:-2048}
+      CONTEXT_GUARD_CHARS_PER_TOKEN: ${CONTEXT_GUARD_CHARS_PER_TOKEN:-3.0}
+      CONTEXT_GUARD_TOKENIZER_BASE_URLS: ${CONTEXT_GUARD_TOKENIZER_BASE_URLS:-local-fast=http://vllm-fast:8000,local-balanced=http://vllm-balanced:8000,local-coder=http://vllm-balanced:8000,local-large=http://vllm-large:8000,local-qwen30-a3b=http://vllm-qwen30a3b:8000,local-deepseek-r1-qwen32b=http://vllm-deepseek32b:8000,local-mistral-small=http://vllm-mistral24b:8000,local-balanced-smoke-lora=http://vllm-lora:8000,local-vision=http://vllm-vision:8000,local-gpt-oss-120b=http://vllm-gptoss120b:8000,local-laguna-s-2.1=http://vllm-lagunas21:8000,local-deepseek-v4-flash=http://host.docker.internal:8011}
+      CONTEXT_GUARD_TOKENIZER_TIMEOUT: ${CONTEXT_GUARD_TOKENIZER_TIMEOUT:-3.0}
+      CONTEXT_GUARD_MAX_RETRIES: ${CONTEXT_GUARD_MAX_RETRIES:-3}
       CONTEXT_GUARD_KEEP_LAST_MESSAGES: ${CONTEXT_GUARD_KEEP_LAST_MESSAGES:-8}
       CONTEXT_GUARD_SUMMARY_TOKENS: ${CONTEXT_GUARD_SUMMARY_TOKENS:-512}
       CONTEXT_GUARD_COMPACT_MODEL: ${CONTEXT_GUARD_COMPACT_MODEL:-local-fast}
@@ -379,12 +383,20 @@ services:
       VISION_MAX_MODEL_LEN: ${VISION_MAX_MODEL_LEN:-32768}
       GPTOSS120B_MAX_MODEL_LEN: ${GPTOSS120B_MAX_MODEL_LEN:-8192}
       LAGUNAS21_MAX_MODEL_LEN: ${LAGUNAS21_MAX_MODEL_LEN:-262144}
-      DEEPSEEKV4_MAX_MODEL_LEN: ${DEEPSEEKV4_MAX_MODEL_LEN:-32768}
+      DEEPSEEKV4_MAX_MODEL_LEN: ${DEEPSEEKV4_MAX_MODEL_LEN:-65536}
       CONTEXT_GUARD_MODEL_CONTEXTS: ${CONTEXT_GUARD_MODEL_CONTEXTS:-}
     volumes:
       - ./scripts/context-guard-proxy.py:/app/context-guard-proxy.py:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     entrypoint: ["python"]
     command: ["/app/context-guard-proxy.py", "--host", "0.0.0.0", "--port", "4010", "--upstream-base-url", "http://litellm:4000/v1"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen(\"http://localhost:4010/health\", timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
     networks:
       - llm
 

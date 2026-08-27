@@ -4,12 +4,15 @@
 from __future__ import annotations
 
 import argparse
+import copy
+import hashlib
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import math
 import os
 from pathlib import Path
+import re
 import sys
 from typing import Any
 from urllib.parse import urlparse, urlunparse
@@ -31,6 +34,10 @@ DEFAULT_DIRECT_BASE_URLS = {
     "local-laguna-s-2.1": "http://localhost:8010/v1",
     "local-deepseek-v4-flash": "http://localhost:8011/v1",
 }
+DEFAULT_TOKENIZER_BASE_URLS = {
+    model: base_url.removesuffix("/v1")
+    for model, base_url in DEFAULT_DIRECT_BASE_URLS.items()
+}
 HOP_BY_HOP_HEADERS = {
     "connection",
     "content-encoding",
@@ -45,13 +52,19 @@ HOP_BY_HOP_HEADERS = {
 }
 CONTEXT_ERROR_MARKERS = (
     "contextwindowexceeded",
+    "context_length_exceeded",
     "context window",
+    "configured context size",
     "maximum context",
     "maximum context length",
     "input tokens",
     "too many tokens",
     "exceeds the context",
     "max_tokens must be at least 1",
+)
+DS4_CONTEXT_ERROR_RE = re.compile(
+    r"prompt\s+has\s+[\d,]+\s+tokens?.*configured\s+context\s+size\s+is\s+[\d,]+\s+tokens?",
+    re.DOTALL,
 )
 
 
@@ -98,6 +111,19 @@ def parse_model_contexts(value: str | None) -> dict[str, int]:
         except ValueError:
             continue
     return contexts
+
+
+def parse_model_urls(value: str | None, defaults: dict[str, str]) -> dict[str, str]:
+    urls = dict(defaults)
+    if not value:
+        return urls
+    for item in value.split(","):
+        if "=" not in item:
+            continue
+        model, url = item.split("=", 1)
+        if model.strip() and url.strip():
+            urls[model.strip()] = url.strip().rstrip("/")
+    return urls
 
 
 def compact_json(value: Any) -> str:
@@ -180,7 +206,65 @@ def is_context_error(status_code: int, body: bytes) -> bool:
     if status_code not in {400, 413, 422}:
         return False
     text = body.decode("utf-8", errors="ignore").lower()
-    return any(marker in text for marker in CONTEXT_ERROR_MARKERS)
+    if any(marker in text for marker in CONTEXT_ERROR_MARKERS):
+        return True
+    try:
+        error = json.loads(text).get("error", {})
+    except (AttributeError, ValueError):
+        error = {}
+    if isinstance(error, dict):
+        code = str(error.get("code") or error.get("type") or "").lower()
+        if code == "context_length_exceeded":
+            return True
+        message = str(error.get("message") or "").lower()
+        if any(marker in message for marker in CONTEXT_ERROR_MARKERS):
+            return True
+        text = text + "\n" + message
+    return bool(DS4_CONTEXT_ERROR_RE.search(text))
+
+
+def output_token_field(payload: dict[str, Any]) -> str:
+    if "max_completion_tokens" in payload:
+        return "max_completion_tokens"
+    return "max_tokens"
+
+
+def requested_output_tokens(payload: dict[str, Any], default: int, minimum: int) -> int:
+    field = output_token_field(payload)
+    try:
+        requested = int(payload.get(field))
+    except (TypeError, ValueError):
+        return max(minimum, default)
+    if requested < 1:
+        return max(minimum, default)
+    return requested
+
+
+def compact_schema(value: Any, *, preserve_keys: bool = False) -> Any:
+    if isinstance(value, dict):
+        compacted = {}
+        for key, item in value.items():
+            if key == "description" and not preserve_keys:
+                continue
+            compacted[key] = compact_schema(item, preserve_keys=key == "properties")
+        return compacted
+    if isinstance(value, list):
+        return [compact_schema(item) for item in value]
+    return value
+
+
+def retain_text_edges(text: str, max_chars: int) -> str:
+    if max_chars <= 0:
+        return ""
+    if len(text) <= max_chars:
+        return text
+    marker = "\n\n[... content truncated by Context Guard ...]\n\n"
+    if max_chars <= len(marker):
+        return text[-max_chars:]
+    usable = max_chars - len(marker)
+    head = usable // 3
+    tail = usable - head
+    return text[:head] + marker + text[-tail:]
 
 
 def split_messages(messages: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -210,6 +294,9 @@ class ProxyConfig:
     compact_model: str | None
     discover_model_context: bool
     verbose: bool
+    tokenizer_base_urls: dict[str, str] = field(default_factory=dict)
+    tokenizer_timeout_s: float = 3.0
+    max_compaction_retries: int = 3
     context_cache: dict[str, int] = field(default_factory=dict)
 
     def context_limit_for(self, model: str) -> int:
@@ -222,19 +309,32 @@ class ProxyConfig:
         if alias in self.context_cache:
             return self.context_cache[alias]
 
-        base_url = DEFAULT_DIRECT_BASE_URLS.get(alias)
+        base_url = self.tokenizer_base_urls.get(alias) or DEFAULT_DIRECT_BASE_URLS.get(alias)
         if not base_url:
             return fallback
         try:
-            response = requests.get(base_url.rstrip("/") + "/models", timeout=2)
+            models_url = base_url.rstrip("/")
+            if not models_url.endswith("/v1"):
+                models_url += "/v1"
+            response = requests.get(models_url + "/models", timeout=2)
             response.raise_for_status()
             data = response.json()
         except Exception:
             return fallback
 
-        for item in data.get("data", []):
-            if item.get("id") == alias and item.get("max_model_len"):
-                limit = int(item["max_model_len"])
+        items = data.get("data", [])
+        for item in items:
+            item_id = normalize_model_name(str(item.get("id") or ""))
+            if item_id not in {alias, alias.removeprefix("local-")} and len(items) != 1:
+                continue
+            for key in ("max_model_len", "context_length", "max_context_length"):
+                if item.get(key):
+                    limit = int(item[key])
+                    self.context_cache[alias] = limit
+                    return limit
+            provider = item.get("top_provider")
+            if isinstance(provider, dict) and provider.get("context_length"):
+                limit = int(provider["context_length"])
                 self.context_cache[alias] = limit
                 return limit
         return fallback
@@ -273,6 +373,9 @@ class ContextGuardHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self) -> None:
+        if self.parsed_path() in {"/health", "/healthz"}:
+            self.write_json(200, {"status": "ok"})
+            return
         self.proxy_plain()
 
     def do_POST(self) -> None:
@@ -369,34 +472,132 @@ class ContextGuardHandler(BaseHTTPRequestHandler):
             return
 
         payload, compacted = self.prepare_payload(original_payload, headers)
-        response = self.post_upstream(headers, payload)
+        response, payload, compacted, retry_count = self.post_with_context_retries(
+            headers, payload, compacted=compacted
+        )
         if response is None:
             return
 
-        body = response.content if response.status_code >= 400 else b""
-        if not response.ok and is_context_error(response.status_code, body) and not compacted:
-            response.close()
-            payload, compacted = self.compact_payload(original_payload, headers)
-            payload = self.sanitize_max_tokens(payload)
-            response = self.post_upstream(headers, payload)
-            if response is None:
-                return
+        self.relay_response(
+            response,
+            stream=bool(payload.get("stream")),
+            compacted=compacted,
+            payload=payload,
+            retry_count=retry_count,
+        )
 
-        self.relay_response(response, stream=bool(payload.get("stream")), compacted=compacted)
+    def post_with_context_retries(
+        self,
+        headers: dict[str, str],
+        payload: dict[str, Any],
+        *,
+        compacted: bool,
+    ) -> tuple[requests.Response | None, dict[str, Any], bool, int]:
+        if not self.ensure_payload_fits(payload, compacted=compacted, retry_count=0):
+            return None, payload, compacted, 0
+        response = self.post_upstream(headers, payload)
+        attempts = 0
+        while response is not None and attempts < self.config.max_compaction_retries:
+            body = response.content if response.status_code >= 400 else b""
+            if response.ok or not is_context_error(response.status_code, body):
+                break
+
+            response.close()
+            previous_payload = compact_json(payload)
+            payload, _ = self.compact_payload(payload, headers, force=True)
+            payload = self.sanitize_max_tokens(payload)
+            compacted = True
+            attempts += 1
+            if compact_json(payload) == previous_payload:
+                break
+            if not self.ensure_payload_fits(payload, compacted=True, retry_count=attempts):
+                return None, payload, compacted, attempts
+            response = self.post_upstream(headers, payload)
+
+        if response is not None and not response.ok and is_context_error(
+            response.status_code, response.content
+        ):
+            response.close()
+            self.write_guard_error(
+                "The request still exceeds the live model context after bounded compaction.",
+                payload,
+                compacted=True,
+                retry_count=attempts,
+            )
+            return None, payload, True, attempts
+
+        return response, payload, compacted, attempts
+
+    def estimate_input_tokens(self, payload: dict[str, Any]) -> int:
+        model = normalize_model_name(str(payload.get("model") or ""))
+        base_url = self.config.tokenizer_base_urls.get(model)
+        if base_url:
+            tokenizer_payload = {
+                key: payload[key]
+                for key in (
+                    "model",
+                    "messages",
+                    "tools",
+                    "tool_choice",
+                    "functions",
+                    "function_call",
+                    "parallel_tool_calls",
+                    "response_format",
+                    "chat_template",
+                    "chat_template_kwargs",
+                    "reasoning_effort",
+                    "add_generation_prompt",
+                    "continue_final_message",
+                    "add_special_tokens",
+                )
+                if key in payload
+            }
+            tokenizer_payload["model"] = model
+            cache_key = hashlib.sha256(compact_json(tokenizer_payload).encode("utf-8")).hexdigest()
+            token_cache = getattr(self, "_token_count_cache", {})
+            if cache_key in token_cache:
+                return token_cache[cache_key]
+            for path in ("/tokenize", "/v1/tokenize"):
+                try:
+                    response = requests.post(
+                        base_url.rstrip("/") + path,
+                        json=tokenizer_payload,
+                        timeout=self.config.tokenizer_timeout_s,
+                    )
+                    if response.status_code == 404:
+                        continue
+                    response.raise_for_status()
+                    body = response.json()
+                    count = body.get("count")
+                    if isinstance(count, int) and count >= 0:
+                        live_limit = body.get("max_model_len") or body.get("context_length")
+                        if isinstance(live_limit, int) and live_limit > 0:
+                            self.config.context_cache[model] = live_limit
+                        if len(token_cache) >= 16:
+                            token_cache.clear()
+                        token_cache[cache_key] = count
+                        self._token_count_cache = token_cache
+                        return count
+                except (requests.RequestException, ValueError, AttributeError):
+                    break
+        return estimate_payload_tokens(payload, self.config.chars_per_token)
 
     def prepare_payload(self, payload: dict[str, Any], headers: dict[str, str]) -> tuple[dict[str, Any], bool]:
         prepared = dict(payload)
         if isinstance(prepared.get("model"), str):
             prepared["model"] = normalize_model_name(prepared["model"])
         prepared = self.apply_model_defaults(prepared)
-        prepared = self.sanitize_max_tokens(prepared)
 
         model = str(prepared.get("model") or "")
         limit = self.config.context_limit_for(model)
-        estimate = estimate_payload_tokens(prepared, self.config.chars_per_token)
-        max_tokens = int(prepared.get("max_tokens") or self.config.default_output_tokens)
+        estimate = self.estimate_input_tokens(prepared)
+        max_tokens = requested_output_tokens(
+            prepared,
+            self.config.default_output_tokens,
+            self.config.min_output_tokens,
+        )
         if estimate + max_tokens + self.config.headroom_tokens <= limit:
-            return prepared, False
+            return self.sanitize_max_tokens(prepared), False
         return self.compact_payload(prepared, headers)
 
     def apply_model_defaults(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -410,32 +611,49 @@ class ContextGuardHandler(BaseHTTPRequestHandler):
         sanitized = dict(payload)
         model = str(sanitized.get("model") or "")
         limit = self.config.context_limit_for(model)
-        estimate = estimate_payload_tokens(sanitized, self.config.chars_per_token)
+        estimate = self.estimate_input_tokens(sanitized)
         budget = max(1, limit - estimate - self.config.headroom_tokens)
 
-        raw_max_tokens = sanitized.get("max_tokens")
+        field = output_token_field(sanitized)
+        raw_max_tokens = sanitized.get(field)
         try:
             max_tokens = int(raw_max_tokens)
         except (TypeError, ValueError):
-            max_tokens = min(self.config.default_output_tokens, budget)
-
-        if max_tokens < self.config.min_output_tokens:
-            max_tokens = min(self.config.default_output_tokens, max(self.config.min_output_tokens, budget))
-        sanitized["max_tokens"] = max(1, min(max_tokens, budget))
+            max_tokens = min(
+                max(self.config.min_output_tokens, self.config.default_output_tokens),
+                budget,
+            )
+        if max_tokens < 1:
+            max_tokens = min(
+                max(self.config.min_output_tokens, self.config.default_output_tokens),
+                budget,
+            )
+        sanitized[field] = max(1, min(max_tokens, budget))
+        if field == "max_completion_tokens":
+            sanitized.pop("max_tokens", None)
         return sanitized
 
-    def compact_payload(self, payload: dict[str, Any], headers: dict[str, str]) -> tuple[dict[str, Any], bool]:
-        compacted = dict(payload)
+    def compact_payload(
+        self,
+        payload: dict[str, Any],
+        headers: dict[str, str],
+        *,
+        force: bool = False,
+    ) -> tuple[dict[str, Any], bool]:
+        compacted = copy.deepcopy(payload)
         messages = compacted.get("messages")
         if not isinstance(messages, list) or len(messages) < 3:
-            return self.trim_payload(compacted), True
+            return self.trim_payload(compacted, force=force), True
 
         leading, conversational = split_messages(messages)
         keep_count = max(1, self.config.keep_last_messages)
-        older = conversational[:-keep_count]
-        recent = conversational[-keep_count:]
+        recent_start = max(0, len(conversational) - keep_count)
+        while recent_start > 0 and conversational[recent_start].get("role") != "user":
+            recent_start -= 1
+        older = conversational[:recent_start]
+        recent = conversational[recent_start:]
         if not older:
-            return self.trim_payload(compacted), True
+            return self.trim_payload(compacted, force=force), True
 
         summary = self.summarize_messages(
             older,
@@ -451,54 +669,258 @@ class ContextGuardHandler(BaseHTTPRequestHandler):
             ),
         }
         compacted["messages"] = leading + [summary_message] + recent
-        return self.trim_payload(compacted), True
+        return self.trim_payload(compacted, force=force), True
 
-    def trim_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
-        trimmed = self.sanitize_max_tokens(payload)
+    def trim_payload(self, payload: dict[str, Any], *, force: bool = False) -> dict[str, Any]:
+        trimmed = copy.deepcopy(payload)
+        reserved_output = requested_output_tokens(
+            payload,
+            self.config.default_output_tokens,
+            self.config.min_output_tokens,
+        )
         model = str(trimmed.get("model") or "")
         limit = self.config.context_limit_for(model)
         messages = trimmed.get("messages")
         if not isinstance(messages, list):
-            return trimmed
+            return self.sanitize_max_tokens(trimmed)
 
         leading, conversational = split_messages(messages)
+        if not conversational:
+            return self.emergency_fit_payload(trimmed, limit, reserved_output)
+
+        latest_user_index = next(
+            (
+                index
+                for index in range(len(conversational) - 1, -1, -1)
+                if conversational[index].get("role") == "user"
+            ),
+            len(conversational) - 1,
+        )
+        older = conversational[:latest_user_index]
+        current_turn = conversational[latest_user_index:]
+        minimum_removals = math.ceil(len(older) / 2) if force and older else 0
+        removed = 0
+
+        while older:
+            trimmed["messages"] = leading + older + current_turn
+            if removed >= minimum_removals and self.payload_fits(
+                trimmed, limit, output_tokens=reserved_output
+            ):
+                return self.sanitize_max_tokens(trimmed)
+            remove_count = self.oldest_turn_size(older)
+            older = older[remove_count:]
+            removed += remove_count
+
+        trimmed["messages"] = leading + current_turn
+        if self.payload_fits(trimmed, limit, output_tokens=reserved_output):
+            return self.sanitize_max_tokens(trimmed)
+
+        current_only = copy.deepcopy(trimmed)
+        current_only["messages"] = current_turn
+        if self.payload_fits(current_only, limit, output_tokens=reserved_output):
+            return self.sanitize_max_tokens(current_only)
+        return self.emergency_fit_payload(current_only, limit, reserved_output)
+
+
+    @staticmethod
+    def oldest_turn_size(messages: list[dict[str, Any]]) -> int:
+        for index in range(1, len(messages)):
+            if messages[index].get("role") == "user":
+                return index
+        return len(messages)
+
+    def truncate_message_contents_to_fit(
+        self,
+        payload: dict[str, Any],
+        limit: int,
+        output_tokens: int,
+    ) -> dict[str, Any]:
+        candidate = copy.deepcopy(payload)
+        messages = candidate.get("messages")
+        if not isinstance(messages, list):
+            return candidate
+
+        role_priority = {"tool": 0, "assistant": 1, "user": 2}
+        truncatable = []
+        for index, message in enumerate(messages):
+            content = message.get("content")
+            if isinstance(content, str):
+                text = content
+            elif content is not None:
+                text = compact_json(content)
+            else:
+                continue
+            truncatable.append(
+                (role_priority.get(str(message.get("role")), 3), -len(text), index, text)
+            )
+
+        for _, _, index, text in sorted(truncatable):
+            if self.payload_fits(candidate, limit, output_tokens=output_tokens):
+                return candidate
+            low = 0
+            high = len(text)
+            best = None
+            while low <= high:
+                retained_chars = (low + high) // 2
+                trial = copy.deepcopy(candidate)
+                trial["messages"][index]["content"] = retain_text_edges(text, retained_chars)
+                if self.payload_fits(trial, limit, output_tokens=output_tokens):
+                    best = trial
+                    low = retained_chars + 1
+                else:
+                    high = retained_chars - 1
+            if best is not None:
+                return best
+            candidate["messages"][index]["content"] = ""
+
+        return candidate
+
+    def emergency_fit_payload(
+        self,
+        payload: dict[str, Any],
+        limit: int,
+        reserved_output: int,
+    ) -> dict[str, Any]:
+        emergency = copy.deepcopy(payload)
+        original_messages = copy.deepcopy(emergency.get("messages") or [])
+        if "tools" in emergency:
+            emergency["tools"] = compact_schema(emergency["tools"])
+
+        emergency = self.truncate_message_contents_to_fit(
+            emergency, limit, reserved_output
+        )
+        if self.payload_fits(emergency, limit, output_tokens=reserved_output):
+            return self.sanitize_max_tokens(emergency)
+
+        for key in (
+            "tools",
+            "functions",
+            "tool_choice",
+            "response_format",
+            "chat_template",
+            "chat_template_kwargs",
+        ):
+            emergency.pop(key, None)
+        field = output_token_field(emergency)
+        emergency[field] = self.config.min_output_tokens
+        if field == "max_completion_tokens":
+            emergency.pop("max_tokens", None)
+        minimum_output = self.config.min_output_tokens
+
         latest = next(
-            (item for item in reversed(conversational) if item.get("role") == "user"),
-            conversational[-1] if conversational else None,
+            (
+                message
+                for message in reversed(original_messages)
+                if message.get("role") == "user"
+            ),
+            original_messages[-1] if original_messages else {"role": "user", "content": ""},
+        )
+        minimal_message = {
+            "role": latest.get("role") or "user",
+            "content": latest.get("content") if latest.get("content") is not None else "",
+        }
+        if latest.get("name"):
+            minimal_message["name"] = latest["name"]
+        emergency["messages"] = [minimal_message]
+        emergency = self.truncate_message_contents_to_fit(
+            emergency, limit, minimum_output
+        )
+        if not self.payload_fits(emergency, limit, output_tokens=minimum_output):
+            emergency["messages"] = [{"role": "user", "content": ""}]
+        return self.sanitize_max_tokens(emergency)
+
+    def payload_fits(
+        self,
+        payload: dict[str, Any],
+        limit: int,
+        *,
+        output_tokens: int | None = None,
+    ) -> bool:
+        estimate = self.estimate_input_tokens(payload)
+        if output_tokens is None:
+            output_tokens = requested_output_tokens(
+                payload,
+                self.config.default_output_tokens,
+                self.config.min_output_tokens,
+            )
+        return estimate + output_tokens + self.config.headroom_tokens <= limit
+
+    def context_accounting(self, payload: dict[str, Any]) -> tuple[int, int, int]:
+        model = str(payload.get("model") or "")
+        return (
+            self.estimate_input_tokens(payload),
+            requested_output_tokens(
+                payload,
+                self.config.default_output_tokens,
+                self.config.min_output_tokens,
+            ),
+            self.config.context_limit_for(model),
         )
 
-        while len(messages) > 1:
-            if self.payload_fits(trimmed, limit):
-                return trimmed
-            remove_index = next(
-                (
-                    i
-                    for i, item in enumerate(messages)
-                    if item.get("role") not in {"system", "developer"} and item is not latest
-                ),
-                None,
-            )
-            if remove_index is None:
-                break
-            messages.pop(remove_index)
-            trimmed["messages"] = messages
-            trimmed = self.sanitize_max_tokens(trimmed)
+    def context_headers(
+        self,
+        payload: dict[str, Any],
+        *,
+        compacted: bool,
+        retry_count: int,
+    ) -> dict[str, str]:
+        input_tokens, output_tokens, limit = self.context_accounting(payload)
+        headers = {
+            "X-Context-Input-Tokens": str(input_tokens),
+            "X-Context-Output-Reserve": str(output_tokens),
+            "X-Context-Limit": str(limit),
+            "X-Context-Retry": str(retry_count),
+        }
+        if compacted:
+            headers["X-Context-Guard"] = "compacted"
+        return headers
 
-        if self.payload_fits(trimmed, limit) or latest is None:
-            return trimmed
+    def ensure_payload_fits(
+        self,
+        payload: dict[str, Any],
+        *,
+        compacted: bool,
+        retry_count: int,
+    ) -> bool:
+        input_tokens, output_tokens, limit = self.context_accounting(payload)
+        if input_tokens + output_tokens + self.config.headroom_tokens <= limit:
+            return True
+        self.write_guard_error(
+            "Context Guard could not reduce the request below the live model context.",
+            payload,
+            compacted=compacted,
+            retry_count=retry_count,
+        )
+        return False
 
-        for reset_messages in (leading + [latest], [latest]):
-            reset = dict(trimmed)
-            reset["messages"] = reset_messages
-            reset = self.sanitize_max_tokens(reset)
-            if self.payload_fits(reset, limit) or reset_messages == [latest]:
-                return reset
-        return trimmed
-
-    def payload_fits(self, payload: dict[str, Any], limit: int) -> bool:
-        estimate = estimate_payload_tokens(payload, self.config.chars_per_token)
-        max_tokens = int(payload.get("max_tokens") or self.config.default_output_tokens)
-        return estimate + max_tokens + self.config.headroom_tokens <= limit
+    def write_guard_error(
+        self,
+        message: str,
+        payload: dict[str, Any],
+        *,
+        compacted: bool,
+        retry_count: int,
+    ) -> None:
+        input_tokens, output_tokens, limit = self.context_accounting(payload)
+        self.write_json(
+            422,
+            {
+                "error": {
+                    "message": message,
+                    "type": "context_guard_error",
+                    "code": "context_guard_unable_to_fit",
+                    "recoverable": True,
+                    "input_tokens": input_tokens,
+                    "output_reserve": output_tokens,
+                    "context_limit": limit,
+                }
+            },
+            headers=self.context_headers(
+                payload,
+                compacted=compacted,
+                retry_count=retry_count,
+            ),
+        )
 
     def summarize_messages(self, messages: list[dict[str, Any]], *, model: str, headers: dict[str, str]) -> str:
         request_model = normalize_model_name(model)
@@ -556,12 +978,27 @@ class ContextGuardHandler(BaseHTTPRequestHandler):
     def upstream_base_chat_url(self) -> str:
         return self.config.upstream_base_url.rstrip("/") + "/chat/completions"
 
-    def relay_response(self, response: requests.Response, *, stream: bool, compacted: bool = False) -> None:
+    def relay_response(
+        self,
+        response: requests.Response,
+        *,
+        stream: bool,
+        compacted: bool = False,
+        payload: dict[str, Any] | None = None,
+        retry_count: int = 0,
+    ) -> None:
         self.send_response(response.status_code)
         for name, value in response.headers.items():
             if name.lower() not in HOP_BY_HOP_HEADERS:
                 self.send_header(name, value)
-        if compacted:
+        if payload is not None:
+            for name, value in self.context_headers(
+                payload,
+                compacted=compacted,
+                retry_count=retry_count,
+            ).items():
+                self.send_header(name, value)
+        elif compacted:
             self.send_header("X-Context-Guard", "compacted")
         self.end_headers()
 
@@ -578,11 +1015,19 @@ class ContextGuardHandler(BaseHTTPRequestHandler):
         self.wfile.write(response.content)
         response.close()
 
-    def write_json(self, status_code: int, body: dict[str, Any]) -> None:
+    def write_json(
+        self,
+        status_code: int,
+        body: dict[str, Any],
+        *,
+        headers: dict[str, str] | None = None,
+    ) -> None:
         content = json.dumps(body).encode("utf-8")
         self.send_response(status_code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(content)))
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(content)
 
@@ -617,7 +1062,7 @@ def build_config(args: argparse.Namespace) -> ProxyConfig:
         "local-vision": env_int("VISION_MAX_MODEL_LEN", 32768),
         "local-gpt-oss-120b": env_int("GPTOSS120B_MAX_MODEL_LEN", 8192),
         "local-laguna-s-2.1": env_int("LAGUNAS21_MAX_MODEL_LEN", 262144),
-        "local-deepseek-v4-flash": env_int("DEEPSEEKV4_MAX_MODEL_LEN", 32768),
+        "local-deepseek-v4-flash": env_int("DEEPSEEKV4_MAX_MODEL_LEN", 65536),
     }
     return ProxyConfig(
         upstream_base_url=args.upstream_base_url,
@@ -626,16 +1071,22 @@ def build_config(args: argparse.Namespace) -> ProxyConfig:
         default_context_tokens=env_int("CONTEXT_GUARD_DEFAULT_CONTEXT_TOKENS", 8192),
         model_contexts=parse_model_contexts(os.getenv("CONTEXT_GUARD_MODEL_CONTEXTS")),
         fallback_model_contexts=default_contexts,
-        headroom_tokens=env_int("CONTEXT_GUARD_HEADROOM_TOKENS", 128),
+        headroom_tokens=env_int("CONTEXT_GUARD_HEADROOM_TOKENS", 2048),
         default_output_tokens=env_int("CONTEXT_GUARD_DEFAULT_OUTPUT_TOKENS", 4096),
         min_output_tokens=env_int("CONTEXT_GUARD_MIN_OUTPUT_TOKENS", 64),
         keep_last_messages=env_int("CONTEXT_GUARD_KEEP_LAST_MESSAGES", 8),
         summary_tokens=env_int("CONTEXT_GUARD_SUMMARY_TOKENS", 512),
         compact_source_chars=env_int("CONTEXT_GUARD_COMPACT_SOURCE_CHARS", 6000),
-        chars_per_token=float(os.getenv("CONTEXT_GUARD_CHARS_PER_TOKEN", "4.0")),
+        chars_per_token=float(os.getenv("CONTEXT_GUARD_CHARS_PER_TOKEN", "3.0")),
         compact_model=os.getenv("CONTEXT_GUARD_COMPACT_MODEL", "local-fast") or None,
         discover_model_context=env_bool("CONTEXT_GUARD_DISCOVER_MODEL_CONTEXT", True),
         verbose=args.verbose,
+        tokenizer_base_urls=parse_model_urls(
+            os.getenv("CONTEXT_GUARD_TOKENIZER_BASE_URLS"),
+            DEFAULT_TOKENIZER_BASE_URLS,
+        ),
+        tokenizer_timeout_s=float(os.getenv("CONTEXT_GUARD_TOKENIZER_TIMEOUT", "3.0")),
+        max_compaction_retries=env_int("CONTEXT_GUARD_MAX_RETRIES", 3),
     )
 
 
