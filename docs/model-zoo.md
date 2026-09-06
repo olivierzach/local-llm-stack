@@ -84,6 +84,13 @@ bridge. Use
 intentional. Stop it with `make deepseekv4-down`; logs are in
 `logs/deepseek-v4/ds4-server.log`.
 
+DSpark speculative decoding is enabled by default. To reduce the server's
+resident unified-memory use, set `DEEPSEEKV4_DSPARK_ENABLED=false` in `.env`
+before the next `make deepseekv4-up`. The launcher then omits the DSpark drafter
+and starts DS4 with `--no-spec`; generation will be slower, but the configured
+context length is unchanged. The setting takes effect only when the host-native
+service is restarted.
+
 To return to the conservative 32768-token baseline, update the ignored runtime
 configuration and both terminal client limits, then restart:
 

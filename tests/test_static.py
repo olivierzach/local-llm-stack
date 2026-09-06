@@ -119,6 +119,18 @@ def test_deepseek_install_applies_native_tokenizer_patch() -> None:
     assert "parse_chat_request" in engine_patch
 
 
+def test_deepseek_dspark_can_be_disabled() -> None:
+    install_script = (ROOT / "scripts/deepseek-v4.sh").read_text()
+    env_example = (ROOT / ".env.example").read_text()
+
+    assert "DEEPSEEKV4_DSPARK_ENABLED=true" in env_example
+    assert 'DSPARK_ENABLED="${DEEPSEEKV4_DSPARK_ENABLED:-true}"' in install_script
+    assert 'if dspark_enabled; then' in install_script
+    assert 'speculative_args=(--no-spec)' in install_script
+    assert '--setenv "DS4_CONT_DSPARK=1"' in install_script
+    assert '--setenv "DS4_DSPARK_MODEL=$DSPARK_PATH"' in install_script
+
+
 def load_context_guard_module():
     import importlib.util
     import sys

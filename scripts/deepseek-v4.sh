@@ -17,6 +17,7 @@ LOG_FILE="$LOG_DIR/ds4-server.log"
 SERVICE_NAME="${DEEPSEEKV4_SYSTEMD_UNIT:-local-deepseek-v4.service}"
 PORT="${DEEPSEEKV4_PORT:-8011}"
 CONTEXT="${DEEPSEEKV4_MAX_MODEL_LEN:-65536}"
+DSPARK_ENABLED="${DEEPSEEKV4_DSPARK_ENABLED:-true}"
 BUILD_JOBS="${DEEPSEEKV4_BUILD_JOBS:-4}"
 MODEL_PATH="$MODEL_DIR/$MODEL_FILE"
 DSPARK_PATH="$MODEL_DIR/$DSPARK_FILE"
@@ -37,6 +38,14 @@ EOF
 die() {
   echo "deepseek-v4: $*" >&2
   exit 1
+}
+
+dspark_enabled() {
+  case "${DSPARK_ENABLED,,}" in
+    1|true|yes|on) return 0 ;;
+    0|false|no|off) return 1 ;;
+    *) die "DEEPSEEKV4_DSPARK_ENABLED must be true or false; found $DSPARK_ENABLED" ;;
+  esac
 }
 
 docker_bridge_host() {
@@ -158,9 +167,22 @@ running_pid() {
 start_server() {
   [[ -x "$ENGINE_DIR/ds4-server" ]] || die "engine is not installed; run make deepseekv4-install"
   [[ -f "$MODEL_PATH" ]] || die "base weights are missing; run make deepseekv4-install"
-  [[ -f "$DSPARK_PATH" ]] || die "DSpark drafter is missing; run make deepseekv4-install"
+  local pid host available_gib decode_mode
+  local -a speculative_env=()
+  local -a speculative_args=()
+  if dspark_enabled; then
+    [[ -f "$DSPARK_PATH" ]] || die "DSpark drafter is missing; run make deepseekv4-install"
+    decode_mode="DSpark"
+    speculative_env=(
+      --setenv "DS4_CONT_MTP_MODE=2"
+      --setenv "DS4_CONT_DSPARK=1"
+      --setenv "DS4_DSPARK_MODEL=$DSPARK_PATH"
+    )
+  else
+    decode_mode="plain"
+    speculative_args=(--no-spec)
+  fi
 
-  local pid host available_gib
   if pid="$(running_pid)"; then
     echo "deepseek-v4: already running as pid $pid"
     return
@@ -175,7 +197,7 @@ start_server() {
   host="$(bind_host)"
   mkdir -p "$LOG_DIR"
   : >"$LOG_FILE"
-  echo "deepseek-v4: starting on http://$host:$PORT with context $CONTEXT"
+  echo "deepseek-v4: starting on http://$host:$PORT with context $CONTEXT ($decode_mode decode)"
   systemctl --user reset-failed "$SERVICE_NAME" 2>/dev/null || true
   systemd-run \
     --user \
@@ -184,15 +206,14 @@ start_server() {
     --property "WorkingDirectory=$ROOT" \
     --property "StandardOutput=append:$LOG_FILE" \
     --property "StandardError=append:$LOG_FILE" \
-    --setenv "DS4_CONT_MTP_MODE=2" \
-    --setenv "DS4_CONT_DSPARK=1" \
-    --setenv "DS4_DSPARK_MODEL=$DSPARK_PATH" \
+    "${speculative_env[@]}" \
     "$ENGINE_DIR/ds4-server" \
       --cuda \
       -m "$MODEL_PATH" \
       -c "$CONTEXT" \
       --host "$host" \
-      --port "$PORT"
+      --port "$PORT" \
+      "${speculative_args[@]}"
   pid="$(systemctl --user show "$SERVICE_NAME" --property=MainPID --value)"
   printf '%s\n' "$pid" >"$PID_FILE"
 
