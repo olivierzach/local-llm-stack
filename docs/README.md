@@ -24,3 +24,4 @@ Start here:
 17. [Vision Model Lab](vision-models.md)
 18. [Context Guard Proxy](context-guard.md)
 19. [Terminal UI](tui.md)
+20. [Qwen3.8 Single-Spark Runbook](qwen38-flash-next.md)
