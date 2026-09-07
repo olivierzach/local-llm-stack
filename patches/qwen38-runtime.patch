@@ -1,0 +1,63 @@
+diff --git a/start.sh b/start.sh
+index a25a837..faefcef 100755
+--- a/start.sh
++++ b/start.sh
+@@ -288,7 +288,7 @@ ORG="${MODEL_ID%%/*}"; NAME="${MODEL_ID##*/}"
+ MODEL_PATH="$HF_CACHE_DIR/hub/models--${ORG}--${NAME}"
+ [[ -d "$MODEL_PATH" ]] || err "Checkpoint not in cache: $MODEL_PATH
+        Fetch it first:  ./download.sh $MODEL_ID"
+-SNAPSHOT_REL="snapshots/$(ls "$MODEL_PATH/snapshots" | head -1)"
++SNAPSHOT_REL="snapshots/${TP1_MODEL_REVISION:?Set the pinned checkpoint revision}"
+ [[ -f "$MODEL_PATH/$SNAPSHOT_REL/config.json" ]] || err "No snapshot under $MODEL_PATH/snapshots"
+ python3 - "$MODEL_PATH/$SNAPSHOT_REL" <<'PY' || err "Checkpoint snapshot is incomplete. Resume it with: ./download.sh $MODEL_ID"
+ import json
+@@ -510,13 +510,14 @@ for f in ple_offload_layer connector worker protocol; do
+ done
+ ok "Patches ready."
+
+-PLE_CACHE_HOST="$HOME/.cache/vllm/ple_cache/${ORG}--${NAME}"
++VLLM_CACHE_HOST="${TP1_VLLM_CACHE:?Set the runtime cache directory}"
++PLE_CACHE_HOST="$VLLM_CACHE_HOST/ple_cache/${ORG}--${NAME}"
+ PLE_CACHE_CTR="/root/.cache/vllm/ple_cache/${ORG}--${NAME}"
+ if ! ls "$PLE_CACHE_HOST"/*.packed_u8 >/dev/null 2>&1; then
+     info "Building packed PLE table (one-time, ~40 s, <1 GiB RAM, no GPU)..."
+     mkdir -p "$PLE_CACHE_HOST"
+     docker run --rm --name "${CONTAINER_NAME}-plebuild" --memory 6g --cpus 8 \
+-        -v "$MODEL_PATH:/m:ro" -v "$HOME/.cache/vllm/ple_cache:/out" \
++        -v "$MODEL_PATH:/m:ro" -v "$VLLM_CACHE_HOST/ple_cache:/out" \
+         -v "$SCRIPT_DIR/files/build_ple_packed_table.py:/b.py:ro" \
+         --entrypoint python3 "$IMAGE" -u /b.py "/m/$SNAPSHOT_REL" "/out/${ORG}--${NAME}"
+ fi
+@@ -645,12 +646,12 @@ docker run \\
+     -v $OFFLOAD_DIR/worker.py:$VLLM_PKG/v1/ple_offload/worker.py:ro \\
+     -v $OFFLOAD_DIR/protocol.py:$VLLM_PKG/v1/ple_offload/protocol.py:ro \\
+     -v $HF_CACHE_DIR:/root/.cache/huggingface \\
+-    -v $HOME/.cache/vllm:/root/.cache/vllm \\
++    -v $VLLM_CACHE_HOST:/root/.cache/vllm \\
+     $EXTRA_DOCKER_ARGS \\
+     $IMAGE \\
+     $MODEL_ID \\
+     $VLLM_ARGS_STR \\
+-    --host 0.0.0.0 \\
++    --host ${TP1_BIND_HOST:?Set the private backend address} \\
+     --port $PORT
+ LAUNCH_EOF
+ chmod +x "$LAUNCH_SCRIPT"
+@@ -675,7 +676,7 @@ if docker inspect "$CONTAINER_NAME" &>/dev/null; then
+     info "Previous container log archived: logs/archive/${CONTAINER_NAME}-${ARCHIVE_TS}-container.log"
+ fi
+ docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+-mkdir -p "$HOME/.cache/vllm"
++mkdir -p "$VLLM_CACHE_HOST"
+ bash "$LAUNCH_SCRIPT"
+ rm -f "$LAUNCH_SCRIPT"
+ ok "Container $CONTAINER_NAME started."
+@@ -711,7 +712,7 @@ while true; do
+         fi
+         err "Container exited. Full logs: docker logs $CONTAINER_NAME"
+     fi
+-    CODE=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:$PORT/health" 2>/dev/null || echo "000")
++    CODE=$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' "http://$TP1_BIND_HOST:$PORT/health" 2>/dev/null || echo "000")
+     if [[ "$CODE" == "200" ]]; then
+         kill $LOGPID 2>/dev/null || true
+         echo ""

@@ -8,6 +8,7 @@ data/grafana/
 data/aichat/
 data/opencode/
 data/deepseek-v4/
+data/qwen38-flash-next/
 
 logs/
 models/adapters/
