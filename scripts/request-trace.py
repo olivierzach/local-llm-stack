@@ -10,6 +10,7 @@ import mimetypes
 import os
 from pathlib import Path
 import sys
+import subprocess
 import time
 from typing import Any
 
@@ -156,6 +157,12 @@ def extract_text(body: dict[str, Any]) -> str:
 def main() -> int:
     args = parser().parse_args()
     direct_base_url = args.vllm_base_url or DEFAULT_DIRECT_BASE_URLS.get(args.model)
+    if args.model == "local-qwen38-flash-next" and not args.vllm_base_url and not args.skip_direct:
+        host = os.getenv("QWEN38_BIND_HOST") or subprocess.check_output(
+            ["docker", "network", "inspect", "bridge", "--format", "{{(index .IPAM.Config 0).Gateway}}"],
+            text=True,
+        ).strip()
+        direct_base_url = f"http://{host}:{os.getenv('QWEN38_PORT', '8012')}/v1"
 
     if args.skip_direct and args.skip_litellm:
         print("At least one path must be enabled.", file=sys.stderr)

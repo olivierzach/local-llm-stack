@@ -32,6 +32,11 @@
             "output": 4096
           }
         },
+        "local-qwen38-flash-next": {
+          "name": "Qwen3.8 Flash Next via Context Guard",
+          "limit": {"context": 262144, "output": 32768},
+          "modalities": {"input": ["text", "image"], "output": ["text"]}
+        },
         "local-fast": {
           "name": "Local Fast via Context Guard",
           "limit": {

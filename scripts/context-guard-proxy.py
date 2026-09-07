@@ -33,6 +33,7 @@ DEFAULT_DIRECT_BASE_URLS = {
     "local-gpt-oss-120b": "http://localhost:8009/v1",
     "local-laguna-s-2.1": "http://localhost:8010/v1",
     "local-deepseek-v4-flash": "http://localhost:8011/v1",
+    "local-qwen38-flash-next": "http://localhost:8012/v1",
 }
 DEFAULT_TOKENIZER_BASE_URLS = {
     model: base_url.removesuffix("/v1")
@@ -298,6 +299,10 @@ class ProxyConfig:
     tokenizer_timeout_s: float = 3.0
     max_compaction_retries: int = 3
     context_cache: dict[str, int] = field(default_factory=dict)
+    model_timeouts: dict[str, int] = field(default_factory=lambda: {"local-qwen38-flash-next": 600})
+
+    def request_timeout_for(self, model: str) -> float:
+        return self.model_timeouts.get(normalize_model_name(model), self.timeout_s)
 
     def context_limit_for(self, model: str) -> int:
         alias = normalize_model_name(model)
@@ -543,6 +548,8 @@ class ContextGuardHandler(BaseHTTPRequestHandler):
                     "function_call",
                     "parallel_tool_calls",
                     "response_format",
+                    "mm_processor_kwargs",
+                    "media_io_kwargs",
                     "chat_template",
                     "chat_template_kwargs",
                     "reasoning_effort",
@@ -596,6 +603,12 @@ class ContextGuardHandler(BaseHTTPRequestHandler):
             self.config.default_output_tokens,
             self.config.min_output_tokens,
         )
+        # Clamp impossible output reservations without discarding valid input.
+        if (
+            max_tokens + self.config.headroom_tokens >= limit
+            and estimate + self.config.headroom_tokens < limit
+        ):
+            return self.sanitize_max_tokens(prepared), False
         if estimate + max_tokens + self.config.headroom_tokens <= limit:
             return self.sanitize_max_tokens(prepared), False
         return self.compact_payload(prepared, headers)
@@ -924,7 +937,7 @@ class ContextGuardHandler(BaseHTTPRequestHandler):
 
     def summarize_messages(self, messages: list[dict[str, Any]], *, model: str, headers: dict[str, str]) -> str:
         request_model = normalize_model_name(model)
-        summary_models = [normalize_model_name(self.config.compact_model or "local-fast")]
+        summary_models = [request_model] if request_model == "local-qwen38-flash-next" else [normalize_model_name(self.config.compact_model or "local-fast")]
         if request_model not in summary_models:
             summary_models.append(request_model)
         transcript = transcript_from_messages(messages, self.config.compact_source_chars)
@@ -947,12 +960,14 @@ class ContextGuardHandler(BaseHTTPRequestHandler):
                 "max_tokens": self.config.summary_tokens,
                 "stream": False,
             }
+            if compact_model == "local-qwen38-flash-next":
+                summary_payload["chat_template_kwargs"] = {"enable_thinking": False}
             try:
                 response = requests.post(
                     self.upstream_base_chat_url(),
                     headers=headers,
                     json=summary_payload,
-                    timeout=self.config.timeout_s,
+                    timeout=self.config.request_timeout_for(compact_model),
                 )
                 response.raise_for_status()
                 summary = extract_response_text(response.json()).strip()
@@ -968,7 +983,7 @@ class ContextGuardHandler(BaseHTTPRequestHandler):
                 self.upstream_base_chat_url(),
                 headers=headers,
                 json=payload,
-                timeout=self.config.timeout_s,
+                timeout=self.config.request_timeout_for(str(payload.get("model") or "")),
                 stream=bool(payload.get("stream")),
             )
         except requests.RequestException as exc:
@@ -1050,6 +1065,10 @@ def parser() -> argparse.ArgumentParser:
 
 
 def build_config(args: argparse.Namespace) -> ProxyConfig:
+    tokenizer_defaults = dict(DEFAULT_TOKENIZER_BASE_URLS)
+    qwen_api_base = os.getenv("QWEN38_API_BASE")
+    if qwen_api_base:
+        tokenizer_defaults["local-qwen38-flash-next"] = qwen_api_base.rstrip("/").removesuffix("/v1")
     default_contexts = {
         "local-fast": env_int("FAST_MAX_MODEL_LEN", 32768),
         "local-balanced": env_int("BALANCED_MAX_MODEL_LEN", 32768),
@@ -1063,6 +1082,7 @@ def build_config(args: argparse.Namespace) -> ProxyConfig:
         "local-gpt-oss-120b": env_int("GPTOSS120B_MAX_MODEL_LEN", 8192),
         "local-laguna-s-2.1": env_int("LAGUNAS21_MAX_MODEL_LEN", 262144),
         "local-deepseek-v4-flash": env_int("DEEPSEEKV4_MAX_MODEL_LEN", 65536),
+        "local-qwen38-flash-next": env_int("QWEN38_MAX_MODEL_LEN", 262144),
     }
     return ProxyConfig(
         upstream_base_url=args.upstream_base_url,
@@ -1083,7 +1103,7 @@ def build_config(args: argparse.Namespace) -> ProxyConfig:
         verbose=args.verbose,
         tokenizer_base_urls=parse_model_urls(
             os.getenv("CONTEXT_GUARD_TOKENIZER_BASE_URLS"),
-            DEFAULT_TOKENIZER_BASE_URLS,
+            tokenizer_defaults,
         ),
         tokenizer_timeout_s=float(os.getenv("CONTEXT_GUARD_TOKENIZER_TIMEOUT", "3.0")),
         max_compaction_retries=env_int("CONTEXT_GUARD_MAX_RETRIES", 3),

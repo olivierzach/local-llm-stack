@@ -165,6 +165,9 @@ running_pid() {
 }
 
 start_server() {
+  if [[ "$(docker inspect -f '{{.State.Running}}' local-qwen38-flash-next 2>/dev/null)" == true ]]; then
+    die "Qwen3.8 is resident; use make deepseekv4-up for the managed switch"
+  fi
   [[ -x "$ENGINE_DIR/ds4-server" ]] || die "engine is not installed; run make deepseekv4-install"
   [[ -f "$MODEL_PATH" ]] || die "base weights are missing; run make deepseekv4-install"
   local pid host available_gib decode_mode

@@ -42,10 +42,68 @@ gptoss120-up:
 lagunas21-up:
 	$(DOCKER_COMPOSE) --profile lagunas21 up -d vllm-lagunas21
 
+# The recipe owns a host-network container, outside Compose's default startup.
+.PHONY: qwen38-check qwen38-install qwen38-up qwen38-down qwen38-status qwen38-logs qwen38-dry-run qwen38-smoke qwen38-test qwen38-bench qwen38-soak
+qwen38-check:
+	set -a; source .env; set +a; bash scripts/qwen38-flash-next.sh check
+
+qwen38-install:
+	set -a; source .env; set +a; bash scripts/qwen38-flash-next.sh install
+
+qwen38-up:
+	set -a; source .env; set +a; bash scripts/qwen38-flash-next.sh check
+	set -a; source .env; set +a; ./scripts/deepseek-v4.sh stop
+	$(DOCKER_COMPOSE) stop vllm-fast vllm-balanced vllm-large vllm-qwen30a3b vllm-deepseek32b vllm-mistral24b vllm-gptoss120b vllm-lagunas21 vllm-lora vllm-vision
+	set -a; source .env; set +a; bash scripts/qwen38-flash-next.sh start
+	$(DOCKER_COMPOSE) up -d --no-deps --force-recreate litellm context-guard
+
+qwen38-down:
+	bash scripts/qwen38-flash-next.sh stop
+
+qwen38-status:
+	set -a; source .env; set +a; bash scripts/qwen38-flash-next.sh status
+
+qwen38-logs:
+	bash scripts/qwen38-flash-next.sh logs
+
+qwen38-dry-run:
+	set -a; source .env; set +a; bash scripts/qwen38-flash-next.sh dry-run
+
+qwen38-smoke:
+	.venv/bin/python scripts/qwen38-verify.py smoke
+
+qwen38-test:
+	.venv/bin/python scripts/qwen38-verify.py acceptance
+
+qwen38-bench:
+	.venv/bin/python scripts/qwen38-verify.py benchmark
+
+qwen38-soak:
+	.venv/bin/python scripts/qwen38-verify.py soak
+
+.PHONY: qwen38-verify qwen38-clients qwen38-recovery
+qwen38-verify:
+	$(MAKE) qwen38-check
+	./tests/test.sh -q
+	$(DOCKER_COMPOSE) config --quiet
+	$(MAKE) qwen38-smoke
+	$(MAKE) qwen38-test
+	$(MAKE) qwen38-recovery
+	$(MAKE) qwen38-clients
+	$(MAKE) qwen38-bench
+	$(MAKE) qwen38-soak
+
+qwen38-clients:
+	.venv/bin/python scripts/qwen38-clients.py
+
+qwen38-recovery:
+	.venv/bin/python scripts/qwen38-recovery-test.py
+
 deepseekv4-install:
 	set -a; source .env; set +a; ./scripts/deepseek-v4.sh install
 
 deepseekv4-up:
+	bash scripts/qwen38-flash-next.sh stop
 	$(DOCKER_COMPOSE) stop vllm-fast vllm-balanced vllm-large vllm-qwen30a3b vllm-deepseek32b vllm-mistral24b vllm-gptoss120b vllm-lagunas21 vllm-lora vllm-vision
 	set -a; source .env; set +a; ./scripts/deepseek-v4.sh start
 	$(DOCKER_COMPOSE) up -d --no-deps --force-recreate litellm context-guard
@@ -108,6 +166,7 @@ vision-eval:
 	set -a; source .env; set +a; python scripts/run-evals.py --models local-vision --prompt-file evals/prompts/vision.jsonl
 
 down:
+	bash scripts/qwen38-flash-next.sh stop
 	-set -a; source .env; set +a; ./scripts/deepseek-v4.sh stop
 	$(DOCKER_COMPOSE) --profile large --profile qwen30a3b --profile deepseek32b --profile mistral24b --profile gptoss120b --profile lagunas21 --profile training --profile lora --profile vision down
 
@@ -121,7 +180,7 @@ smoke:
 	set -a; source .env; set +a; ./scripts/smoke-test.sh
 
 context-guard:
-	set -a; source .env; set +a; python scripts/context-guard-proxy.py
+	set -ae; source .env; export QWEN38_API_BASE="$${QWEN38_API_BASE:-http://$${QWEN38_BIND_HOST:-$$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')}:$${QWEN38_PORT:-8012}/v1}"; python scripts/context-guard-proxy.py
 
 context-guard-up:
 	$(DOCKER_COMPOSE) up -d context-guard

@@ -99,6 +99,18 @@ model_list:
       input_cost_per_token: 0
       output_cost_per_token: 0
 
+  - model_name: local-qwen38-flash-next
+    litellm_params:
+      model: openai/local-qwen38-flash-next
+      api_base: os.environ/QWEN38_API_BASE
+      api_key: none
+      timeout: 600
+      stream_timeout: 600
+    model_info:
+      mode: chat
+      input_cost_per_token: 0
+      output_cost_per_token: 0
+
   - model_name: local-balanced-smoke-lora
     litellm_params:
       model: openai/local-balanced-smoke-lora
