@@ -87,7 +87,7 @@ def validate_recipe(r):
     fields(r, ("version", "kind", "image", "model", "revision", "alias", "context_tokens",
                "max_output_tokens", "capabilities", "dtype", "gpu_memory_utilization",
                "min_available_mib", "max_num_seqs", "extra_args", "parallelism", "validation"),
-           ("tool_call_parser", "default_chat_template_kwargs", "image_processing"))
+           ("tool_call_parser", "default_chat_template_kwargs", "image_processing", "runtime_cache", "load_strategy"))
     require(r["version"] == 1 and r["kind"] == "vllm", "unsupported recipe version/kind")
     require(re.fullmatch(r"[a-zA-Z0-9./_-]+@sha256:[0-9a-f]{64}", r["image"]),
             "image must be an immutable registry digest")
@@ -110,6 +110,10 @@ def validate_recipe(r):
         fields(r["default_chat_template_kwargs"], ("enable_thinking",))
         require(type(r["default_chat_template_kwargs"]["enable_thinking"]) is bool,
                 "enable_thinking must be a boolean")
+    if "load_strategy" in r:
+        require(r["load_strategy"] in ("lazy", "eager", "prefetch"), "unsupported weight load strategy")
+    if "runtime_cache" in r:
+        require(type(r["runtime_cache"]) is bool, "runtime_cache must be a boolean")
     if "image_processing" in r:
         require(r["capabilities"]["vision"], "image processing requires vision capability")
         image = r["image_processing"]
@@ -161,6 +165,16 @@ def load(root, inventory, deployment):
     return inv, r, d
 
 
+def runtime_cache_name(recipe, deployment, node_id, architecture):
+    # Validation prose and the public alias do not change compiled computation.
+    compute = {key: value for key, value in recipe.items() if key not in ("validation", "alias", "load_strategy")}
+    ordered = [deployment["coordinator"]] + [n for n in deployment["nodes"] if n != deployment["coordinator"]]
+    identity = {"cache_format": 1, "recipe": compute, "architecture": architecture,
+                "mode": deployment["mode"], "tensor_parallel": deployment["tensor_parallel"],
+                "pipeline_parallel": deployment["pipeline_parallel"], "rank": ordered.index(node_id)}
+    return "spark-runtime-" + hashlib.sha256(canonical(identity).encode()).hexdigest()
+
+
 def plan(inv, recipe, deployment):
     """Return an immutable desired state. Rendering never contacts a host."""
     require(deployment["mode"] in recipe["parallelism"], "recipe does not support this parallelism mode")
@@ -180,6 +194,8 @@ def plan(inv, recipe, deployment):
                "--max-model-len", str(recipe["context_tokens"]),
                "--gpu-memory-utilization", str(recipe["gpu_memory_utilization"]),
                "--max-num-seqs", str(recipe["max_num_seqs"])] + recipe["extra_args"]
+        if "load_strategy" in recipe:
+            cmd += ["--safetensors-load-strategy", recipe["load_strategy"]]
         if recipe.get("tool_call_parser"):
             cmd += ["--enable-auto-tool-choice", "--tool-call-parser", recipe["tool_call_parser"]]
         if "default_chat_template_kwargs" in recipe:
@@ -201,6 +217,11 @@ def plan(inv, recipe, deployment):
                            f"import urllib.request; urllib.request.urlopen('http://{ip}:{deployment['port']}/health', timeout=2)"],
                             "interval": "10s", "timeout": "3s", "retries": 6, "start_period": "180s"}
         }
+        if recipe.get("runtime_cache"):
+            service["volumes"].append({"type": "volume", "source": "runtime-cache", "target": "/root/.cache"})
+            service["environment"].update({"VLLM_CACHE_ROOT": "/root/.cache/vllm",
+                "TORCHINDUCTOR_CACHE_DIR": "/root/.cache/torchinductor", "TRITON_CACHE_DIR": "/root/.cache/triton",
+                "CUDA_CACHE_PATH": "/root/.cache/nvidia"})
         if deployment["mode"] != "single":
             # Pinned vLLM 0.25.1 supports native multi-node MP. Each container is
             # supervised by Docker; coordinator rank is a deployment choice.
@@ -228,6 +249,9 @@ def plan(inv, recipe, deployment):
             service["healthcheck"]["test"][-1] = (
                 f"import urllib.request; urllib.request.urlopen('http://{master_ip}:{deployment['port']}/health', timeout=2)")
         result["compose"][node_id] = {"name": "spark-" + owner, "services": {"worker": service}}
+        if recipe.get("runtime_cache"):
+            result["compose"][node_id]["volumes"] = {"runtime-cache": {
+                "name": runtime_cache_name(recipe, deployment, node_id, node["architecture"]), "external": True}}
     coordinator = inv["nodes"][deployment["coordinator"]]
     result["endpoint"] = {"alias": recipe["alias"],
                           "base_url": f"http://{coordinator['fabric'][0]['ip']}:{deployment['port']}/v1",

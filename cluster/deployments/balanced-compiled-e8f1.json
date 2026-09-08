@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "name": "balanced-compiled-e8f1",
+  "recipe": "qwen3-14b-compiled",
+  "nodes": [
+    "e8f1"
+  ],
+  "coordinator": "e8f1",
+  "mode": "single",
+  "tensor_parallel": 1,
+  "pipeline_parallel": 1,
+  "port": 8101
+}

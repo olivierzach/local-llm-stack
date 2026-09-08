@@ -121,7 +121,7 @@ def up(p, timeout, output):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("validate", "render", "doctor", "up", "status", "down", "probe", "collectives"))
+    parser.add_argument("action", choices=("validate", "render", "doctor", "up", "status", "down", "probe", "collectives", "cache-status", "cache-clear"))
     parser.add_argument("--inventory", type=Path, default=ROOT / "cluster/inventory.json")
     parser.add_argument("--deployment", type=Path)
     parser.add_argument("--saved-plan", type=Path, help="exact rendered inputs for status/down/recovery")
@@ -145,8 +145,8 @@ def main(argv=None):
                 failures += 1
         return int(bool(failures))
     if args.saved_plan:
-        if args.deployment or args.action not in ("status", "down", "probe"):
-            raise ConfigError("saved plans are for status/down/probe, without --deployment")
+        if args.deployment or args.action not in ("status", "down", "probe", "cache-status", "cache-clear"):
+            raise ConfigError("saved plans are for status/down/probe/cache operations, without --deployment")
         p = read(args.saved_plan)
         validate_saved_plan(p)
     else:
@@ -166,6 +166,9 @@ def main(argv=None):
         emit(inspect(p))
     elif args.action == "probe":
         emit(call(p, p["deployment"]["coordinator"], "probe"))
+    elif args.action in ("cache-status", "cache-clear"):
+        for node in p["deployment"]["nodes"]:
+            emit({"node": node, "cache": call(p, node, args.action)})
     elif args.action == "collectives":
         from .profile import collectives
         emit(collectives(p, output, call))

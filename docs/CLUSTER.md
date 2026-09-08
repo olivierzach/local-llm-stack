@@ -151,6 +151,58 @@ confirmed in the pinned runtime. The 14B model passed direct completion on e8f1
 and text/SSE through both gateways. Its 66f1 placement awaits GPU acceptance.
 This recipe advertises neither tools nor vision.
 
+### Runtime caches and compiled execution
+
+The original eager recipes remain available. The optional
+`balanced-compiled-e8f1.json` and `balanced-compiled-66f1.json` select the same
+14B model contract, enable the pinned runtime's compilation/CUDA-graph defaults,
+and use persistent runtime caches plus prefetched weight loading. Check the
+recipe's validation note and the implementation record for measured behavior;
+compiled execution is not assumed to improve throughput.
+
+```bash
+scripts/sparkctl up --deployment cluster/deployments/balanced-compiled-e8f1.json
+scripts/sparkctl cache-status --deployment cluster/deployments/balanced-compiled-e8f1.json
+```
+
+`runtime_cache: true` stores vLLM, TorchInductor, Triton, FlashInfer and CUDA
+artifacts in a labeled, node-local Docker volume. The model snapshot mount stays
+read-only. Cache identity includes the pinned image/model, compute settings,
+architecture and distributed rank. Alias, port, validation prose and weight-load
+strategy do not change compiled computation and therefore do not change the
+volume name. The pinned runtime independently validates its internal cache keys.
+No cache is copied between nodes automatically.
+
+Stopping a deployment retains this cache. To discard it explicitly after its
+containers are removed:
+
+```bash
+scripts/sparkctl down --deployment cluster/deployments/balanced-compiled-e8f1.json
+scripts/sparkctl cache-clear --deployment cluster/deployments/balanced-compiled-e8f1.json
+```
+
+Both cache commands also accept `--saved-plan PATH`. Cache ownership labels and
+the Unix user must match. Docker refuses removal while any container references
+the volume; the command does not stop containers or run a general prune.
+The optional `load_strategy` field accepts `lazy`, `eager` or `prefetch` and maps
+to the pinned loader flag. The 14B candidate uses `prefetch`; other models need
+their own memory/startup acceptance. See
+[vLLM cache and startup tuning](https://docs.vllm.ai/en/stable/configuration/optimization/).
+
+Save benchmark JSON beside each exact deployment plan. For a matched comparison:
+
+```bash
+.venv/bin/python scripts/compare-spark-benchmarks.py \
+  --baseline /path/to/eager/benchmark.json --baseline-plan /path/to/eager/plan.json \
+  --candidate /path/to/compiled/benchmark.json --candidate-plan /path/to/compiled/plan.json \
+  --output data/cluster/runtime-comparison.json
+```
+
+The comparison requires matching model revisions, precision, context/output
+contracts, workload settings and request counts. It rejects incomplete or
+mismatched runs and reports throughput, first-token latency and throughput per
+allocated GPU. It does not estimate model quality or wall-power efficiency.
+
 ### Image models
 
 `vision-e8f1.json` and `vision-66f1.json` select the same pinned

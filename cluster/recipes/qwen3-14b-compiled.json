@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "kind": "vllm",
+  "image": "vllm/vllm-openai@sha256:e4f88a835143cd22aee2397a26ec6bb80b3a4a6fe0c882bcbc63822904766089",
+  "model": "Qwen/Qwen3-14B",
+  "revision": "40c069824f4251a91eefaf281ebe4c544efd3e18",
+  "alias": "local-balanced",
+  "context_tokens": 16384,
+  "max_output_tokens": 4096,
+  "capabilities": {
+    "text": true,
+    "vision": false,
+    "tools": false,
+    "streaming": true
+  },
+  "dtype": "bfloat16",
+  "gpu_memory_utilization": 0.45,
+  "min_available_mib": 57344,
+  "max_num_seqs": 8,
+  "extra_args": [
+    "--enable-prefix-caching"
+  ],
+  "default_chat_template_kwargs": {
+    "enable_thinking": false
+  },
+  "parallelism": [
+    "single"
+  ],
+  "validation": "Candidate compiled 14B recipe with persistent runtime caches; performance and restart acceptance pending.",
+  "runtime_cache": true,
+  "load_strategy": "prefetch"
+}

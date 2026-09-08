@@ -281,3 +281,76 @@ def test_vision_recipe_bounds_render_and_validate():
         with pytest.raises(ValueError): config.validate_recipe(changed)
     changed = {**recipe, 'capabilities': {**recipe['capabilities'], 'vision': False}}
     with pytest.raises(ValueError, match='vision capability'): config.validate_recipe(changed)
+
+
+def test_runtime_cache_tracks_compute_but_survives_prose_alias_and_port_changes():
+    inv, recipe, deployment = config.load(ROOT, ROOT/'cluster/inventory.json', ROOT/'cluster/deployments/balanced-compiled-e8f1.json')
+    first = config.plan(inv, recipe, deployment)
+    def volume(p): return p['compose']['e8f1']['volumes']['runtime-cache']['name']
+    second = config.plan(inv, {**recipe, 'alias': 'another-alias', 'validation': 'updated evidence'}, {**deployment, 'port': 8123})
+    assert first['digest'] != second['digest'] and volume(first) == volume(second)
+    prefetch = config.plan(inv, {**recipe, 'load_strategy': 'prefetch'}, deployment)
+    assert volume(prefetch) == volume(first)
+    assert '--safetensors-load-strategy' in prefetch['compose']['e8f1']['services']['worker']['command']
+    for change in ({'context_tokens': 32768}, {'revision': 'a'*40}, {'extra_args': ['--enforce-eager']}):
+        assert volume(config.plan(inv, {**recipe, **change}, deployment)) != volume(first)
+    service = first['compose']['e8f1']['services']['worker']
+    assert service['volumes'][0]['read_only'] is True
+    assert service['volumes'][1] == {'type': 'volume', 'source': 'runtime-cache', 'target': '/root/.cache'}
+    assert service['environment']['TORCHINDUCTOR_CACHE_DIR'].startswith('/root/.cache/')
+    with pytest.raises(ValueError, match='boolean'):
+        config.validate_recipe({**recipe, 'runtime_cache': 1})
+
+
+def test_runtime_cache_creation_reuse_clear_and_ownership(monkeypatch):
+    inv, recipe, deployment = config.load(ROOT, ROOT/'cluster/inventory.json', ROOT/'cluster/deployments/balanced-compiled-e8f1.json')
+    p = config.plan(inv, recipe, deployment)
+    req = cli.request(p, 'e8f1', 'cache-status')
+    volumes, calls = {}, []
+    def docker(args, **kwargs):
+        calls.append(args)
+        verb = args[2]
+        if verb == 'ls': return '\n'.join(volumes)
+        if verb == 'create':
+            labels = dict(args[i+1].split('=', 1) for i, arg in enumerate(args) if arg == '--label')
+            volumes[args[-1]] = {'Name': args[-1], 'Labels': labels}
+            return args[-1]
+        if verb == 'inspect': return json.dumps([volumes[args[-1]]])
+        if verb == 'rm':
+            if volumes[args[-1]].get('in_use'): raise RuntimeError('Docker: volume is in use')
+            del volumes[args[-1]]
+            return args[-1]
+        raise AssertionError(args)
+    monkeypatch.setattr(node, 'run', docker)
+    assert node.runtime_cache(req)['present'] is False
+    created = node.runtime_cache(req, create=True)
+    assert created['present'] is True
+    assert node.runtime_cache(req, create=True) == created
+    assert sum(args[2] == 'create' for args in calls) == 1
+    volumes[created['name']]['in_use'] = True
+    with pytest.raises(RuntimeError, match='in use'): node.runtime_cache(req, clear=True)
+    assert node.runtime_cache(req)['present'] is True
+    volumes[created['name']]['in_use'] = False
+    original_labels = dict(volumes[created['name']]['Labels'])
+    volumes[created['name']]['Labels'] = {}
+    with pytest.raises(RuntimeError, match='ownership mismatch'): node.runtime_cache(req, clear=True)
+    assert created['name'] in volumes
+    volumes[created['name']]['Labels'] = original_labels
+    assert node.runtime_cache(req, clear=True)['present'] is False
+    assert created['name'] not in volumes
+
+
+def test_port_check_allows_restart_but_rejects_listener():
+    import socket
+    with socket.socket() as listener:
+        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        listener.bind(('127.0.0.1', 0))
+        address, port = listener.getsockname()
+        listener.listen(1)
+        with pytest.raises(OSError):
+            node.check_port(address, port)
+        with socket.create_connection((address, port)) as client:
+            connection, _ = listener.accept()
+            connection.close()  # Server closes first, leaving TIME_WAIT.
+            assert client.recv(1) == b''
+    node.check_port(address, port)

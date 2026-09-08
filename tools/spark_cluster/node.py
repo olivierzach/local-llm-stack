@@ -118,6 +118,14 @@ def owned(request):
     return saved
 
 
+def check_port(address, port):
+    # Match server restart semantics: TIME_WAIT is reusable, a listener is not.
+    with socket.socket() as s:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.bind((address, port))
+        s.listen(1)
+
+
 def reserve(request):
     old = reservation()
     if old:
@@ -144,13 +152,11 @@ def reserve(request):
     for entry in snapshot.iterdir():
         if entry.is_symlink() and not entry.exists():
             raise RuntimeError("model snapshot has broken symlinks")
-    with socket.socket() as s:
-        s.bind((node["fabric"][0]["ip"], request["deployment"]["port"]))
+    check_port(node["fabric"][0]["ip"], request["deployment"]["port"])
     if request["deployment"]["mode"] != "single":
         if not Path("/dev/infiniband").is_dir():
             raise RuntimeError("RDMA devices unavailable")
-        with socket.socket() as s:
-            s.bind((node["fabric"][0]["ip"], request["deployment"]["master_port"]))
+        check_port(node["fabric"][0]["ip"], request["deployment"]["master_port"])
     atomic(STATE / "gpu.json", {"owner": request["owner"], "digest": request["digest"],
                                 "created_at": time.time(), "container_ids": [], "phase": "reserved"})
     return {"reserved": True, "existing": False}
@@ -164,6 +170,36 @@ def status(request):
              for c in items]}
 
 
+def runtime_cache(request, create=False, clear=False):
+    definition = request["compose"].get("volumes", {}).get("runtime-cache")
+    if not request["recipe"].get("runtime_cache"):
+        if definition: raise RuntimeError("unexpected runtime cache volume")
+        return {"enabled": False}
+    if not isinstance(definition, dict) or set(definition) != {"name", "external"} or definition["external"] is not True:
+        raise RuntimeError("invalid runtime cache definition")
+    name = definition["name"]
+    if not re.fullmatch(r"spark-runtime-[a-f0-9]{64}", name):
+        raise RuntimeError("invalid runtime cache name")
+    labels = {"io.spark.runtime-cache": name.removeprefix("spark-runtime-"),
+              "io.spark.cache-format": "1", "io.spark.cache-user": str(os.getuid())}
+    names = run(["docker", "volume", "ls", "--format", "{{.Name}}"]).splitlines()
+    if name not in names and create:
+        args = ["docker", "volume", "create"]
+        for key, value in labels.items(): args += ["--label", key+"="+value]
+        run(args+[name])
+        names.append(name)
+    if name not in names:
+        return {"enabled": True, "name": name, "present": False}
+    info = json.loads(run(["docker", "volume", "inspect", name]))[0]
+    if info.get("Name") != name or any((info.get("Labels") or {}).get(k) != v for k, v in labels.items()):
+        raise RuntimeError("runtime cache ownership mismatch; no cache changes made")
+    if clear:
+        # Docker refuses removal while any container, including a stopped one,
+        # references the volume. Never prune or stop those containers here.
+        run(["docker", "volume", "rm", name])
+    return {"enabled": True, "name": name, "present": not clear}
+
+
 def start(request):
     saved = owned(request)
     folder = STATE / request["owner"]
@@ -171,6 +207,7 @@ def start(request):
     compose = folder / "compose.json"
     if compose.exists() and json.loads(compose.read_text()) != request["compose"]:
         raise RuntimeError("saved Compose definition changed")
+    runtime_cache(request, create=True)
     atomic(compose, request["compose"])
     base = ["docker", "compose", "-f", str(compose)]
     run(base + ["config", "--quiet"])
@@ -307,6 +344,8 @@ def main(request):
         if action == "reserve-batch": return reserve_batch(request)
         if action == "reserve-workload": return workload_reservation(request)
         if action == "release-workload": return workload_reservation(request, release=True)
+        if action == "cache-status": return runtime_cache(request)
+        if action == "cache-clear": return runtime_cache(request, clear=True)
         if action == "reserve": return reserve(request)
         if action == "start": return start(request)
         if action == "stop": return stop(request)
