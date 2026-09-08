@@ -596,3 +596,25 @@ are in `data/cluster/large-model-preparation/preparation-acceptance.json`.
 running research job (`ca8939aab641`, CUDA PID 339241). Its research window is
 entered, so combined-node GPU acceptance remains deferred. No research job was
 stopped. e8f1 has no CUDA process or GPU reservation during this preparation.
+
+## OpenClaw read-tool acceptance through either gateway
+
+OpenClaw 2026.9.1 (`ad6fe23`) on the Mac, with its isolated Node 22.23.2 runtime,
+completed an actual read-only tool turn through each physical Context Guard
+gateway. The same managed Qwen3-4B coder deployment on e8f1 served both contexts.
+Each run used an independent generated nonce fixture whose value was absent from
+the prompt, and completed one `read` call plus a final answer in two model turns.
+SQLite transcript inspection verified the selected provider/model, fixture path,
+call ID, successful tool result and exact final value. No plugin, messaging tool,
+shell execution, write tool or existing client session was used.
+
+The repeatable `probe-spark-openclaw.py` script derives its provider config from
+the normal client adapter, applies probe-only tool/workspace restrictions, and
+retains message/result evidence before removing its temporary state. Nine
+regression cases reject missing calls, mismatched files/IDs/providers, tool
+errors, prompt leakage and contradictory final responses or tool summaries.
+Actual reports are `data/cluster/openclaw/e8f1-read.json` and
+`data/cluster/openclaw/66f1-read.json`, with exported message traces alongside.
+This establishes client tool transport through either gateway with independent
+model placement. It does not claim coding quality, OpenClaw installation on the
+Sparks, or image-agent acceptance. 66f1's research job was left running.

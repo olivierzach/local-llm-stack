@@ -499,6 +499,28 @@ On Linux, the client runner uses the locked AIChat image if a native executable
 is absent; it mounts only that isolated AIChat configuration directory and passes
 the gateway key through the environment. It never pulls a mutable image tag.
 
+OpenClaw 2026.9.1 has also passed a real read-tool turn from the Mac through
+either gateway while e8f1 hosted `local-coder`. Repeat with OpenClaw installed
+on the client machine and its gateway tunnel active:
+
+```bash
+.venv/bin/python scripts/probe-spark-openclaw.py --node e8f1 --port 4112 --output data/cluster/openclaw-e8f1-read.json
+.venv/bin/python scripts/probe-spark-openclaw.py --node 66f1 --port 4111 --output data/cluster/openclaw-66f1-read.json
+```
+
+Each run uses the generated provider contract in a temporary config and state
+directory, disables plugins and hosted catalog refresh, skips workspace bootstrap,
+and allows only `read` within its generated workspace. It preserves ordinary
+OpenClaw settings. A 90-second client deadline has a 150-second process-group
+backstop. Acceptance requires a matching call, successful tool result and final
+answer from the selected provider/model in the retained transcript; a text-only
+guess cannot pass. Output paths must be new. The probe exports only its messages
+and result diagnostics, then removes the temporary state database. Its transcript
+reader is tested against this OpenClaw version; schema changes fail explicitly.
+This is protocol/tool acceptance, not general coding-quality evaluation or an
+OpenClaw image-agent test. OpenClaw's CLI was exercised on the Mac, not installed
+or tested on both Sparks by this probe.
+
 To repeat the bounded protocol acceptance against a live deployment:
 
 ```bash
