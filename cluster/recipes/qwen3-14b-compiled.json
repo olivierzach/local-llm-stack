@@ -26,7 +26,7 @@
   "parallelism": [
     "single"
   ],
-  "validation": "Candidate compiled 14B recipe with persistent runtime caches; performance and restart acceptance pending.",
+  "validation": "Compiled 14B completion and persistent compiled-graph/AOT cache reuse passed on e8f1; both gateways discovered the ready model. Compiled throughput comparison is recorded in docs/CLUSTER_IMPLEMENTATION.md. The 66f1 GPU placement remains untested.",
   "runtime_cache": true,
   "load_strategy": "prefetch"
 }

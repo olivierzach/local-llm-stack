@@ -385,3 +385,68 @@ validated recipe and probes. Both optional gateway runtimes were reconciled to
 `spark-gateway-2789753ab64e`, preserving registries and credentials. The 66f1
 research container remained running with process 4030689. Full installed-release
 Linux validation passes **170 tests**; baseline Compose configuration also passes.
+
+## Persistent runtime caches and compiled 14B acceptance
+
+The optional compiled Qwen3-14B recipe retains the baseline model revision,
+BF16 precision, 16,384-token context, 4,096-token output cap and eight-sequence
+limit. It enables vLLM's compiled execution defaults and a labeled Docker volume
+for runtime artifacts. The existing eager recipe and legacy Compose remain
+unchanged. Cache volumes are local to each node, keyed by pinned computation
+inputs, and retained after the owned model container is removed. Explicit cache
+removal checks ownership and refuses in-use volumes without stopping workers.
+
+Both stable controllers now select `4ca4ab5b21e50720bbb50c3be95769e793625eaa`.
+Installation restarted no services. The isolated Linux validation checkout
+passed **175 tests**, including actual socket admission, cache lifecycle and
+matched benchmark validation. Startup admission now permits TCP TIME_WAIT left
+by a stopped server while still rejecting an active listener.
+
+On e8f1, cold compiled owner `balanced-compiled-e8f1-c460d10ea7fb` passed real
+completion. Its cache contained about 255 MB in 683 files. Docker refused an
+attempt to clear that cache while its worker was running. After stopping the
+owned worker, `balanced-compiled-e8f1-c0b13ca5b0f6` reused the same volume with
+prefetched weight loading. Logs explicitly confirmed compiled-graph and AOT
+cache hits: graph loading took 0.646 seconds and reported total compilation fell
+from 13.91 to 2.10 seconds. The restart passed a real completion and both gateways
+listed `local-balanced`; its full controller startup took 217.58 seconds.
+
+Weight loading still dominated: 182.50 seconds in the initial run versus 180.94
+seconds with prefetch. Page-cache prefetch itself took 2.99 seconds. These were
+sequential runs with potentially warm filesystem caches, so this does not
+establish a prefetch speedup. Persisting compiled artifacts reduced repeated
+compilation work; throughput is evaluated separately. The 66f1 compiled GPU
+placement remains untested while its research job owns that GPU.
+
+The refreshed read-only parity audit in `data/cluster/parity-current/` confirms
+OMP 18.1.11 and nvtop on both Sparks, no missing source user executables and no
+missing source Docker images on e8f1. Tailscale remains the only source tool
+absent there. Desktop and old kernel/driver package differences are not blindly
+copied; the staged system package baseline remains pending.
+
+The matched throughput runs used the same e8f1 gateway, unique approximately
+1K-token prompts, 128 output tokens, eight requests at every concurrency level
+and one excluded warmup. Both variants returned 1,024 output tokens per level.
+The baseline owner was `balanced-e8f1-4f0ebc014dc8`; the compiled owner was
+`balanced-compiled-e8f1-c460d10ea7fb` (before changing only its weight loader).
+
+| Concurrency | Eager output tokens/s | Compiled output tokens/s | Eager median TTFT, s | Compiled median TTFT, s |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 8.02 | 8.18 | 0.393 | 0.414 |
+| 2 | 15.35 | 15.66 | 0.688 | 0.728 |
+| 4 | 29.30 | 29.89 | 1.138 | 1.190 |
+| 8 | 52.85 | 53.64 | 1.787 | 1.913 |
+
+Compiled throughput was about 1.5–2.0% higher in this matched sample, with median
+first-token latency about 4.5–7.0% higher. These single sequential trials do not
+establish a statistically significant speedup, a production latency advantage,
+or a power-efficiency improvement. The original eager recipe remains the
+baseline; compiled execution is opt-in. Weight-loader changes affect startup,
+not the warm-throughput workload measured here.
+
+Exact saved plans, full benchmark records and startup logs are retained under
+the three owner directories in `data/cluster/`. The validated comparison is
+`data/cluster/compiled-14b-comparison.json`. All owned test models were stopped,
+both original coding-replica registries restored, and e8f1's GPU lease released.
+The node-local compiled cache remains available for reuse. The 66f1 research
+container and its process 4030689 remained running throughout.
