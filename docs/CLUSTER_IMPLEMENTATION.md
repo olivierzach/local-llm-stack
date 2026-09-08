@@ -251,3 +251,47 @@ stream leases, model mismatch, no generation replay, registry replacement,
 gateway startup readiness and strict tool-result verification. NetworkManager
 reports `auth` for profile/network changes from these SSH sessions; fabric tuning
 still needs the previously staged privileged setup.
+
+## Reproducible controller installation and attachment
+
+Both Sparks now have the same detached controller release
+`f7d3bfa95a52856f5ef0fcbc33bbf36d4e3c6e44` under
+`~/projects/local-llm-stack-cluster/releases/`. Stable commands live in that
+prefix's `bin/`; `current` selects the release. The original production and
+research checkouts remain separate. This installation requires no agent at run
+time and does not depend on the temporary validation directory.
+
+The installer takes a local trusted Git bundle and explicit full commit ID.
+Six runtime dependencies are pinned with PyPI wheel hashes; both hosts installed
+those exact versions under Python 3.12.3. The requirements lock SHA-256 is
+`5af29d29fe1fe1da12047129ffe9622b0bd85779c0f76e2e8ed6454f8da92277`.
+It validates dependency consistency and all five command entry points before
+activation. Repeated installation reuses a checked release. An unrecognized
+existing destination is refused; failed new releases cannot remove the prior
+active release or shared recovery state. This is reproducible dependency/source
+selection, not an assertion that all platform binaries are identical.
+
+`state/` is shared by releases, including saved plans, profiles and gateway
+attachments. On e8f1, a real rollback to
+`5bc0c543845e422ceae22f7e3d7667f956354ef5` and restoration of the current release
+preserved all 18 state files byte-for-byte. The previous release remains
+available on both hosts. No active service was restarted during either upgrade
+or rollback.
+
+Both controllers successfully inspected both nodes over the existing SSH paths.
+Each then attached to both owned gateways, using the explicit `spark-gateway
+attach` command. It retrieves only that gateway's registry and key, stores the
+key with mode `0600`, excludes its value from CLI output, and preserves any
+conflicting controller credential. All four authenticated model-list probes
+passed. Empty model lists are expected while no managed inference worker runs.
+OMP, OpenClaw, AIChat and llm profiles were rendered for each gateway from each
+controller. Gateway container IDs and start times were unchanged. The protected
+66f1 research job remained running with container process 4030689.
+
+Acceptance receipts and two-node doctor output are retained under
+`data/cluster/controller-install/` on the Mac. The full installed-release Linux
+suite passes **162 tests**, including real Git-bundle upgrade/rollback fixtures,
+failed-release preservation and gateway attachment ownership/credential checks.
+Baseline Compose configuration validation also passed. Fabric tuning, remaining
+cross-node GPU acceptance and explicit OpenRouter credential provisioning remain
+open as listed above.
