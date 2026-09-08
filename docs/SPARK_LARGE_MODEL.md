@@ -91,6 +91,18 @@ using absolute script, cache and lock paths. Inspect that exact service and its
 journal before retrying. Do not run simultaneous copies into the same snapshot.
 A failed copy can be rerun: destination hashes must pass before success is reported.
 
+A user service started before Docker group membership changed may report socket
+permission denied even when Docker works over SSH. Launch the Docker-dependent
+command through `sg docker -c 'COMMAND'` in that service to use the authorized
+group membership. Confirm membership with `id` first. Avoid restarting the whole
+user manager while other supervisors are running.
+
+For a copy scheduled before the download finishes, gate the copy on
+`docker wait FULL_DOWNLOAD_CONTAINER_ID` returning the text `0`. Use the full ID
+recorded at launch, an eight-hour user-service `RuntimeMaxSec`, and the exact
+release's sync script. A timeout or failed download must leave the copy unstarted.
+The copy lock alone is insufficient evidence that the current download succeeded.
+
 ## Select the coordinator and parallelism
 
 | Deployment | Coordinator | Tensor parallel | Pipeline parallel |

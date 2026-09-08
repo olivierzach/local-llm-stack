@@ -577,3 +577,22 @@ fit, hybrid kernels, generation, streaming and performance remain unvalidated.
 No gateway routes were changed. Admission now refuses partial numbered shard
 sets and missing index references before reserving GPU resources. The download,
 resume, copy and acceptance steps are documented in [SPARK_LARGE_MODEL.md](SPARK_LARGE_MODEL.md).
+
+Release `7e868e0fe78d8698b238a0ed7c5e2b4af5a873d4` was installed on both nodes
+without restarting services. Its complete Linux suite passed **188 tests**;
+baseline Compose and shell syntax checks passed. The actual in-progress cache
+with 21 of 41 shards was rejected by admission without a GPU reservation.
+
+An eight-hour user service on e8f1 now waits on the exact download container's
+successful exit before running the immutable release's peer-copy command. The
+first service failed before copying because its lingering user manager lacked
+the Docker group present in SSH sessions. The corrected `-v2` service uses
+`sg docker` and was confirmed active, waiting on that same download. This did
+not restart the user manager or the download. Neither download completion nor
+peer-copy verification is claimed yet. Current receipt and exact job handles
+are in `data/cluster/large-model-preparation/preparation-acceptance.json`.
+
+66f1's previously observed research container has been replaced by another
+running research job (`ca8939aab641`, CUDA PID 339241). Its research window is
+entered, so combined-node GPU acceptance remains deferred. No research job was
+stopped. e8f1 has no CUDA process or GPU reservation during this preparation.
