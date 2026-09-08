@@ -563,7 +563,8 @@ The candidate Qwen3-Next-80B-A3B-Instruct BF16 revision
 51 files (162,682,272,937 bytes), upstream SHA-256s, runtime image and download
 library. The CPU-only e8f1 download is bounded by Docker resource limits and a
 six-hour watchdog, uses no credential, and emits a peer-copy lock only after
-every file passes verification. Download and peer-copy completion remain pending.
+every file passes verification. Source download verification has since completed;
+peer-copy completion remains pending.
 
 The exact pinned runtime loaded the model config and tokenizer offline:
 `Qwen3NextConfig`, 48 layers, attention heads 16/2 and linear heads 16/32. Those
@@ -588,14 +589,27 @@ successful exit before running the immutable release's peer-copy command. The
 first service failed before copying because its lingering user manager lacked
 the Docker group present in SSH sessions. The corrected `-v2` service uses
 `sg docker` and was confirmed active, waiting on that same download. This did
-not restart the user manager or the download. Neither download completion nor
-peer-copy verification is claimed yet. Current receipt and exact job handles
+not restart the user manager or the download. At this checkpoint download and
+peer-copy verification were still pending. The receipt and exact job handles
 are in `data/cluster/large-model-preparation/preparation-acceptance.json`.
 
 66f1's previously observed research container has been replaced by another
 running research job (`ca8939aab641`, CUDA PID 339241). Its research window is
 entered, so combined-node GPU acceptance remains deferred. No research job was
 stopped. e8f1 has no CUDA process or GPU reservation during this preparation.
+
+The source download subsequently exited 0 after checking all 51 upstream hashes:
+162,682,272,937 bytes in 2,435.67 seconds including download and verification.
+Its manifest SHA-256 is
+`10722f37b410a9ed46c731b0af74a5c8b4b538c13366993d6ec680ce07c9d1d2`;
+the generated peer-copy lock SHA-256 is
+`f3f4f9d7f932d34ca2ab2ef35734be7b1c69f72f8a592ee3122d6cfd090e363a`.
+The completed snapshot now passes the same structural admission check that
+rejected its partial form. The waiting service advanced to the source rehash
+and peer-copy workflow. Route inspection confirms `10.10.20.2` to `10.10.20.1`
+uses `enp1s0f0np0`. Destination completion is not yet established. Evidence is
+`data/cluster/large-model-preparation/source-verified.json` and the retained
+`downloaded-model.lock.json` in that directory.
 
 ## OpenClaw read-tool acceptance through either gateway
 
@@ -618,3 +632,10 @@ Actual reports are `data/cluster/openclaw/e8f1-read.json` and
 This establishes client tool transport through either gateway with independent
 model placement. It does not claim coding quality, OpenClaw installation on the
 Sparks, or image-agent acceptance. 66f1's research job was left running.
+
+Release `2a3fadc67b1f150b076020931179444594decc62` is installed on both nodes.
+Its full Linux suite passed **197 tests**, with no failures, errors or skips.
+The owned coder container was removed and its GPU reservation released after
+acceptance; both gateways remain authenticated and advertise no stopped test
+models. Both temporary SSH tunnels were closed. Test counts and cleanup evidence
+are retained in `data/cluster/openclaw/acceptance-summary.json` and its JUnit XML.
