@@ -139,8 +139,8 @@ Original copy checksums and transfer measurements remain under the controller's
   efficient use of the physical link.
 - Test reverse TP coordinator placement and pipeline parallelism; compare
   single-node, TP and PP latency/throughput with an optimized model recipe.
-- Validate vision and larger combined-node recipes. The
-  baseline 4B recipe advertises no tools; the separate coder recipe has passed
+- Validate larger combined-node recipes and the vision GPU placement on 66f1.
+  The baseline 4B recipe advertises no tools; the separate coder recipe has passed
   protocol-level tool calling and streaming, not coding-quality evaluation.
 - Validate the staged Loop LLM and Vector Bucket workers on 66f1 after its research
   job finishes; extend
@@ -335,3 +335,53 @@ private-file validation, corruption handling and in-flight credential retention.
 Compose configuration validation passed. The operator runbook contains explicit
 OpenRouter route and per-gateway provisioning instructions; local models never
 fall back to that cloud route implicitly.
+
+
+## Bounded vision model and image-client acceptance
+
+The pinned Qwen3-VL-4B-Instruct revision
+`ebb281ec70b05090aa6165b016eac8ec08e71b17` passed on e8f1 under owned deployment
+`vision-e8f1-8e5a780b29a7`. The recipe uses BF16, eager execution, an 8,192-token
+context, a 2,048-token output cap, four concurrent sequences and 30% GPU memory.
+Its explicit processor policy permits two images, disables video, and bounds
+processed image area to 65,536–1,048,576 pixels. The pinned runtime's processor
+implementation was inspected to verify support for these arguments.
+
+The direct model and both independently placed gateways correctly recognized
+two synthetic images in order, reversed the answer when image order reversed,
+and streamed complete responses. The probe uses actual PNG data and never
+places the expected colors in its prompt. Direct tokenizer counts matched model
+usage, and gateway input-token headers matched both. Three-image requests were
+rejected. A 1536×1536 source image was processed within the same token budget as
+a 1024×1024 source, verifying the configured downscaling policy.
+
+| Acceptance input | Original/input tokens | Tokens used after processing/compaction |
+| --- | ---: | ---: |
+| Text prompt without images | 34 | 34 |
+| Same prompt plus two 384×384 images | 326 | 326 |
+| Single 1024×1024 or 1536×1536 image | 1060 for either | 1060 |
+| Long conversation ending in two images | 24832 | 6083 |
+
+Both gateways preserved the images and answered correctly after compacting the
+long conversation. The final gateway probes reported about 0.113–0.114 seconds
+to the first streamed delta and about 3.60 seconds for compaction plus completion.
+These are small synthetic acceptance samples with warm caches, not a throughput
+benchmark. The first direct image request took 7.45 seconds, illustrating cold
+image-path overhead. General photo/OCR quality, video, tools and optimized vision
+performance are not established by this test.
+
+Actual attachments also passed in OMP on both Sparks, AIChat's container on e8f1,
+and llm on the Mac through an owned temporary SSH tunnel. Fixture filenames were
+opaque and client sessions/profiles temporary. OpenClaw's generated profile
+advertises image input correctly; an OpenClaw image-agent session remains untested.
+Container AIChat now supports an explicit read-only attachment directory without
+mounting the user's home or changing existing text-only behavior.
+
+Evidence is retained under `data/cluster/vision-e8f1-8e5a780b29a7/` on the Mac.
+The test model was stopped using its exact saved plan and its GPU reservation
+released. Both original coding-replica registries were restored. Stable
+controllers now select `228500e8cadae46812b68941b3a121218c2bf7c8`, which includes the
+validated recipe and probes. Both optional gateway runtimes were reconciled to
+`spark-gateway-2789753ab64e`, preserving registries and credentials. The 66f1
+research container remained running with process 4030689. Full installed-release
+Linux validation passes **170 tests**; baseline Compose configuration also passes.
