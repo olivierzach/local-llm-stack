@@ -507,3 +507,50 @@ passed the complete **182-test Linux suite**. Focused coverage includes bounds,
 units, process ownership, counter resets, CPU-affinity scope and perftest's
 nonstandard successful version-query exit code. Package installation and
 multi-node GPU acceptance still require the previously recorded prerequisites.
+
+## Controlled GPU-load comparison
+
+To test whether GPU activity by itself reproduced the slow sender behavior, e8f1
+ran the existing Loop LLM recurrent-80M capacity probe under the shared GPU lease.
+The new optional `loop-fabric-load.json` recipe sets a 180-second probe budget and
+a 300-second durable supervisor limit. Job `fabric-load-001` reused the verified
+133-file snapshot `89be22128c3ac1f554f01c69d9ef7bb1caa71885deabad6e341db4f38d832300`
+and the previously pinned Torch image. Neither source checkout was changed.
+
+The owned CUDA process (PID 220400) was present before and after all six loaded
+RDMA cases. Each e8f1 GPU-utilization sample reported 92%; instantaneous reported
+power ranged approximately 44.4–46.6 W during those cases. These device telemetry
+samples are not average power or energy measurements. The same 64 KiB, one-QP,
+five-second RDMA settings and CPUs 5/15 were used in all three phases.
+
+| Sender | Rail(s) | Before, Gb/s | During training, Gb/s | After, Gb/s |
+| --- | --- | ---: | ---: | ---: |
+| e8f1 | 0 | 109.05 | 106.25 | 109.03 |
+| e8f1 | 1 | 109.03 | 106.28 | 109.04 |
+| e8f1 | concurrent 0+1 sum | 185.14 | 183.07 | 185.14 |
+| 66f1 | 0 | 9.27 | 9.17 | 9.14 |
+| 66f1 | 1 | 9.17 | 10.30 | 9.00 |
+| 66f1 | concurrent 0+1 sum | 17.78 | 18.30 | 18.81 |
+
+The large directional gap persisted. This particular GPU workload reduced the
+fast direction modestly and did not reproduce the slow 66f1 sender. Generic GPU
+activity is therefore insufficient to explain the observed gap. The two nodes'
+workloads, kernel and GPU-driver versions differ; this experiment does not
+identify which difference causes it or exclude workload-specific interference.
+A matched idle-node/software comparison remains necessary before prescribing
+host changes. The concurrent figures retain the profiler's overlapping-window
+qualification and are not NCCL or model-copy throughput claims.
+
+The probe finished naturally with 1,842 measured forward/backward/Adam steps,
+finite losses, BF16 autocast, approximately 10,539 synthetic tokens/s and a
+96.61 ms median step. The supervisor removed its owned container and restored its
+window; the cluster controller then collected the checksummed artifact and
+released the GPU lease. e8f1 had no CUDA process before or after any idle case.
+66f1's protected research process remained running throughout.
+
+The 109,041-byte report `probes/fabric-load.json` has SHA-256
+`fa3cde79243c3be17acc88330ce921e74c8fe5cd745af7205a5963df17d9fd61`.
+Artifacts and recovery records are under `data/cluster/loop/e8f1/fabric-load-001/`.
+Loaded and post-load profiles are under `data/cluster/fabric-host-e8f1-training-load/`
+and `data/cluster/fabric-host-e8f1-post-training/`; the matched phase/PID checks
+and comparison are retained in `data/cluster/fabric-controlled-load-comparison.json`.

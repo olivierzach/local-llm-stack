@@ -394,6 +394,23 @@ RDMA speed is distinct from model-copy throughput and host-staged GPU collective
 speed. Background research work can affect either direction. See the measured
 results and their limitations in [the implementation record](CLUSTER_IMPLEMENTATION.md).
 
+For a controlled GPU-load comparison on an idle node, the optional
+`cluster/workloads/loop-fabric-load.json` runs the existing 80M recurrent Loop
+LLM capacity probe for up to 180 seconds, under a 300-second job-supervisor
+limit. Use the normal Loop staging/start workflow below with this job config and
+a fresh job ID. Confirm the owned CUDA process is active before running the
+fabric profile. Then wait for the same job to finish, collect
+`probes/fabric-load.json`, release its lease and repeat the identical profile.
+The profiler records instantaneous GPU utilization and power samples before and
+after each case. Verify the expected job PID is present in every loaded case and
+absent in each idle case; a resident process alone is not evidence of GPU work.
+
+This workload reuses synthetic inputs and records finite forward/backward/Adam
+steps. It does not emulate every research workload, measure training quality,
+or measure wall-power efficiency. GPU work on the other node is preserved and
+remains a confounding factor. The recorded before/load/after experiment is in
+[the implementation record](CLUSTER_IMPLEMENTATION.md).
+
 To run the staged jumbo-frame comparison, stop managed GPU jobs first, then on
 **both** nodes:
 

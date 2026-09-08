@@ -72,6 +72,7 @@ def inspect(node):
             'rdma_counters': counters(rdma/'counters'), 'rdma_hw_counters': counters(rdma/'hw_counters')})
     return {'hostname': platform.node(), 'kernel': platform.release(),
         'gpu_driver': command(['nvidia-smi','--query-gpu=driver_version','--format=csv,noheader']), 'perftest_version': command(['ib_write_bw', '--version']),
+        'gpu_metrics': command(['nvidia-smi','--query-gpu=timestamp,index,utilization.gpu,utilization.memory,power.draw','--format=csv']).splitlines(),
         'gpu_processes': command(['nvidia-smi', '--query-compute-apps=pid,process_name', '--format=csv,noheader']).splitlines(),
         'load_average': list(os.getloadavg()), 'allowed_cpus': sorted(os.sched_getaffinity(0)),
         'cpu_policies': {p.name:{key:value(p/key) for key in ('scaling_governor','scaling_cur_freq','cpuinfo_max_freq','related_cpus')}
