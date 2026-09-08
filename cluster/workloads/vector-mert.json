@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "model": "mert-330m",
+  "image": "vllm/vllm-openai@sha256:e4f88a835143cd22aee2397a26ec6bb80b3a4a6fe0c882bcbc63822904766089",
+  "min_available_mib": 16384,
+  "threads": 8,
+  "max_seconds": 5,
+  "max_runtime_seconds": 1800,
+  "batch_size": 2,
+  "windows_per_track": 1,
+  "window_mode": "first",
+  "audio_workers": 2,
+  "prefetch_batches": 1,
+  "checkpoint_every_batches": 1,
+  "output_level": "track"
+}

@@ -92,6 +92,40 @@ unchanged. Test GPU workers were stopped after profiling, pending fabric tuning.
   and tool-parser contract tests. Peer-SSH provisioning was also verified with
   actual bidirectional SSH.
 
+### Vector Bucket acceptance
+
+The source tree and host Python environments remain unchanged. The new adapter
+stages selected audio and Python source as an immutable bundle, then runs a pinned
+offline container under the shared GPU lease. It supports track and clip artifacts,
+explicit placement, bounded runtime, checksum-verified collection and owned cleanup.
+
+- CLAP and MERT model transfer: 13 regular files and 13 snapshot symlinks,
+  1,879,738,276 bytes, verified with SHA-256 at source and destination. Transfer
+  plus destination verification took 5.468 seconds over the peer SSH path; this
+  is not a pure network bandwidth measurement.
+- e8f1 real CUDA embeddings: CLAP track 2×512 in 7.173 seconds, CLAP clip 4×512
+  in 7.293 seconds, and MERT track 2×1024 in 11.077 seconds. All vectors were finite
+  and normalized. These small synthetic inputs validate functionality, not
+  production indexing throughput or embedding quality.
+- Both nodes received the identical finalized 51-file, 4,428,548-byte source/input
+  bundle `35edf316b12393b1020b9f18da4b6160587e85a8a235b8c444443e46a0ef3b10`.
+- 66f1 has a newer running research job. An actual start attempt refused admission
+  with its GPU reservation unchanged; embedding acceptance there remains pending.
+- An initial container failed because Torch could not resolve its numeric user.
+  Explicit user/cache environment settings fixed that failure. Cleanup retained
+  logs and released only the owned failed job; no host packages were changed.
+- Successful test containers were removed and e8f1's GPU lease released. Artifacts
+  and plans remain under `data/cluster/vector/`. Repeat CLAP track runs produced
+  the same NPZ SHA-256 in this runtime.
+- Existing Vector Bucket artifact merging accepted all three output formats.
+  A one-second runtime test exited with code 124, retained its lease until explicit
+  cleanup, then left no owned container or reservation. No agent was required for
+  supervision or recovery.
+- Added regression coverage for archive traversal, injected files/symlinks,
+  changed caches and references, local collection, busy-GPU admission and immutable
+  container recovery. The complete Linux regression suite passes 127 tests;
+  baseline Compose validation and shell syntax checks also pass.
+
 Raw runtime evidence is intentionally ignored under `data/cluster/`; acceptance
 receipts include image/model identities, owner IDs, token usage and elapsed time.
 Original copy checksums and transfer measurements remain under the controller's
@@ -108,8 +142,9 @@ Original copy checksums and transfer measurements remain under the controller's
 - Validate real agent tool execution, vision and larger-model recipes. The
   baseline 4B recipe advertises no tools; the separate coder recipe has passed
   protocol-level tool calling and streaming, not coding-quality evaluation.
-- Run actual Loop LLM GPU and Vector Bucket embedding jobs on e8f1 through shared
-  ownership; complete Vector Bucket's placement adapter and artifact sync.
+- Run an actual Loop LLM GPU job on e8f1 through shared ownership. Validate the
+  staged Vector Bucket worker on 66f1 after its research job finishes; extend
+  audio preprocessing only with the required pinned dependencies and acceptance.
 - Complete explicit OpenRouter upstream credential provisioning, multi-host
   failure/recovery acceptance, optimized recipe/performance comparisons, and
   final review of the reproducible operator workflow.

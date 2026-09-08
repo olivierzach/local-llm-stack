@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "model": "clap",
+  "image": "vllm/vllm-openai@sha256:e4f88a835143cd22aee2397a26ec6bb80b3a4a6fe0c882bcbc63822904766089",
+  "min_available_mib": 16384,
+  "threads": 8,
+  "max_seconds": 2,
+  "max_runtime_seconds": 600,
+  "batch_size": 2,
+  "windows_per_track": 2,
+  "window_mode": "spread",
+  "audio_workers": 2,
+  "prefetch_batches": 1,
+  "checkpoint_every_batches": 1,
+  "output_level": "clip"
+}

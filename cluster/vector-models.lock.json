@@ -1,0 +1,84 @@
+{
+  "files": {
+    "hub/models--laion--clap-htsat-fused/blobs/058e2e071e2a76af9dc9a10940053477ce8329d3": {
+      "sha256": "377f91458f7729a4574a84c77bdce67dbc3c58c1a345a29bbf8c4eb1307948a3",
+      "size": 384
+    },
+    "hub/models--laion--clap-htsat-fused/blobs/3f648de6d030e17494be455d323b8d191233fbae0c7ce0ba745fd21a926a63a6": {
+      "sha256": "3f648de6d030e17494be455d323b8d191233fbae0c7ce0ba745fd21a926a63a6",
+      "size": 614496152
+    },
+    "hub/models--laion--clap-htsat-fused/blobs/4ebe4bb3f3114daf2e4cc349f24873a1175a35d7": {
+      "sha256": "ed19656ea1707df69134c4af35c8ceda2cc9860bf2c3495026153a133670ab5e",
+      "size": 798293
+    },
+    "hub/models--laion--clap-htsat-fused/blobs/6636bda4a1fd7a63653dffb22683b8162c8de956": {
+      "sha256": "fe36cab26d4f4421ed725e10a2e9ddb7f799449c603a96e7f29b5a3c82a95862",
+      "size": 456356
+    },
+    "hub/models--laion--clap-htsat-fused/blobs/7907d3cde2ed499c697371287e288aa2beded3f9": {
+      "sha256": "b1d63489dc5061da229c23d2b11e9ca731639574449f82319fabb01da7fcf480",
+      "size": 5422
+    },
+    "hub/models--laion--clap-htsat-fused/blobs/99f518e1ee65361b4d772c6f805508dbf30cfd8b": {
+      "sha256": "77ef92283d67f0d97e1454909a964afcbfa2019f0fb9f18f8e88d5c25c3ba729",
+      "size": 2108746
+    },
+    "hub/models--laion--clap-htsat-fused/blobs/d439910a3317697a54f06ad5083af1810c27d803": {
+      "sha256": "072bdd9ba771b6d213c56f15c0f765e33192b92e481581b52271cf16c9013684",
+      "size": 537
+    },
+    "hub/models--laion--clap-htsat-fused/blobs/d5698132694f4f1bcff08fa7d937b1701812598e": {
+      "sha256": "06e405a36dfe4b9604f484f6a1e619af1a7f7d09e34a8555eb0b77b66318067f",
+      "size": 280
+    },
+    "hub/models--m-a-p--MERT-v1-330M/blobs/0c03774d821a6ad972cb48220b128a10ebea2c790116bd0fd35e5a013f8017f6": {
+      "sha256": "0c03774d821a6ad972cb48220b128a10ebea2c790116bd0fd35e5a013f8017f6",
+      "size": 1261846489
+    },
+    "hub/models--m-a-p--MERT-v1-330M/blobs/14f770758c7fe5c5e8ead4fe0f8e5fa727eb6942": {
+      "sha256": "a5b40f9db03c84f29e3114abe813a9226178d5437b517d45cd4c2924ac3d0ce0",
+      "size": 2032
+    },
+    "hub/models--m-a-p--MERT-v1-330M/blobs/75af8362b0c5762394dcd9cc862aaaf856153f33": {
+      "sha256": "c623b903eb1967474b27522975cfb81638e265df99aa640d2c0bd87a987ab538",
+      "size": 212
+    },
+    "hub/models--m-a-p--MERT-v1-330M/blobs/91f6098a642bb1e6498beea92025e49fa619e49d": {
+      "sha256": "ae0ec2bab8f59c724ba9878a7c20b67210189536ea62d34a56775968e9decb03",
+      "size": 5340
+    },
+    "hub/models--m-a-p--MERT-v1-330M/blobs/e7ac06ba5bd4a8e633ce6a42e230e8935322c7ee": {
+      "sha256": "6c3ee73cef6f0c30ef494f88d96f891fa6925ffe663fa391b512f4b57abecc6c",
+      "size": 18033
+    }
+  },
+  "models": [
+    {
+      "directory": "models--laion--clap-htsat-fused",
+      "repo": "laion/clap-htsat-fused",
+      "revision": "365dea6ef167def6676140ed93bbc43f84dabb28"
+    },
+    {
+      "directory": "models--m-a-p--MERT-v1-330M",
+      "repo": "m-a-p/MERT-v1-330M",
+      "revision": "5240c2708a5acaee1007f43fb9735c7dcd0b78c9"
+    }
+  ],
+  "symlinks": {
+    "hub/models--laion--clap-htsat-fused/snapshots/365dea6ef167def6676140ed93bbc43f84dabb28/config.json": "../../blobs/7907d3cde2ed499c697371287e288aa2beded3f9",
+    "hub/models--laion--clap-htsat-fused/snapshots/365dea6ef167def6676140ed93bbc43f84dabb28/merges.txt": "../../blobs/6636bda4a1fd7a63653dffb22683b8162c8de956",
+    "hub/models--laion--clap-htsat-fused/snapshots/365dea6ef167def6676140ed93bbc43f84dabb28/model.safetensors": "../../blobs/3f648de6d030e17494be455d323b8d191233fbae0c7ce0ba745fd21a926a63a6",
+    "hub/models--laion--clap-htsat-fused/snapshots/365dea6ef167def6676140ed93bbc43f84dabb28/preprocessor_config.json": "../../blobs/d439910a3317697a54f06ad5083af1810c27d803",
+    "hub/models--laion--clap-htsat-fused/snapshots/365dea6ef167def6676140ed93bbc43f84dabb28/special_tokens_map.json": "../../blobs/d5698132694f4f1bcff08fa7d937b1701812598e",
+    "hub/models--laion--clap-htsat-fused/snapshots/365dea6ef167def6676140ed93bbc43f84dabb28/tokenizer.json": "../../blobs/99f518e1ee65361b4d772c6f805508dbf30cfd8b",
+    "hub/models--laion--clap-htsat-fused/snapshots/365dea6ef167def6676140ed93bbc43f84dabb28/tokenizer_config.json": "../../blobs/058e2e071e2a76af9dc9a10940053477ce8329d3",
+    "hub/models--laion--clap-htsat-fused/snapshots/365dea6ef167def6676140ed93bbc43f84dabb28/vocab.json": "../../blobs/4ebe4bb3f3114daf2e4cc349f24873a1175a35d7",
+    "hub/models--m-a-p--MERT-v1-330M/snapshots/5240c2708a5acaee1007f43fb9735c7dcd0b78c9/config.json": "../../blobs/14f770758c7fe5c5e8ead4fe0f8e5fa727eb6942",
+    "hub/models--m-a-p--MERT-v1-330M/snapshots/5240c2708a5acaee1007f43fb9735c7dcd0b78c9/configuration_MERT.py": "../../blobs/91f6098a642bb1e6498beea92025e49fa619e49d",
+    "hub/models--m-a-p--MERT-v1-330M/snapshots/5240c2708a5acaee1007f43fb9735c7dcd0b78c9/modeling_MERT.py": "../../blobs/e7ac06ba5bd4a8e633ce6a42e230e8935322c7ee",
+    "hub/models--m-a-p--MERT-v1-330M/snapshots/5240c2708a5acaee1007f43fb9735c7dcd0b78c9/preprocessor_config.json": "../../blobs/75af8362b0c5762394dcd9cc862aaaf856153f33",
+    "hub/models--m-a-p--MERT-v1-330M/snapshots/5240c2708a5acaee1007f43fb9735c7dcd0b78c9/pytorch_model.bin": "../../blobs/0c03774d821a6ad972cb48220b128a10ebea2c790116bd0fd35e5a013f8017f6"
+  },
+  "version": 1
+}

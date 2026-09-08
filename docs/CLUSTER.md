@@ -242,6 +242,66 @@ data or credentials. The default smoke recipe performs a bounded recurrent-model
 capacity probe. Staging is verified on both nodes; actual GPU job acceptance is
 pending linger setup on e8f1.
 
-Vector Bucket's environment and audio/GPU checks pass on e8f1, but a real model
-embedding and a shared-reservation placement adapter remain unfinished. Continue
-using its existing isolated worker scripts until that acceptance is complete.
+## Vector Bucket placement
+
+`spark-vector` stages a checksummed snapshot of the selected audio, job manifests,
+Vector Bucket Python source and worker recipe. It runs a detached, bounded Docker
+job with the same exclusive GPU reservation used by inference and Loop LLM.
+The container uses the locked vLLM image's CUDA/audio libraries; it does not
+install packages into either project's host environment. Networking is disabled,
+source and model mounts are read-only, and Hugging Face credential files are not
+mounted. Track and clip NPZ artifacts keep Vector Bucket's existing format.
+
+First provision the exact CLAP and MERT snapshots. Run the following from a
+checkout on the source Spark, where those revisions are already cached:
+
+```bash
+python3 scripts/sync-spark-models.py sync \
+  --cache "$HOME/.cache/huggingface" \
+  --lock cluster/vector-models.lock.json \
+  --peer spark-e8f1-wired \
+  --peer-cache /home/statsparrot/projects/local-llm-stack/data/vector-huggingface
+```
+
+The copy verifies SHA-256 at both ends, preserves snapshot symlinks, and refuses
+a conflicting `refs/main`. It never deletes unrelated models. To select different
+cached revisions, create a separate lock with the `lock` action and repeated
+`--model organization/repository@COMMIT` arguments; use a separate managed cache
+when references differ. The current acceptance recipes are validated only with
+the committed CLAP/MERT lock.
+
+From the controller, make a deterministic two-track fixture and run it:
+
+```bash
+.venv/bin/python scripts/make-vector-smoke.py --output data/cluster/vector-fixture
+.venv/bin/python scripts/spark-vector stage --node e8f1 --id clap-001 \
+  --source ../vector-bucket \
+  --job data/cluster/vector-fixture/job.json \
+  --data-dir data/cluster/vector-fixture/data
+.venv/bin/python scripts/spark-vector start --node e8f1 --id clap-001
+.venv/bin/python scripts/spark-vector wait --node e8f1 --id clap-001 --timeout 180
+.venv/bin/python scripts/spark-vector fetch --node e8f1 --id clap-001
+.venv/bin/python scripts/spark-vector stop --node e8f1 --id clap-001
+```
+
+Use a fresh job ID for new inputs. Select `--spec cluster/workloads/vector-mert.json`
+for MERT or `vector-clap-clips.json` for clip output. Use your existing Vector
+Bucket job and data directory for real audio. This runtime currently supports
+`first` and `spread` windows; adaptive/riff-solo preprocessing is not validated.
+For 66f1's existing cache, add `--model-cache /home/statsparrot/.cache/huggingface`
+at staging; only its `hub/` directory is mounted. Both nodes use the same source
+and model identities. A running research job blocks admission without pausing it.
+
+`wait` is an observation deadline: losing the controller or reaching that deadline
+does not restart or stop a job. The recipe's separate `max_runtime_seconds` bounds
+the container command. Success or failure retains its GPU reservation until
+explicit `stop`; cleanup checks immutable container IDs and ownership labels.
+On failure, use `status` to obtain the container ID and inspect its Docker logs
+on the worker before `stop`. Cleanup also saves the last 500 log lines under
+`~/.local/state/local-llm-cluster/OWNER/logs/`. Artifacts survive cleanup.
+
+Fetched results are under `data/cluster/vector/NODE/JOB/artifacts/`. The acceptance
+receipt records vector dimensions/normalization, artifact hash, source bundle,
+model revisions, runtime versions and elapsed time. CLAP track (2×512), CLAP clip
+(4×512) and MERT track (2×1024) GPU jobs passed on e8f1. The identical worker is
+staged on 66f1; its active research workload currently prevents GPU acceptance.

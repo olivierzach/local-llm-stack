@@ -231,7 +231,7 @@ def stop(request):
     return {"released": True}
 
 
-def workload_reservation(request, release=False):
+def workload_reservation(request, release=False, batch=False):
     saved = reservation()
     if saved:
         owned(request)
@@ -253,8 +253,24 @@ def workload_reservation(request, release=False):
     if type(minimum) is not int or minimum < 1024 or report["memory_mib"]["MemAvailable"] < minimum:
         raise RuntimeError("insufficient available shared memory for workload")
     atomic(STATE / "gpu.json", {"owner": request["owner"], "digest": request["digest"],
-        "phase": "workload", "container_ids": [], "created_at": time.time()})
+        "phase": "reserved" if batch else "workload", "container_ids": [], "created_at": time.time(),
+        **({"kind": "batch"} if batch else {})})
     return {"reserved": True, "existing": False}
+
+
+def reserve_batch(request):
+    saved = reservation()
+    if saved:
+        owned(request)
+        if saved.get("kind") != "batch": raise RuntimeError("reservation belongs to another workload kind")
+        return {"reserved": True, "existing": True}
+    image = request["compose"]["services"]["worker"]["image"]
+    if not re.fullmatch(r"[A-Za-z0-9./_-]+@sha256:[a-f0-9]{64}", image):
+        raise RuntimeError("batch image must use an immutable registry digest")
+    metadata = json.loads(run(["docker", "image", "inspect", image]))[0]
+    if metadata["Architecture"] != {"aarch64": "arm64", "x86_64": "amd64"}[request["node"]["architecture"]]:
+        raise RuntimeError("batch image architecture mismatch")
+    return workload_reservation(request, batch=True)
 
 
 def probe(request):
@@ -288,6 +304,7 @@ def main(request):
     if action == "probe":
         return probe(request)
     with locked():
+        if action == "reserve-batch": return reserve_batch(request)
         if action == "reserve-workload": return workload_reservation(request)
         if action == "release-workload": return workload_reservation(request, release=True)
         if action == "reserve": return reserve(request)
