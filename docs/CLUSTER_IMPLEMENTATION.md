@@ -657,3 +657,11 @@ parent. The runbook supplies one administrator command to create only the new
 model directory. No recursive ownership change or cache migration is needed.
 Noninteractive sudo requires a password on 66f1, so that one provisioning step
 remains pending before the copy can be resumed.
+
+The fix is installed on both nodes as release
+`25f0a359573b224f837deae1a97e96b83ee417a7`. The complete Linux suite passed
+**199 tests**, including the actual rsync permission-preservation case, with no
+failures, errors or skips. The new preflight diagnosed the actual 66f1 directory
+in 0.42 seconds without hashing the source or starting another copy. The test
+receipt, exact failure and provisioning command are retained in
+`data/cluster/large-model-preparation/copy-permission-fix.json`.
