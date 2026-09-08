@@ -337,10 +337,80 @@ To repeat the bounded protocol acceptance against a live deployment:
 .venv/bin/python scripts/probe-spark-gateway.py --base-url http://127.0.0.1:4112/v1 --key-file data/cluster/gateways/e8f1/api-key --model local-coder --output data/cluster/gateway-probe.json
 ```
 
-OpenRouter is an optional cloud upstream, not a way for OpenRouter's cloud to
-reach a private Spark. Registry routes support explicit upstream model/key-env
-translation, but remote gateway credential provisioning for that provider is
-not yet implemented. Cloud fallback remains disabled.
+### Optional OpenRouter upstream
+
+OpenRouter can serve an explicitly selected cloud alias through either Context
+Guard. Its [chat-completions API](https://openrouter.ai/docs/quickstart) uses
+`https://openrouter.ai/api/v1` and a provider Bearer key. Clients continue using
+the gateway's URL and gateway key. OpenRouter does not connect to the private
+Spark, and local-model failures do not select a cloud model automatically.
+
+Add a route to your registry alongside existing routes. Choose a real provider
+model ID and verify its supported context/output limits and capabilities; these
+illustrative limits and placeholder model are not an accepted model recipe:
+
+```json
+"cloud-openrouter": {
+  "base_url": "https://openrouter.ai/api/v1",
+  "upstream_model": "YOUR_PROVIDER_MODEL_ID",
+  "upstream_key_env": "OPENROUTER_API_KEY",
+  "context_tokens": 8192,
+  "max_output_tokens": 1024,
+  "capabilities": {"text": true, "vision": false, "tools": false, "streaming": true}
+}
+```
+
+Apply the complete registry, then provision a key from a private regular file
+owned by you (mode `0600`). The file must contain only the provider key. No key
+value is placed in command arguments or saved to a client profile:
+
+```bash
+scripts/spark-gateway routes --node e8f1 --registry /path/to/complete-registry.json
+scripts/spark-gateway credential-set --node e8f1 \
+  --name OPENROUTER_API_KEY --key-file /path/to/private/openrouter-key
+scripts/spark-gateway credential-status --node e8f1
+```
+
+Use the installed `~/projects/local-llm-stack-cluster/bin/` commands on a Spark,
+or this checkout's environment on the Mac. Repeat with `--node 66f1` if that
+gateway should also use the cloud provider. Provisioning is explicit for each
+node; gateway attachment does not copy provider credentials.
+
+Keys are stored in the gateway's private `config/credentials.json`, mounted
+read-only into its container. Each key is bound to the exact upstream base URL
+referenced by the registry at provisioning time. Changing the destination leaves
+that route unconfigured until explicitly provisioned again. A credential name
+must refer to exactly one base URL; multiple models at that URL can share it.
+No shell environment is modified. Legacy environment-based credentials still
+work for manually launched gateways when no managed entry exists.
+
+Run `credential-set` again to rotate the key without a restart. Each request
+retains its chosen key through context handling and streaming. To disable it:
+
+```bash
+scripts/spark-gateway credential-remove --node e8f1 --name OPENROUTER_API_KEY
+```
+
+Removal writes a tombstone that also disables legacy environment fallback for
+that name; it does not revoke the key at the provider. Missing, removed or
+mismatched credentials hide the cloud alias from `/v1/models` and reject new
+requests. Local routes remain available. Reattach/render client profiles after
+changing the registry, then select `spark-e8f1/cloud-openrouter` in OMP or llm,
+or the corresponding generated OpenClaw/AIChat model. Cloud inference may incur
+provider charges; this configuration never sends a test request automatically.
+
+For a repeatable acceptance check using only a temporary local HTTP provider,
+run on the gateway Spark:
+
+```bash
+.venv/bin/python scripts/probe-spark-provider.py --node e8f1 \
+  --output data/cluster/provider-probe.json
+```
+
+It exercises credential provisioning, rotation, removal, model translation and
+text/SSE responses. It removes its temporary route and disables its test key
+while preserving other routes. This fixture verifies integration mechanics;
+it does not establish real OpenRouter account access or model quality.
 
 ## Looped LLM project placement
 

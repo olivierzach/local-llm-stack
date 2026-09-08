@@ -63,7 +63,7 @@ def validate_registry(registry):
         fields(r["capabilities"], ("text", "vision", "tools", "streaming"))
         require(all(type(v) is bool for v in r["capabilities"].values()), "capabilities must be booleans")
         if r.get("upstream_key_env"):
-            require(re.fullmatch(r"[A-Z][A-Z0-9_]+", r["upstream_key_env"]), "invalid secret environment name")
+            require(re.fullmatch(r"[A-Z][A-Z0-9_]+", r["upstream_key_env"]) and not r["upstream_key_env"].startswith("SPARK_"), "invalid or reserved secret environment name")
 
 
 def from_plans(plans, replicas=False):
@@ -92,6 +92,34 @@ def from_plans(plans, replicas=False):
     result = {"version": 1, "routes": routes}
     validate_registry(result)
     return result
+
+
+def provider_key(route, registry_path):
+    name = route.get("upstream_key_env")
+    if not name: return None
+    path = Path(registry_path).with_name("credentials.json")
+    try:
+        stored = read(path) if path.exists() else {}
+        require(isinstance(stored, dict), "invalid provider credential store")
+        if name in stored:
+            entry = stored[name]
+            if entry is None: return None
+            require(isinstance(entry, dict) and set(entry) == {"base_url", "key"}, "invalid provider credential entry")
+            if entry["base_url"] != route["base_url"]: return None
+            key = entry["key"]
+        else:
+            key = os.getenv(name)
+        require(key is None or isinstance(key, str) and 1 <= len(key) <= 8192 and
+                all(33 <= ord(c) <= 126 for c in key), "invalid provider credential")
+        return key
+    except (ValueError, TypeError, OSError):
+        raise RuntimeError("provider credentials unavailable") from None
+
+
+def provider_ready(route, registry_path):
+    if not route.get("upstream_key_env"): return True
+    try: return bool(provider_key(route, registry_path))
+    except RuntimeError: return False
 
 
 def live(route):
@@ -162,7 +190,7 @@ class GatewayHandler(guard.ContextGuardHandler):
                   "Content-Type": "application/json"}
         route = getattr(self, "_route", {})
         if route.get("upstream_key_env"):
-            key = os.getenv(route["upstream_key_env"])
+            key = getattr(self, "_upstream_key", None)
             if not key:
                 self.write_json(503, {"error": {"type": "provider_unconfigured", "message": "Upstream credential is not configured"}})
                 return None
@@ -192,7 +220,7 @@ class GatewayHandler(guard.ContextGuardHandler):
             {"id": alias, "object": "model", "owned_by": "spark-cluster",
              "context_length": r["context_tokens"], "max_output_tokens": r["max_output_tokens"],
              "capabilities": r["capabilities"]}
-            for alias, r in registry["routes"].items() if any(live(member) for member in members(r))]})
+            for alias, r in registry["routes"].items() if provider_ready(r, self.server.registry_path) and any(live(member) for member in members(r))]})
 
     def do_POST(self):
         if self.incoming_headers() is None: return
@@ -235,6 +263,14 @@ class GatewayHandler(guard.ContextGuardHandler):
             return
         if payload.get("stream") and not caps["streaming"]:
             self.write_json(400, {"error": {"message": "This deployment does not support streaming"}})
+            return
+        try:
+            self._upstream_key = provider_key(route, self.server.registry_path)
+        except RuntimeError:
+            self.write_json(503, {"error": {"type": "provider_unconfigured", "message": "Provider credentials unavailable"}})
+            return
+        if route.get("upstream_key_env") and not self._upstream_key:
+            self.write_json(503, {"error": {"type": "provider_unconfigured", "message": "Provider credential is not configured for this upstream"}})
             return
         selected=self.server.replica_pool.acquire(route)
         if selected is None:

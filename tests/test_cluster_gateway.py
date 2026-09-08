@@ -306,3 +306,103 @@ def test_attach_stores_private_key_without_returning_it_and_preserves_conflicts(
         attach(output, {**result, 'api_key': 'different-private-key-' * 3})
     assert (output / 'api-key').read_text() == KEY
     assert (output / 'registry.json').read_bytes() == before
+
+
+def test_managed_provider_credentials_rotate_remove_and_bind_destination(running, monkeypatch):
+    url, backend, registry, path = running
+    route = registry['routes']['local-fast']
+    route.update(upstream_key_env='TEST_CLOUD_KEY', upstream_model='provider/model')
+    save_json(path, registry)
+    credentials = path.with_name('credentials.json')
+    def models():
+        return requests.get(url+'/v1/models', headers={'Authorization': 'Bearer '+KEY}, timeout=5).json()['data']
+    assert models() == []
+    assert chat(url).status_code == 503 and not backend.received
+    save_json(credentials, {'TEST_CLOUD_KEY': {'base_url': route['base_url'], 'key': 'first-provider-key'}})
+    assert len(models()) == 1
+    assert chat(url).status_code == 200
+    assert backend.received[-1]['payload']['model'] == 'provider/model'
+    assert backend.received[-1]['authorization'] == 'Bearer first-provider-key'
+    save_json(credentials, {'TEST_CLOUD_KEY': {'base_url': route['base_url'], 'key': 'second-provider-key'}})
+    assert chat(url, stream=True).status_code == 200
+    assert backend.received[-1]['authorization'] == 'Bearer second-provider-key'
+    save_json(credentials, {'TEST_CLOUD_KEY': {'base_url': 'https://another-provider.invalid/v1', 'key': 'second-provider-key'}})
+    count = len(backend.received)
+    assert models() == []
+    assert chat(url).status_code == 503 and len(backend.received) == count
+    monkeypatch.setenv('TEST_CLOUD_KEY', 'legacy-must-not-return')
+    save_json(credentials, {'TEST_CLOUD_KEY': None})
+    assert models() == []
+    assert chat(url).status_code == 503 and len(backend.received) == count
+
+
+def test_provider_rotation_does_not_change_an_active_request(running):
+    url, backend, registry, path = running
+    route = registry['routes']['local-fast']
+    route['upstream_key_env'] = 'TEST_CLOUD_KEY'
+    save_json(path, registry)
+    credentials = path.with_name('credentials.json')
+    save_json(credentials, {'TEST_CLOUD_KEY': {'base_url': route['base_url'], 'key': 'first-provider-key'}})
+    backend.entered = threading.Event()
+    backend.unblock = threading.Event()
+    try:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            request = pool.submit(chat, url, stream=True)
+            assert backend.entered.wait(3)
+            save_json(credentials, {'TEST_CLOUD_KEY': None})
+            assert chat(url).status_code == 503
+            assert backend.received[0]['authorization'] == 'Bearer first-provider-key'
+            backend.unblock.set()
+            assert request.result(timeout=5).status_code == 200
+    finally:
+        backend.unblock.set()
+
+
+def test_corrupt_credentials_fail_closed_for_provider_without_breaking_local(running):
+    url, backend, registry, path = running
+    path.with_name('credentials.json').write_text('{"credential":broken')
+    assert chat(url).status_code == 200
+    registry['routes']['local-fast']['upstream_key_env'] = 'TEST_CLOUD_KEY'
+    save_json(path, registry)
+    count = len(backend.received)
+    assert chat(url).status_code == 503 and len(backend.received) == count
+
+
+def test_provider_credential_operations_are_scoped_private_and_redacted(tmp_path, monkeypatch):
+    root = tmp_path / 'gateway'
+    (root / 'config').mkdir(parents=True)
+    registry = {'routes': {'cloud': {'base_url': 'https://openrouter.ai/api/v1', 'upstream_key_env': 'OPENROUTER_API_KEY'}}}
+    (root / 'config/registry.json').write_text(json.dumps(registry))
+    monkeypatch.setattr(gateway_node, 'ROOT', root)
+    result = gateway_node.credentials({'action': 'credential-set', 'name': 'OPENROUTER_API_KEY', 'key': 'private-provider-token'})
+    assert result == {'name': 'OPENROUTER_API_KEY', 'configured': True}
+    path = root / 'config/credentials.json'
+    assert path.stat().st_mode & 0o777 == 0o600
+    assert 'private-provider-token' not in json.dumps(gateway_node.credentials({'action': 'credential-status'}))
+    before = path.read_bytes()
+    for name in ('UNREFERENCED_KEY', 'SPARK_GATEWAY_KEY'):
+        with pytest.raises(RuntimeError):
+            gateway_node.credentials({'action': 'credential-set', 'name': name, 'key': 'not-installed'})
+        assert path.read_bytes() == before
+    result = gateway_node.credentials({'action': 'credential-remove', 'name': 'OPENROUTER_API_KEY'})
+    assert result['configured'] is False
+    assert json.loads(path.read_text()) == {'OPENROUTER_API_KEY': None}
+
+
+def test_provider_key_input_requires_private_regular_file(tmp_path):
+    import runpy
+    read_key = runpy.run_path(str(ROOT / 'scripts/spark-gateway'))['read_provider_key']
+    path = tmp_path / 'key'
+    path.write_text('test-private-token\n')
+    path.chmod(0o644)
+    with pytest.raises(RuntimeError, match='group/other'):
+        read_key(path)
+    path.chmod(0o600)
+    assert read_key(path) == 'test-private-token'
+    symlink = tmp_path / 'link'
+    symlink.symlink_to(path)
+    with pytest.raises(OSError):
+        read_key(symlink)
+    path.write_text('token\nInjected: header')
+    with pytest.raises(RuntimeError, match='printable'):
+        read_key(path)

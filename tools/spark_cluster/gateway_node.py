@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import secrets
 import subprocess
 import sys
@@ -65,6 +66,42 @@ def await_ready(saved, timeout=20):
         time.sleep(.25)
 
 
+def credential_name(value):
+    if not isinstance(value, str) or not re.fullmatch(r"[A-Z][A-Z0-9_]+", value) or value.startswith("SPARK_"):
+        raise RuntimeError("invalid or reserved provider credential name")
+    return value
+
+
+def credential_value(value):
+    if not isinstance(value, str) or not 1 <= len(value) <= 8192 or any(not 33 <= ord(c) <= 126 for c in value):
+        raise RuntimeError("provider credential must be a nonempty printable token")
+    return value
+
+
+def credentials(req):
+    path = ROOT / "config/credentials.json"
+    try:
+        stored = json.loads(path.read_text()) if path.exists() else {}
+        if not isinstance(stored, dict): raise ValueError()
+    except (ValueError, OSError):
+        raise RuntimeError("invalid stored provider credentials") from None
+    if req["action"] == "credential-status":
+        return {"credentials": {name: {"configured": bool(entry and entry.get("key")),
+                "base_url": entry.get("base_url") if entry else None} for name, entry in stored.items()}}
+    name = credential_name(req["name"])
+    if req["action"] == "credential-remove":
+        # A tombstone also disables legacy environment fallback for this name.
+        stored[name] = None
+    else:
+        registry = json.loads((ROOT / "config/registry.json").read_text())
+        urls = {route["base_url"] for route in registry["routes"].values() if route.get("upstream_key_env") == name}
+        if len(urls) != 1:
+            raise RuntimeError("credential must be referenced by routes with exactly one upstream base URL")
+        stored[name] = {"base_url": next(iter(urls)), "key": credential_value(req["key"])}
+    write(path, json.dumps(stored))
+    return {"name": name, "configured": stored[name] is not None}
+
+
 def main(req):
     if platform.node() != req["node"]["hostname"] or platform.machine() != req["node"]["architecture"]:
         raise RuntimeError("gateway host mismatch")
@@ -77,6 +114,9 @@ def main(req):
             c = checked(saved) if saved else None
             return {"installed": bool(saved), "running": bool(c and c["State"]["Running"]),
                     "port": saved["port"] if saved else None}
+        if req["action"] in ("credential-set", "credential-remove", "credential-status"):
+            if not saved or not checked(saved): raise RuntimeError("gateway not installed")
+            return credentials(req)
         if req["action"] == "attach":
             if not saved or not checked(saved):
                 raise RuntimeError("gateway not installed")

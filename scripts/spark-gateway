@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import stat
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -12,6 +13,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 from spark_cluster.cli import remote, save_json
 from spark_cluster.config import read, validate_inventory
 from spark_cluster.gateway import from_plans, validate_registry
+from spark_cluster.gateway_node import credential_name, credential_value
 
 
 def store_attachment(output, result):
@@ -34,15 +36,29 @@ def store_attachment(output, result):
             "key_file": str(path), "port": result["port"]}
 
 
+def read_provider_key(path):
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd) as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+            raise RuntimeError("provider key file must be owned by you with no group/other access")
+        if not 1 <= info.st_size <= 8194:
+            raise RuntimeError("provider key file has an invalid size")
+        value = stream.read(8194).strip()
+    return credential_value(value)
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("action", choices=("render", "up", "status", "probe", "routes", "attach", "down"))
+    p.add_argument("action", choices=("render", "up", "status", "probe", "routes", "attach", "credential-set", "credential-remove", "credential-status", "down"))
     p.add_argument("--node", required=True)
     p.add_argument("--inventory", type=Path, default=ROOT / "cluster/inventory.json")
     p.add_argument("--plan", type=Path, action="append", default=[])
     p.add_argument("--replicas",action="store_true",help="group identical recipes under one alias with least-in-flight routing")
     p.add_argument("--registry", type=Path)
     p.add_argument("--port", type=int, default=4110)
+    p.add_argument("--name", help="registry upstream_key_env name for credential-set/remove")
+    p.add_argument("--key-file", type=Path, help="private file containing only the provider API key")
     args = p.parse_args()
     inv = read(args.inventory)
     validate_inventory(inv)
@@ -50,6 +66,14 @@ def main():
     node = inv["nodes"][args.node]
     output = ROOT / "data/cluster/gateways" / args.node
     request = {"action": args.action, "node": node}
+    if args.action in ("credential-set", "credential-remove"):
+        request["name"] = credential_name(args.name)
+        if args.action == "credential-set":
+            if not args.key_file: p.error("credential-set requires --key-file")
+            request["key"] = read_provider_key(args.key_file)
+        elif args.key_file: p.error("--key-file applies only to credential-set")
+    elif args.name or args.key_file:
+        p.error("--name/--key-file apply only to credential-set/remove")
     if args.action in ("render", "up", "routes"):
         if args.registry and args.plan: p.error("choose --registry or --plan")
         if args.registry and args.replicas: p.error('--replicas applies to --plan inputs')
