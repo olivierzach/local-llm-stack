@@ -14,9 +14,29 @@ from spark_cluster.config import read, validate_inventory
 from spark_cluster.gateway import from_plans, validate_registry
 
 
+def store_attachment(output, result):
+    validate_registry(result["registry"])
+    key = result["api_key"]
+    if not isinstance(key, str) or len(key) < 24 or not all(c.isalnum() or c in "-_" for c in key):
+        raise RuntimeError("invalid installed gateway key")
+    output.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path = output / "api-key"
+    if path.exists():
+        if path.read_text().strip() != key:
+            raise RuntimeError("controller key differs; existing credential was preserved")
+        path.chmod(0o600)
+    else:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w") as stream:
+            stream.write(key)
+    save_json(output / "registry.json", result["registry"])
+    return {"attached": True, "registry": str(output / "registry.json"),
+            "key_file": str(path), "port": result["port"]}
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("action", choices=("render", "up", "status", "probe", "routes", "down"))
+    p.add_argument("action", choices=("render", "up", "status", "probe", "routes", "attach", "down"))
     p.add_argument("--node", required=True)
     p.add_argument("--inventory", type=Path, default=ROOT / "cluster/inventory.json")
     p.add_argument("--plan", type=Path, action="append", default=[])
@@ -52,6 +72,8 @@ def main():
                 "scripts/context-guard-proxy.py", "tools/spark_cluster/gateway.py",
                 "tools/spark_cluster/config.py", "tools/spark_cluster/__init__.py")})
     result = remote(node, request, ROOT / "tools/spark_cluster/gateway_node.py")
+    if args.action == "attach":
+        result = store_attachment(output, result)
     print(json.dumps(result))
 
 

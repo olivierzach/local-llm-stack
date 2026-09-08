@@ -77,6 +77,14 @@ def main(req):
             c = checked(saved) if saved else None
             return {"installed": bool(saved), "running": bool(c and c["State"]["Running"]),
                     "port": saved["port"] if saved else None}
+        if req["action"] == "attach":
+            if not saved or not checked(saved):
+                raise RuntimeError("gateway not installed")
+            # Returned only to the SSH controller; its CLI stores this key in a
+            # private file and never includes it in user-visible output.
+            return {"api_key": (ROOT / "api-key").read_text().strip(),
+                    "registry": json.loads((ROOT / "config/registry.json").read_text()),
+                    "port": saved["port"]}
         if req["action"] == "down":
             if saved:
                 c = checked(saved)

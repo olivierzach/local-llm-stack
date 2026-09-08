@@ -268,3 +268,41 @@ def test_gateway_start_refuses_terminal_process_without_restart(monkeypatch):
     monkeypatch.setattr(gateway_node,'checked',lambda saved:{'State':{'Running':False}})
     monkeypatch.setattr(gateway_node,'run',lambda *a:pytest.fail('terminal process must not be relaunched'))
     with pytest.raises(RuntimeError,match='retained'): gateway_node.await_ready({'port':4110})
+
+
+def test_attach_requires_owned_gateway_and_does_not_change_service(tmp_path, monkeypatch):
+    root = tmp_path / 'gateway'
+    (root / 'config').mkdir(parents=True)
+    saved = {'name': 'gateway-test', 'id': 'original', 'digest': 'abc', 'port': 4110}
+    registry = {'version': 1, 'routes': {}}
+    (root / 'state.json').write_text(json.dumps(saved))
+    (root / 'api-key').write_text(KEY)
+    (root / 'config/registry.json').write_text(json.dumps(registry))
+    monkeypatch.setattr(gateway_node, 'ROOT', root)
+    monkeypatch.setattr(gateway_node, 'run', lambda *a: pytest.fail('attach must not mutate Docker'))
+    container = {'Id': 'original', 'Config': {'Labels': {'io.spark.gateway': 'abc'}}}
+    monkeypatch.setattr(gateway_node, 'lookup', lambda _: container)
+    request = {'action': 'attach', 'node': {'hostname': gateway_node.platform.node(),
+                                          'architecture': gateway_node.platform.machine()}}
+    result = gateway_node.main(request)
+    assert result == {'api_key': KEY, 'registry': registry, 'port': 4110}
+    assert json.loads((root / 'state.json').read_text()) == saved
+    container['Id'] = 'somebody-elses-container'
+    with pytest.raises(RuntimeError, match='ownership mismatch'):
+        gateway_node.main(request)
+
+
+def test_attach_stores_private_key_without_returning_it_and_preserves_conflicts(tmp_path):
+    import runpy
+    attach = runpy.run_path(str(ROOT / 'scripts/spark-gateway'))['store_attachment']
+    result = {'api_key': KEY, 'registry': {'version': 1, 'routes': {}}, 'port': 4110}
+    output = tmp_path / 'controller'
+    report = attach(output, result)
+    assert KEY not in json.dumps(report)
+    assert (output / 'api-key').stat().st_mode & 0o777 == 0o600
+    assert (output / 'api-key').read_text() == KEY
+    before = (output / 'registry.json').read_bytes()
+    with pytest.raises(RuntimeError, match='preserved'):
+        attach(output, {**result, 'api_key': 'different-private-key-' * 3})
+    assert (output / 'api-key').read_text() == KEY
+    assert (output / 'registry.json').read_bytes() == before

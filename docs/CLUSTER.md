@@ -92,6 +92,20 @@ existing per-user state directories. Keep old releases until no operation needs
 them. This installer does not copy credentials or import a development checkout's
 ignored artifacts. Existing recovery records remain usable by explicit path.
 
+To use gateways already installed on the nodes, attach from each controller:
+
+```bash
+~/projects/local-llm-stack-cluster/bin/spark-gateway attach --node 66f1
+~/projects/local-llm-stack-cluster/bin/spark-gateway attach --node e8f1
+```
+
+This explicitly retrieves only the selected stack gateway's registry and API
+key over the existing SSH connection, verifies container ownership, and stores
+the key with mode `0600`. It does not restart or reconfigure the gateway. A
+conflicting controller key is preserved and reported as an error. Gateway keys
+are distinct from cloud provider credentials; cloud logins are never imported.
+Attach also supplies the registry/key needed for clients targeting a peer gateway.
+
 ### Controller SSH from either Spark
 
 Initially bootstrap from a machine whose inventory SSH targets already work:
