@@ -354,6 +354,46 @@ interfaces does not mean 400 Gb/s aggregate. Current measured bulk GPU collectiv
 throughput is about 24–25 Gb/s at MTU 1500. Spark uses host-staged RDMA; do not
 enable unsupported GPUDirect settings based on guides for other hardware.
 
+For a repeatable host-memory diagnostic, run from either installed controller
+(or this checkout on the Mac):
+
+```bash
+.venv/bin/python scripts/profile-spark-fabric.py \
+  --qps 1 --sizes 65536 --seconds 5 \
+  --output data/cluster/fabric-host-baseline
+```
+
+The runner uses the inventory's explicit link addresses, verifies each IPv4
+RoCE v2 GID, and measures both directions on each rail and on both concurrently.
+It records perftest versions, PCIe links, active verbs MTU, CPU policies/load,
+background GPU processes, raw logs and counter changes. Each output directory
+must be new; incomplete sweeps retain completed cases with `complete: false`.
+The installed perftest defaults to host memory; this runner never enables CUDA
+or modifies MTU, routes, power settings or another workload's affinity.
+
+`--cpus CPU0 CPU1` optionally pins just the test processes, one CPU per rail,
+after checking that both CPU IDs are available on both nodes. Select IDs from
+the recorded topology/policies rather than assuming IDs identify the same core
+type on all hardware. `--qps` accepts 1/2/4/8 and `--sizes` accepts 64 KiB, 1 MiB
+and 8 MiB. The default sweep uses QP counts 1/4 and sizes 64 KiB/8 MiB. Duration
+is bounded to 5–30 seconds per case. Tests use CQ moderation 1 and no post-list
+batching; these settings are explicit diagnostic workloads, not an automatic
+search for maximum bandwidth.
+
+A per-node lock prevents overlapping runs of this profiler. Servers bind only
+the selected fabric address and port (default 28550/28551). Readiness requires a
+listener in the launched process group. Cleanup targets only those children,
+and an independent GNU timeout bounds them even after controller/SSH loss.
+On interruption, allow the node watchdog to expire before retrying; a surviving
+profile lock refuses overlapping work. The timeout is the configured duration
+plus 25 seconds, followed by a three-second kill deadline.
+
+The reported concurrent result sums the individual averages from overlapping
+runs; it is not a separately synchronized aggregate measurement. Raw host-memory
+RDMA speed is distinct from model-copy throughput and host-staged GPU collective
+speed. Background research work can affect either direction. See the measured
+results and their limitations in [the implementation record](CLUSTER_IMPLEMENTATION.md).
+
 To run the staged jumbo-frame comparison, stop managed GPU jobs first, then on
 **both** nodes:
 
