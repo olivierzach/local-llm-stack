@@ -639,3 +639,21 @@ The owned coder container was removed and its GPU reservation released after
 acceptance; both gateways remain authenticated and advertise no stopped test
 models. Both temporary SSH tunnels were closed. Test counts and cleanup evidence
 are retained in `data/cluster/openclaw/acceptance-summary.json` and its JUnit XML.
+
+## Copy preflight for a shared root-owned cache
+
+The 80B peer-copy service reached rsync and then failed with exit status 23 before
+creating the destination model directory. 66f1's shared `data/huggingface/hub` is
+root-owned with mode 0755. Its existing cache can be read, but `statsparrot` cannot
+create a new model directory there. The source remains fully verified. The failed
+service is terminal; it must not be treated as an active transfer or success.
+
+The copy helper now probes the actual destination parent access before source
+hashing. It uses rsync without propagating ownership, permissions or timestamps
+onto shared implied directories, and reports separate verification/rsync phase
+durations. Regression tests cover an unwritable new-model parent and an actual
+rsync copy into a writable model directory beneath an unchanged read-only shared
+parent. The runbook supplies one administrator command to create only the new
+model directory. No recursive ownership change or cache migration is needed.
+Noninteractive sudo requires a password on 66f1, so that one provisioning step
+remains pending before the copy can be resumed.

@@ -4,6 +4,7 @@ import importlib.machinery
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import socket
 import subprocess
@@ -123,6 +124,43 @@ def test_model_copy_rejects_destination_parent_symlink(cache, tmp_path):
     (target / 'hub').symlink_to(cache / 'hub')
     result = receive(target,lock,'prepare')
     assert result.returncode != 0 and 'parent is a symlink' in result.stderr
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason='permission refusal requires an unprivileged test user')
+def test_model_copy_preflight_rejects_unwritable_new_model_parent(cache, tmp_path):
+    lock = models.capture(cache, ['test/model@'+'a'*40])
+    target = tmp_path/'target'
+    hub = target/'hub'
+    hub.mkdir(parents=True)
+    hub.chmod(0o555)
+    try:
+        result = receive(target, lock, 'prepare')
+        assert result.returncode != 0 and 'destination cache parent is not writable' in result.stderr
+        assert not (hub/'models--test--model').exists()
+    finally:
+        hub.chmod(0o755)
+
+
+@pytest.mark.skipif(sys.platform != 'linux', reason='Spark transport requires Linux rsync with protected arguments')
+def test_model_copy_preserves_shared_parent_permissions(cache, tmp_path):
+    lock = models.capture(cache, ['test/model@'+'a'*40])
+    target = tmp_path/'target'
+    hub = target/'hub'
+    (hub/'models--test--model').mkdir(parents=True)
+    hub.chmod(0o555)
+    (cache/'hub').chmod(0o777)
+    try:
+        assert receive(target, lock, 'prepare').returncode == 0
+        listing = tmp_path/'copy-files'
+        listing.write_bytes(b'\0'.join(p.encode() for p in sorted(set(lock['files']) | set(lock['symlinks'])))+b'\0')
+        subprocess.run(['rsync', *models.RSYNC_FLAGS, '--files-from='+str(listing),
+                        str(cache)+'/', str(target)+'/'], check=True, capture_output=True)
+        assert hub.stat().st_mode & 0o777 == 0o555
+        assert receive(target, lock, 'verify').returncode == 0
+        assert not (target/'token').exists()
+        assert not list(target.rglob('.spark-copy-check-*'))
+    finally:
+        hub.chmod(0o755)
 
 
 def test_model_lock_rejects_external_snapshot_link(cache, tmp_path):

@@ -67,6 +67,21 @@ reviewed job after the previous writer has stopped.
 
 ## Copy the verified cache over the fabric
 
+The destination must permit this user to create the selected model's files.
+The copy preflight checks that access before reading all source weights. It
+preserves ownership, permissions and timestamps of shared cache parents rather
+than copying those attributes from the source node. Model identity is determined
+by file SHA-256s and snapshot links, not Unix metadata.
+
+On 66f1 the legacy `data/huggingface/hub` directory is root-owned. An administrator
+can provision just the new model directory once, without changing existing model
+files or shared-directory permissions. Run on 66f1 as `statsparrot`:
+
+```bash
+sudo install -d -o statsparrot -g statsparrot \
+  ~/projects/local-llm-stack/data/huggingface/hub/models--Qwen--Qwen3-Next-80B-A3B-Instruct
+```
+
 Run on the download source, after successful verification:
 
 ```bash
@@ -79,8 +94,11 @@ python3 scripts/sync-spark-models.py sync \
 ```
 
 The source and destination hashes are checked, snapshot symlinks are preserved,
-and unrelated cache entries remain intact. The command reports bytes and elapsed
-copy-plus-destination-verification time. This includes SSH encryption and disk
+and unrelated cache entries remain intact. Phase events go to stderr; the final
+JSON receipt remains on stdout. It reports source verification, rsync, destination
+verification and total durations, alongside the original bytes and elapsed
+copy-plus-destination-verification fields. The rsync phase includes its own file
+checksum preparation before network traffic starts. This includes SSH encryption and disk
 I/O, so it is not a measurement of RDMA or NCCL bandwidth. e8f1 was selected as
 download source because its measured RDMA sender direction is faster; actual
 SSH model-copy throughput must still be measured independently.

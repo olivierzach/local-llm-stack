@@ -13,8 +13,17 @@ from pathlib import Path
 import re
 import shlex
 import subprocess
+import sys
 import tempfile
 import time
+
+# Model identity is file content plus snapshot links, not Unix ownership/mtime.
+# In particular, never apply source attributes to shared implied cache parents.
+RSYNC_FLAGS = ['-rl', '--checksum', '--no-implied-dirs', '--protect-args', '--from0']
+
+
+def phase(name, **details):
+    print(json.dumps({'phase': name, **details}), file=sys.stderr, flush=True)
 
 
 def sha(path):
@@ -79,6 +88,25 @@ for model in manifest['models']:
     if ref.exists() and ref.read_text().strip()!=model['revision']:
         raise ValueError('target main reference differs; use a separate managed cache')
 if request['action']=='prepare':
+    # Check actual create/replace access before the source hashes a large model.
+    # Existing read-only shared ancestors are valid when selected model dirs
+    # beneath them already exist and are writable. Do not chmod/chown them.
+    parents={safe(relative).parent for relative in [*manifest['files'],*manifest['symlinks']]}
+    parents.update(safe('hub/'+model['directory']+'/refs/main').parent for model in manifest['models'])
+    checked=set()
+    for parent in sorted(parents):
+        ancestor=parent
+        while not ancestor.exists(): ancestor=ancestor.parent
+        if not ancestor.is_dir(): raise ValueError('cache parent is not a directory: '+str(ancestor))
+        if ancestor in checked: continue
+        checked.add(ancestor)
+        try:
+            fd,probe=tempfile.mkstemp(prefix='.spark-copy-check-',dir=ancestor)
+        except OSError as error:
+            raise ValueError('destination cache parent is not writable: '+str(ancestor)+
+                '; provision the selected model directory for this user before copying') from error
+        os.close(fd)
+        os.unlink(probe)
     root.mkdir(parents=True,exist_ok=True)
     print(json.dumps({'prepared':True}))
 else:
@@ -125,8 +153,6 @@ def main():
     if not args.peer_cache or not args.peer_cache.startswith('/') or any(c in args.peer_cache for c in '\n\r\x00'):
         p.error('absolute --peer-cache required')
     manifest = json.loads(args.lock.read_text())
-    if manifest != capture(cache, [m['repo'] + '@' + m['revision'] for m in manifest['models']]):
-        raise ValueError('source cache differs from its lock')
     ssh = ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-o', 'ServerAliveInterval=15', args.peer]
     def target(action):
         r = subprocess.run(ssh + [shlex.join(['python3', '-c', RECEIVER])],
@@ -134,17 +160,32 @@ def main():
             text=True, capture_output=True, timeout=1800)
         if r.returncode: raise RuntimeError(r.stderr[-1500:])
         return json.loads(r.stdout)
+    total_started = time.monotonic()
+    phase('destination-preflight')
     target('prepare')
+    phase('source-verification', bytes=sum(f['size'] for f in manifest['files'].values()))
+    verify_started = time.monotonic()
+    if manifest != capture(cache, [m['repo'] + '@' + m['revision'] for m in manifest['models']]):
+        raise ValueError('source cache differs from its lock')
+    source_verify_s = time.monotonic()-verify_started
+    phase('source-verified', elapsed_s=round(source_verify_s, 3))
     started = time.monotonic()
     with tempfile.NamedTemporaryFile() as file_list:
         for relative in sorted(set(manifest['files']) | set(manifest['symlinks'])):
             file_list.write(relative.encode() + b'\0')
         file_list.flush()
-        subprocess.run(['rsync', '-a', '--checksum', '--protect-args', '--from0', '--files-from=' + file_list.name,
+        phase('rsync', note='includes rsync checksum preparation and SSH transfer')
+        subprocess.run(['rsync', *RSYNC_FLAGS, '--files-from=' + file_list.name,
             '-e', 'ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15',
             str(cache) + '/', args.peer + ':' + args.peer_cache.rstrip('/') + '/'], check=True)
+    rsync_s = time.monotonic()-started
+    phase('destination-verification', rsync_s=round(rsync_s, 3))
+    verify_started = time.monotonic()
     result = target('verify')
     result.update(elapsed_s=round(time.monotonic()-started, 3), bytes=sum(f['size'] for f in manifest['files'].values()))
+    result.update(source_verify_s=round(source_verify_s, 3), rsync_s=round(rsync_s, 3),
+                  destination_verify_s=round(time.monotonic()-verify_started, 3),
+                  total_elapsed_s=round(time.monotonic()-total_started, 3))
     print(json.dumps(result))
 
 
