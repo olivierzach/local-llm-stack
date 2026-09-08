@@ -56,3 +56,26 @@ def test_replica_placement_does_not_change_any_client_profile():
     single=from_plans([first])
     replicated=from_plans([first,second],replicas=True)
     assert profiles(single,'e8f1',4112)==profiles(replicated,'e8f1',4112)
+
+
+def test_vision_capability_reaches_all_client_profiles():
+    r = from_plans([plan(*load(ROOT, ROOT/'cluster/inventory.json', ROOT/'cluster/deployments/vision-e8f1.json'))])
+    p = profiles(r, 'e8f1', 4110)
+    assert p['omp/models.yml']['providers']['spark-e8f1']['models'][0]['input'] == ['text', 'image']
+    assert p['openclaw/openclaw.json']['models']['providers']['spark-e8f1']['models'][0]['input'] == ['text', 'image']
+    assert p['aichat/config.yaml']['clients'][0]['models'][0]['supports_vision'] is True
+    assert p['llm/extra-openai-models.yaml'][0]['vision'] is True
+
+
+def test_aichat_attachments_mount_only_selected_directory_read_only(tmp_path):
+    from spark_cluster.clients import attachment_mount
+    images = tmp_path/'images with spaces'
+    images.mkdir()
+    result = attachment_mount(images)
+    assert result == ['--mount', f'type=bind,src={images.resolve()},dst={images.resolve()},readonly']
+    file = tmp_path/'file'
+    file.write_text('not a directory')
+    with pytest.raises(ConfigError): attachment_mount(file)
+    comma = tmp_path/'unsafe,mount-option'
+    comma.mkdir()
+    with pytest.raises(ConfigError): attachment_mount(comma)

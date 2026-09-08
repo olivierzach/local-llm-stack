@@ -57,3 +57,11 @@ def client_environment(root, key):
             "OPENCLAW_CONFIG_PATH": str(root / "openclaw/openclaw.json"),
             "OPENCLAW_STATE_DIR": str(root / "openclaw/state"),
             "AICHAT_CONFIG_DIR": str(root / "aichat"), "LLM_USER_PATH": str(root / "llm")}
+
+
+def attachment_mount(directory):
+    """Expose only an explicitly selected attachment folder to container AIChat."""
+    directory = Path(directory).expanduser().resolve(strict=True)
+    require(directory.is_dir(), "attachment directory must be a directory")
+    require("," not in str(directory), "Docker attachment paths must not contain commas")
+    return ["--mount", f"type=bind,src={directory},dst={directory},readonly"]

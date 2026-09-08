@@ -11,7 +11,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
-from spark_cluster.clients import client_environment, profiles
+from spark_cluster.clients import attachment_mount, client_environment, profiles
 from spark_cluster.cli import save_json
 from spark_cluster.config import integer, read, require, validate_inventory
 
@@ -26,12 +26,16 @@ def main():
     p.add_argument("--remote-port", type=int, default=4110)
     p.add_argument("--key-file", type=Path)
     p.add_argument("--output", type=Path)
+    p.add_argument("--attachment-dir", type=Path, help="explicit read-only attachment directory for container AIChat")
     p.add_argument("--client", choices=("omp", "openclaw", "aichat", "llm"))
     # Arguments after -- belong entirely to the selected client.
     argv = sys.argv[1:]
     split = argv.index("--") if "--" in argv else len(argv)
     args = p.parse_args(argv[:split])
     rest = argv[split + 1:]
+    if args.attachment_dir:
+        require(args.action == "run" and args.client == "aichat", "attachment-dir applies to AIChat runs")
+        attachment_mount(args.attachment_dir)  # Validate even when AIChat is native.
     inv = read(args.inventory)
     validate_inventory(inv)
     require(args.node in inv["nodes"], "unknown gateway node")
@@ -78,6 +82,7 @@ def main():
                    "--user", f"{os.getuid()}:{os.getgid()}", "--env", "SPARK_API_KEY",
                    "--env", "AICHAT_CONFIG_DIR=/config", "--mount",
                    f"type=bind,src={output.resolve() / 'aichat'},dst=/config"]
+        if args.attachment_dir: command += attachment_mount(args.attachment_dir)
         if sys.stdin.isatty() and sys.stdout.isatty(): command.append("-t")
         return subprocess.call([*command, image, *rest], env=env)
     return subprocess.call([args.client, *rest], env=env)

@@ -87,7 +87,7 @@ def validate_recipe(r):
     fields(r, ("version", "kind", "image", "model", "revision", "alias", "context_tokens",
                "max_output_tokens", "capabilities", "dtype", "gpu_memory_utilization",
                "min_available_mib", "max_num_seqs", "extra_args", "parallelism", "validation"),
-           ("tool_call_parser", "default_chat_template_kwargs"))
+           ("tool_call_parser", "default_chat_template_kwargs", "image_processing"))
     require(r["version"] == 1 and r["kind"] == "vllm", "unsupported recipe version/kind")
     require(re.fullmatch(r"[a-zA-Z0-9./_-]+@sha256:[0-9a-f]{64}", r["image"]),
             "image must be an immutable registry digest")
@@ -110,6 +110,13 @@ def validate_recipe(r):
         fields(r["default_chat_template_kwargs"], ("enable_thinking",))
         require(type(r["default_chat_template_kwargs"]["enable_thinking"]) is bool,
                 "enable_thinking must be a boolean")
+    if "image_processing" in r:
+        require(r["capabilities"]["vision"], "image processing requires vision capability")
+        image = r["image_processing"]
+        fields(image, ("max_images", "min_pixels", "max_pixels"))
+        integer(image["max_images"], 1, 8)
+        integer(image["min_pixels"], 1024, 16777216)
+        integer(image["max_pixels"], image["min_pixels"], 16777216)
     # Keep lifecycle-critical options under manifest control. Extend this allowlist
     # alongside a pinned runtime recipe and its validation, not arbitrary overrides.
     require(isinstance(r["extra_args"], list) and
@@ -177,6 +184,10 @@ def plan(inv, recipe, deployment):
             cmd += ["--enable-auto-tool-choice", "--tool-call-parser", recipe["tool_call_parser"]]
         if "default_chat_template_kwargs" in recipe:
             cmd += ["--default-chat-template-kwargs", canonical(recipe["default_chat_template_kwargs"])]
+        if "image_processing" in recipe:
+            image = recipe["image_processing"]
+            cmd += ["--limit-mm-per-prompt", canonical({"image": image["max_images"], "video": 0}),
+                    "--mm-processor-kwargs", canonical({"min_pixels": image["min_pixels"], "max_pixels": image["max_pixels"]})]
         service = {
             "image": recipe["image"], "pull_policy": "never", "init": True,
             "container_name": "spark-" + owner, "labels": {"io.spark.owner": owner, "io.spark.digest": digest},

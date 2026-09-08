@@ -268,3 +268,16 @@ def test_tool_capability_requires_parser(inputs):
     p = config.plan(inputs[0], r, inputs[2])
     command = p["compose"]["e8f1"]["services"]["worker"]["command"]
     assert command[-3:] == ["--enable-auto-tool-choice", "--tool-call-parser", "hermes"]
+
+
+def test_vision_recipe_bounds_render_and_validate():
+    inv, recipe, deployment = config.load(ROOT, ROOT/'cluster/inventory.json', ROOT/'cluster/deployments/vision-e8f1.json')
+    planned = config.plan(inv, recipe, deployment)
+    command = planned['compose']['e8f1']['services']['worker']['command']
+    assert json.loads(command[command.index('--limit-mm-per-prompt')+1]) == {'image': 2, 'video': 0}
+    assert json.loads(command[command.index('--mm-processor-kwargs')+1]) == {'min_pixels': 65536, 'max_pixels': 1048576}
+    for field, value in [('max_images', 0), ('max_images', True), ('max_pixels', 1024), ('max_pixels', 16777217)]:
+        changed = {**recipe, 'image_processing': {**recipe['image_processing'], field: value}}
+        with pytest.raises(ValueError): config.validate_recipe(changed)
+    changed = {**recipe, 'capabilities': {**recipe['capabilities'], 'vision': False}}
+    with pytest.raises(ValueError, match='vision capability'): config.validate_recipe(changed)

@@ -151,6 +151,60 @@ confirmed in the pinned runtime. The 14B model passed direct completion on e8f1
 and text/SSE through both gateways. Its 66f1 placement awaits GPU acceptance.
 This recipe advertises neither tools nor vision.
 
+### Image models
+
+`vision-e8f1.json` and `vision-66f1.json` select the same pinned
+Qwen3-VL-4B-Instruct snapshot as `local-vision`. The bounded baseline supports
+text and up to two images, an 8,192-token context and a 2,048-token output cap.
+It uses BF16, eager execution, four concurrent sequences and 30% GPU memory.
+Video and tools are disabled. Image preprocessing uses a 65,536-pixel minimum
+and 1,048,576-pixel maximum, so larger source images are downscaled. This limits
+fine-detail/OCR resolution; choose and validate another recipe when higher
+resolution is needed. The
+[vLLM multimodal controls](https://docs.vllm.ai/en/latest/configuration/conserving_memory/#multi-modal-processor-arguments)
+and the pinned image processor were checked before acceptance.
+
+```bash
+scripts/sparkctl up --deployment cluster/deployments/vision-e8f1.json
+```
+
+Add the saved plan's route to the complete gateway registry, preserving other
+routes. Use `spark-gateway render --plan PATH` to generate the vision route, then
+merge it into the registry used by `spark-gateway routes`. Model placement and
+gateway placement are independent. The recipe passed on e8f1 through either
+gateway; running its GPU worker on 66f1 still awaits the protected research job.
+
+The repeatable acceptance probe includes actual image recognition, image-token
+accounting, two-image rejection boundaries, oversized-image downscaling and
+image preservation through context compaction. Run on either gateway's Spark
+while e8f1 hosts the model:
+
+```bash
+.venv/bin/python scripts/probe-spark-vision.py \
+  --base-url http://127.0.0.1:4110/v1 --tokenizer-url http://10.10.20.2:8101 \
+  --key-file ~/.local/state/local-llm-cluster/gateway/api-key --guard \
+  --output data/cluster/vision-acceptance.json
+```
+
+`probe-spark-vision-client.py --node e8f1 --client omp --output PATH` tests real
+image attachments using generated profiles and opaque fixture filenames. It also
+supports `--client llm` and `--client aichat`, with the usual explicit port,
+registry and key-file options for a Mac tunnel. OMP passed on both Sparks, AIChat
+passed on e8f1 and llm passed on the Mac. OpenClaw receives the image capability
+in its generated profile; an OpenClaw image-agent session was not tested.
+
+Container AIChat needs an explicitly selected attachment folder. For example:
+
+```bash
+scripts/spark-client run --node e8f1 --client aichat \
+  --attachment-dir /path/to/images -- \
+  --model spark:local-vision --file /path/to/images/example.png 'Describe this image.'
+```
+
+Only that directory is mounted, read-only at the same absolute path. Native
+AIChat already reads local files directly. This option does not mount the
+controller's home directory or change existing text-only client behavior.
+
 To measure a live text model from its gateway's Spark:
 
 ```bash
