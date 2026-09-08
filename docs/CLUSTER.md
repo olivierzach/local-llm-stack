@@ -48,6 +48,50 @@ bash scripts/install-spark-client-node.sh
 This installs Node 22.23.2 under `~/.local/opt/spark-client-node/`; it does not
 change system/Homebrew executables. `spark-client` uses it only for OpenClaw.
 
+### Versioned controller installation
+
+Keep the production checkout separate from the optional controller. From a
+trusted committed checkout, create a bundle and record its full revision:
+
+```bash
+git rev-parse HEAD
+git bundle create /tmp/spark-controller.bundle HEAD
+scp /tmp/spark-controller.bundle scripts/install-spark-controller.py spark-e8f1-wired:~/scratch/
+```
+
+On that Spark, substitute the full commit printed above:
+
+```bash
+python3 ~/scratch/install-spark-controller.py \
+  --bundle ~/scratch/spark-controller.bundle --revision FULL_COMMIT_ID
+~/projects/local-llm-stack-cluster/bin/sparkctl doctor
+```
+
+Repeat for `spark-66f1-wired`. The installer uses an isolated environment with
+exact runtime package versions and PyPI wheel hashes. The initial installation
+needs access to PyPI; it never installs system packages or starts/stops services.
+Use Python 3.10+ with `venv` support, Git and OpenSSH. The release is accepted only
+after dependency and command checks pass. The supplied bundle and installer must
+come from your trusted checkout; commit matching provides reproducibility, not
+an independent publisher signature.
+
+The default prefix is `~/projects/local-llm-stack-cluster`:
+
+- `bin/` contains stable commands for all five controller entry points.
+- `releases/FULL_COMMIT_ID/` contains the exact detached checkout and its environment.
+- `current` points to the selected release; `previous` records the prior selection.
+- `state/` contains controller plans, receipts and profiles shared by every release.
+
+Upgrade by running the same installer with a new bundle and full revision.
+Rollback by running it with the previous revision and a bundle containing that
+commit. Existing releases are checked for tracked source changes before reuse.
+Neither operation restarts a model or gateway. Run `down --saved-plan PATH` with
+the original plan when recovering a deployment; changing releases does not
+rewrite that plan. Node-side GPU reservations and service state remain in their
+existing per-user state directories. Keep old releases until no operation needs
+them. This installer does not copy credentials or import a development checkout's
+ignored artifacts. Existing recovery records remain usable by explicit path.
+
 ### Controller SSH from either Spark
 
 Initially bootstrap from a machine whose inventory SSH targets already work:
