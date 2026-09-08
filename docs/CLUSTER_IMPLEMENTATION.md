@@ -135,8 +135,9 @@ Original copy checksums and transfer measurements remain under the controller's
 
 - Apply the staged system package baseline and MTU test on both nodes. These
   remain pending; user-service linger on e8f1 is now enabled.
-- Reprofile both rails at MTU 9000 and investigate throughput before claiming
-  efficient use of the physical link.
+- Investigate the measured sender-direction asymmetry and repeat the host-memory
+  profile with 66f1 idle. Compare MTU 9000 only as a measured follow-up; the fast
+  direction already reaches about 185 Gb/s summed across rails at MTU 1500.
 - Test reverse TP coordinator placement and pipeline parallelism; compare
   single-node, TP and PP latency/throughput with an optimized model recipe.
 - Validate larger combined-node recipes and the vision GPU placement on 66f1.
@@ -450,3 +451,59 @@ the three owner directories in `data/cluster/`. The validated comparison is
 both original coding-replica registries restored, and e8f1's GPU lease released.
 The node-local compiled cache remains available for reuse. The 66f1 research
 container and its process 4030689 remained running throughout.
+
+## Bidirectional host-memory fabric profiling
+
+A deterministic `profile-spark-fabric.py` runner now measures host-memory RDMA
+writes in both directions, on each logical rail and both concurrently. It uses
+explicit inventory addresses and matching RoCE v2 GIDs, records hardware/runtime
+metadata and counter deltas, and binds short-lived test servers only to the
+fabric IPs. It does not reconfigure networking or use a GPU. Independent GNU
+watchdogs bound each test even if its controller connection disappears.
+
+Three six-case sweeps completed at Ethernet MTU 1500. The verbs active MTU was
+1024 bytes, with 4096 supported. Perftest version 6.20 and NIC firmware
+28.45.4028 matched. Both NIC paths reported PCIe width 4 at 32 GT/s. CPU policies
+were `performance` on both nodes. 66f1 ran kernel `6.17.0-1021-nvidia` and GPU
+driver `580.159.03`; e8f1 ran `6.17.0-1032-nvidia` and `580.173.02`.
+
+| Workload | Sender | Rail 0, Gb/s | Rail 1, Gb/s | Concurrent rail-average sum, Gb/s |
+| --- | --- | ---: | ---: | ---: |
+| 64 KiB, 1 QP, default CPU placement | 66f1 | 9.86 | 9.16 | 18.01 |
+| 64 KiB, 1 QP, default CPU placement | e8f1 | 109.04 | 109.04 | 185.14 |
+| 64 KiB, 1 QP, CPUs 5/15 | 66f1 | 9.27 | 9.17 | 17.78 |
+| 64 KiB, 1 QP, CPUs 5/15 | e8f1 | 109.05 | 109.03 | 185.14 |
+| 8 MiB, 4 QPs, CPUs 5/15 | 66f1 | 8.77 | 8.77 | 18.17 |
+| 8 MiB, 4 QPs, CPUs 5/15 | e8f1 | 111.94 | 111.92 | 185.22 |
+
+The concurrent column sums averages from overlapping perftest runs; it is not a
+separately synchronized measurement window. Each case used a five-second test,
+CQ moderation 1 and no post-list batching. These are bounded diagnostic samples,
+not maximum-performance certification. They do establish a substantial
+asymmetry and show that the physical path can carry far more host-memory traffic
+than the earlier 24–25 Gb/s GPU-collective measurement. The latter remains the
+measured NCCL result; these RDMA figures must not replace it in inference claims.
+
+66f1's research process was active throughout; e8f1's GPU was idle. Pinning only
+the test processes to two observed high-frequency CPUs did not remove the
+asymmetry. No collected error, discard, drop or retransmission counter increased
+in these sweeps. Different kernel/driver versions and concurrent research work
+remain confounding factors. Repeat the same profile after 66f1 becomes idle
+before attributing the slow direction to workload contention, software or MTU.
+The 185 Gb/s direction already operated at Ethernet MTU 1500, so a jumbo-frame
+change is not established as the fix for the slow direction.
+
+Disconnect acceptance started one bounded server on e8f1, recorded watchdog PID
+214535, then closed only its controller SSH connection. Subsequent inspection
+confirmed that exact watchdog was absent, port 28560 had no listener and no
+`ib_write_bw` process remained. The protected research container stayed running
+with process 4030689. No agent performed remote cleanup.
+
+Evidence lives in `data/cluster/fabric-host-mtu1500-q1-v2/`,
+`data/cluster/fabric-host-mtu1500-cpu5-15/`,
+`data/cluster/fabric-host-mtu1500-bulk/` and
+`data/cluster/fabric-watchdog-acceptance.json`. Implementation commit `cd337ef`
+passed the complete **182-test Linux suite**. Focused coverage includes bounds,
+units, process ownership, counter resets, CPU-affinity scope and perftest's
+nonstandard successful version-query exit code. Package installation and
+multi-node GPU acceptance still require the previously recorded prerequisites.
