@@ -15,5 +15,5 @@
   "max_num_seqs": 4,
   "extra_args": ["--enforce-eager", "--enable-prefix-caching"],
   "parallelism": ["single"],
-  "validation": "Text, automatic tools, tool-result continuation and streamed tool arguments passed through both gateways with e8f1 serving. OMP, llm, AIChat and OpenClaw provider inference passed. Coding quality and agent tool execution not evaluated."
+  "validation": "Text, automatic tools, tool-result continuation and streamed tool arguments passed through both gateways with e8f1 serving. OMP read-only tool execution passed on the Mac and both Sparks. llm, AIChat and OpenClaw provider inference passed. Coding quality is not evaluated."
 }

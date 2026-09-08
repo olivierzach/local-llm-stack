@@ -80,8 +80,9 @@ scripts/sparkctl down --deployment cluster/deployments/fast-e8f1.json
 ```
 
 Use `fast-66f1.json` for the same model contract on 66f1. Two independent single
-deployments can run simultaneously. This provides replicas/independent jobs;
-automatic load balancing and failover are not implemented.
+deployments can run simultaneously. Each keeps a full model copy and its own GPU
+reservation. An explicit gateway replica group can distribute requests between
+them without changing client profiles.
 
 `balanced-e8f1.json` and `balanced-66f1.json` select the cached Qwen3-14B revision
 as `local-balanced`, with a 16,384-token context and a 4,096-token output cap.
@@ -110,6 +111,45 @@ measures repeated-prefix behavior separately. It rejects incomplete streams,
 missing token usage and reasoning output rather than reporting misleading text
 decode rates. Compare identical recipes/prompts before changing runtime settings;
 these synthetic requests do not measure answer quality.
+
+### Independent replicas and request-level data parallelism
+
+Start matching standalone deployments with the normal `sparkctl up` commands
+after each node is free. The `coder-66f1.json` / `coder-e8f1.json` pair uses the
+same tool-enabled recipe; the `fast-66f1.json` / `fast-e8f1.json` pair uses the same
+text-only recipe. Use their printed owner directories when installing a group:
+
+```bash
+.venv/bin/python scripts/spark-gateway up --node e8f1 --replicas \
+  --plan data/cluster/CODER_66F1_OWNER/plan.json \
+  --plan data/cluster/CODER_E8F1_OWNER/plan.json
+```
+
+For an existing gateway with this runtime, use `routes` instead of `up`. Repeat
+for the other gateway if desired. Duplicate aliases still fail unless `--replicas`
+is explicit, and members must use identical pinned recipes. This is request-level
+data parallelism: model weights remain complete on each replica. TP/PP deployments
+instead split one model's execution across GPUs.
+
+Each gateway sends a new request to the healthy member with the fewest in-flight
+requests, rotating ties. The selected member retains the full request, including
+tokenization, compaction, context retries and the entire stream. Backend failure
+does not replay generation on another member; subsequent requests may select a
+healthy peer. The scheduling counts are local to each gateway, and there is no
+session affinity or automatic cloud/model fallback.
+
+Generated routes verify the advertised alias, pinned model snapshot and context
+length in addition to `/health`, so a different model taking the same port does
+not satisfy an old route. `/v1/models` advertises a group only when a member
+passes those checks. Responses carry the selected saved-plan digest in
+`X-Spark-Deployment`. Client-facing aliases, token budgets and capabilities stay
+the same whether one or several members are available.
+
+HTTP concurrency, stream isolation, unavailable/wrong-model exclusion and
+non-replay tests pass. Both physical gateways have passed real tool and streaming
+requests with e8f1 serving while the 66f1 replica is unavailable. Simultaneous
+two-GPU replica throughput and live member-loss acceptance remain pending the
+66f1 research job finishing.
 
 The controller refuses admission when another GPU process, GPU container,
 reservation or unresolved Loop LLM window exists. It does not stop other jobs.
@@ -174,7 +214,8 @@ gateway; it does not have to execute on the gateway's node:
 .venv/bin/python scripts/spark-gateway routes --node e8f1 --plan data/cluster/OTHER_OWNER/plan.json
 ```
 
-Repeat `--plan` for distinct aliases. Duplicate aliases are rejected. Route,
+Repeat `--plan` for distinct aliases, or use the explicit `--replicas` mode above.
+Route,
 tokenizer and context policy are replaced atomically; each request keeps one
 consistent route. Backend failure returns an explicit error, without silently
 switching model or sending data to a cloud provider. `/v1/models` only advertises
@@ -216,6 +257,18 @@ OMP 18.1.11, llm 0.28, AIChat and OpenClaw's live provider probe have passed wit
 gateways passed automatic tool calling, tool-result continuation and streaming
 argument assembly. These are transport/protocol checks, not a coding-quality
 evaluation. Use the coder deployment and model alias for tool-enabled profiles.
+OMP has also passed actual read-tool execution on the Mac and both Sparks using
+a generated verification file. The value is absent from its prompt and must be
+read through the tool and returned in the final assistant response. To repeat on
+a Spark whose local gateway serves `local-coder`:
+
+```bash
+.venv/bin/python scripts/probe-spark-omp.py --node e8f1 --output data/cluster/omp-read.json
+```
+
+The probe enables only `read`, disables extensions/LSP, uses an ephemeral client
+profile and enforces a time limit. On the Mac, add `--port 4112` while its gateway
+tunnel is running. This verifies agent/tool transport, not general coding quality.
 On Linux, the client runner uses the locked AIChat image if a native executable
 is absent; it mounts only that isolated AIChat configuration directory and passes
 the gateway key through the environment. It never pulls a mutable image tag.

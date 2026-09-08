@@ -23,11 +23,13 @@ def main():
     model = next((m for m in r.json()["data"] if m["id"] == args.model), None)
     if model is None: raise RuntimeError("selected model is not advertised as available")
     result = {"model": model, "checks": []}
+    deployments=set()
 
     def post(payload):
         r = session.post(args.base_url + "/chat/completions", json={"model": args.model, "temperature": 0,
             "max_tokens": 256, **payload}, timeout=120)
         r.raise_for_status()
+        if r.headers.get('X-Spark-Deployment'): deployments.add(r.headers['X-Spark-Deployment'])
         return r.json()
 
     def stream(payload):
@@ -38,6 +40,7 @@ def main():
         with session.post(args.base_url + "/chat/completions", json={"model": args.model, "temperature": 0,
                 "max_tokens": 256, **payload, "stream": True}, stream=True, timeout=120) as response:
             response.raise_for_status()
+            if response.headers.get('X-Spark-Deployment'): deployments.add(response.headers['X-Spark-Deployment'])
             for line in response.iter_lines(chunk_size=1, decode_unicode=True):
                 if not line.startswith("data:"): continue
                 data = line[5:].strip()
@@ -87,6 +90,7 @@ def main():
         if f["name"] != "get_temperature" or json.loads(f["arguments"])["city"].lower() != "paris":
             raise RuntimeError("streaming tool argument assembly failed")
         result["checks"].append({"check": "stream-tool-call", "passed": True, **timing})
+    result['deployment_digests']=sorted(deployments)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps(result))

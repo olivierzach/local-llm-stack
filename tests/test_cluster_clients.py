@@ -47,3 +47,12 @@ def test_secret_only_in_process_environment(tmp_path):
 def test_missing_routes_and_invalid_ports_fail():
     with pytest.raises(ConfigError): profiles({"version": 1, "routes": {}}, "e8f1", 4110)
     with pytest.raises(ConfigError): profiles(registry(), "e8f1", 80)
+
+
+def test_replica_placement_does_not_change_any_client_profile():
+    inv,recipe,deployment=load(ROOT,ROOT/'cluster/inventory.json',ROOT/'cluster/deployments/fast-e8f1.json')
+    first=plan(inv,recipe,deployment)
+    second=plan(inv,recipe,{**deployment,'name':'fast-66f1','nodes':['66f1'],'coordinator':'66f1'})
+    single=from_plans([first])
+    replicated=from_plans([first,second],replicas=True)
+    assert profiles(single,'e8f1',4112)==profiles(replicated,'e8f1',4112)

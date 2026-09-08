@@ -20,6 +20,7 @@ def main():
     p.add_argument("--node", required=True)
     p.add_argument("--inventory", type=Path, default=ROOT / "cluster/inventory.json")
     p.add_argument("--plan", type=Path, action="append", default=[])
+    p.add_argument("--replicas",action="store_true",help="group identical recipes under one alias with least-in-flight routing")
     p.add_argument("--registry", type=Path)
     p.add_argument("--port", type=int, default=4110)
     args = p.parse_args()
@@ -31,7 +32,8 @@ def main():
     request = {"action": args.action, "node": node}
     if args.action in ("render", "up", "routes"):
         if args.registry and args.plan: p.error("choose --registry or --plan")
-        registry = read(args.registry) if args.registry else from_plans([read(path) for path in args.plan])
+        if args.registry and args.replicas: p.error('--replicas applies to --plan inputs')
+        registry = read(args.registry) if args.registry else from_plans([read(path) for path in args.plan],replicas=args.replicas)
         validate_registry(registry)
         request["registry"] = registry
         save_json(output / "registry.json", registry)

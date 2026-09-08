@@ -1,7 +1,9 @@
 import json
+import io
 from pathlib import Path
 import sys
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
@@ -9,7 +11,7 @@ import requests
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
-from spark_cluster import gateway
+from spark_cluster import gateway, gateway_node, config
 from spark_cluster.cli import save_json
 
 KEY = "test-only-gateway-key-0000000000000000"
@@ -24,13 +26,25 @@ class Backend(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
-    def do_GET(self): self.reply({"status": "ok"})
+    def do_GET(self):
+        if not getattr(self.server,'available',True):
+            self.send_error(503)
+        elif self.path == '/v1/models':
+            self.reply({'data':[{'id':getattr(self.server,'model_alias','local-fast'),
+                'root':getattr(self.server,'model_root','/cache/test'), 'max_model_len':8192}]})
+        else: self.reply({"status": "ok"})
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         if self.path == "/tokenize":
             self.reply({"count": 10})
             return
         self.server.received.append({"payload": body, "authorization": self.headers.get("Authorization")})
+        if getattr(self.server,'entered',None):
+            self.server.entered.set()
+            self.server.unblock.wait(timeout=5)
+        if getattr(self.server,'fail_completion',False):
+            self.send_error(503)
+            return
         if body.get("stream"):
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
@@ -54,6 +68,7 @@ def running(tmp_path):
     path = tmp_path / "registry.json"
     save_json(path, registry)
     server = gateway.serve(path, "127.0.0.1", 0, KEY)
+    backend.gateway = server
     worker = threading.Thread(target=server.serve_forever, daemon=True)
     worker.start()
     yield f"http://127.0.0.1:{server.server_port}", backend, registry, path
@@ -136,3 +151,120 @@ def test_provider_secret_resolved_server_side(running, monkeypatch):
     monkeypatch.setenv("TEST_UPSTREAM_KEY", "upstream-test-only")
     assert chat(url).status_code == 200
     assert backend.received[-1]["authorization"] == "Bearer upstream-test-only"
+
+
+@pytest.fixture
+def replicas(running):
+    url,first,registry,path=running
+    second=ThreadingHTTPServer(('127.0.0.1',0),Backend)
+    second.received=[]
+    thread=threading.Thread(target=second.serve_forever,daemon=True)
+    thread.start()
+    route=registry['routes']['local-fast']
+    route.update(model_root='/cache/test',deployment_digest='a'*64)
+    other=f'http://127.0.0.1:{second.server_port}'
+    route['replicas']=[{k:route[k] for k in ('base_url','health_url','tokenizer_base_url','deployment_digest')},
+        {'base_url':other+'/v1','health_url':other+'/health','tokenizer_base_url':other,'deployment_digest':'b'*64}]
+    save_json(path,registry)
+    yield url,first,second,registry,path
+    if getattr(first,'unblock',None): first.unblock.set()
+    second.shutdown()
+    second.server_close()
+    thread.join()
+
+
+def test_replica_routing_rotates_and_preserves_client_contract(replicas):
+    url,first,second,*_=replicas
+    replies=[chat(url) for _ in range(4)]
+    assert all(r.status_code==200 for r in replies)
+    assert [r.headers['X-Spark-Deployment'] for r in replies]==['a'*64,'b'*64]*2
+    assert len(first.received)==len(second.received)==2
+    assert all(r.headers['X-Context-Limit']=='8192' for r in replies)
+    assert first.gateway.replica_pool.active=={}
+
+
+def test_busy_replica_keeps_lease_for_stream_and_other_requests_use_peer(replicas):
+    url,first,second,*_=replicas
+    first.entered=threading.Event()
+    first.unblock=threading.Event()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        slow=pool.submit(chat,url,stream=True)
+        assert first.entered.wait(3)
+        for _ in range(2):
+            r=chat(url)
+            assert r.status_code==200 and r.headers['X-Spark-Deployment']=='b'*64
+        assert sum(first.gateway.replica_pool.active.values())==1
+        first.unblock.set()
+        assert '[DONE]' in slow.result(timeout=5).text
+    assert first.gateway.replica_pool.active=={}
+
+
+def test_unhealthy_or_wrong_model_replica_is_excluded(replicas):
+    url,first,second,*_=replicas
+    first.model_root='/cache/another-model'
+    assert chat(url).headers['X-Spark-Deployment']=='b'*64
+    second.available=False
+    assert chat(url).status_code==503
+    r=requests.get(url+'/v1/models',headers={'Authorization':'Bearer '+KEY},timeout=5)
+    assert r.json()['data']==[]
+    assert not first.received
+
+
+def test_failed_generation_is_not_replayed_on_another_replica(replicas):
+    url,first,second,*_=replicas
+    first.fail_completion=True
+    assert chat(url).status_code==503
+    assert len(first.received)==1 and not second.received
+    assert first.gateway.replica_pool.active=={}
+
+
+def test_registry_change_does_not_move_an_inflight_request(replicas):
+    url,first,second,registry,path=replicas
+    first.entered=threading.Event()
+    first.unblock=threading.Event()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        old=pool.submit(chat,url)
+        assert first.entered.wait(3)
+        registry['routes']['local-fast']['context_tokens']=4096
+        save_json(path,registry)
+        first.unblock.set()
+        assert old.result(timeout=5).headers['X-Context-Limit']=='8192'
+    # Neither backend advertises the newly declared context; new traffic fails closed.
+    assert chat(url).status_code==503
+
+
+def test_replica_plan_grouping_is_explicit_and_checks_pinned_recipe():
+    inv,recipe,deployment=config.load(ROOT,ROOT/'cluster/inventory.json',ROOT/'cluster/deployments/fast-e8f1.json')
+    first=config.plan(inv,recipe,deployment)
+    other={**deployment,'name':'fast-66f1','nodes':['66f1'],'coordinator':'66f1'}
+    second=config.plan(inv,recipe,other)
+    with pytest.raises(ValueError,match='duplicate alias'): gateway.from_plans([first,second])
+    grouped=gateway.from_plans([first,second],replicas=True)
+    assert len(grouped['routes']['local-fast']['replicas'])==2
+    changed=config.plan(inv,{**recipe,'revision':'a'*40},other)
+    with pytest.raises(ValueError,match='identical pinned recipe'): gateway.from_plans([first,changed],replicas=True)
+    with pytest.raises(ValueError,match='duplicate replica'): gateway.from_plans([first,first],replicas=True)
+
+
+def test_gateway_start_waits_for_the_same_process(monkeypatch):
+    observations=[]
+    monkeypatch.setattr(gateway_node,'checked',lambda saved:observations.append(saved) or {'State':{'Running':True}})
+    monkeypatch.setattr(gateway_node,'run',lambda *a:pytest.fail('readiness must not relaunch anything'))
+    class Opener:
+        calls=0
+        def open(self,*a,**kw):
+            self.calls+=1
+            if self.calls==1: raise OSError('starting')
+            return io.BytesIO(b'{"status":"ok"}')
+    opener=Opener()
+    monkeypatch.setattr(gateway_node.urllib.request,'build_opener',lambda *a:opener)
+    monkeypatch.setattr(gateway_node.time,'sleep',lambda n:None)
+    saved={'port':4110,'id':'original'}
+    gateway_node.await_ready(saved)
+    assert observations==[saved,saved]
+
+
+def test_gateway_start_refuses_terminal_process_without_restart(monkeypatch):
+    monkeypatch.setattr(gateway_node,'checked',lambda saved:{'State':{'Running':False}})
+    monkeypatch.setattr(gateway_node,'run',lambda *a:pytest.fail('terminal process must not be relaunched'))
+    with pytest.raises(RuntimeError,match='retained'): gateway_node.await_ready({'port':4110})

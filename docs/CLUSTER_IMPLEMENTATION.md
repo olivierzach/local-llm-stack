@@ -139,7 +139,7 @@ Original copy checksums and transfer measurements remain under the controller's
   efficient use of the physical link.
 - Test reverse TP coordinator placement and pipeline parallelism; compare
   single-node, TP and PP latency/throughput with an optimized model recipe.
-- Validate real agent tool execution, vision and larger combined-node recipes. The
+- Validate vision and larger combined-node recipes. The
   baseline 4B recipe advertises no tools; the separate coder recipe has passed
   protocol-level tool calling and streaming, not coding-quality evaluation.
 - Validate the staged Loop LLM and Vector Bucket workers on 66f1 after its research
@@ -208,3 +208,46 @@ acceptance pending its research job finishing.
 
 The expanded Linux suite passes **142 tests**, including Loop finalization and
 artifact isolation, model template defaults and streaming benchmark accounting.
+
+## Replica routing and real OMP tools
+
+The gateway now supports explicit replica groups made from identical pinned
+recipes. Scheduling uses each gateway's count of in-flight requests, rotating
+ties. One member handles the complete request, including tokenization, compaction
+and streaming. Generation errors are not replayed on a different member.
+New requests can select a remaining healthy member. This implements independent
+request-level data parallelism, while TP/PP remain separate deployment modes.
+
+Generated routes also verify the advertised model alias, snapshot root and
+context length. A healthy server hosting a different model on a reused port no
+longer makes an old generated route appear ready. Existing manual registry
+schemas remain supported; the stronger identity checks apply when `model_root`
+is present. Changing a single placement to replicas produces identical OMP,
+OpenClaw, AIChat and llm client profiles.
+
+Both gateways were upgraded to the same runtime
+`spark-gateway-5b8c99428fc5`, retaining their individual keys and loopback ports.
+Both passed real text, SSE, automatic tools, tool-result continuation and streamed
+arguments with the e8f1 coding deployment. Each response selected the configured
+e8f1 plan digest `c16571152b27e6eee0a0bf774b90fd21f39c866e8364f6abb95c1293cd0a65b2`;
+the unavailable 66f1 member was excluded. This is hardware evidence for degraded
+group operation, not simultaneous two-GPU scheduling or member-loss acceptance.
+
+OMP 18.1.11 executed a real `read` tool on the Mac, 66f1 and e8f1. Every probe
+created a fresh local verification file, withheld its value from the prompt,
+enabled only `read`, and verified the matching tool-call/result plus final
+assistant answer. The 66f1 case performed local tool execution while inference
+ran on e8f1 through 66f1's gateway. The Mac's temporary SSH tunnel was closed by
+its owning process. These tests establish agent/tool transport, not coding quality.
+
+Evidence is under `data/cluster/coder-e8f1-c16571152b27/`. The test GPU worker was
+removed and its reservation released. Both gateways retain the current coding
+replica configuration and advertise no model while both members are unavailable.
+The 66f1 research container remained running throughout. Simultaneous replica
+throughput and live member-loss acceptance still await that job finishing.
+
+The complete Linux suite passes **156 tests**, including concurrent routing,
+stream leases, model mismatch, no generation replay, registry replacement,
+gateway startup readiness and strict tool-result verification. NetworkManager
+reports `auth` for profile/network changes from these SSH sessions; fabric tuning
+still needs the previously staged privileged setup.

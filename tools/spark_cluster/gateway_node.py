@@ -9,6 +9,7 @@ import secrets
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.request
 
 ROOT = Path.home() / ".local/state/local-llm-cluster/gateway"
@@ -46,6 +47,22 @@ def checked(saved):
               (saved.get("id") and c["Id"] != saved["id"])):
         raise RuntimeError("gateway container ownership mismatch")
     return c
+
+
+def await_ready(saved, timeout=20):
+    deadline=time.monotonic()+timeout
+    opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    while True:
+        container=checked(saved)
+        if not container or not container['State']['Running']:
+            raise RuntimeError('gateway process stopped; saved state retained for inspection/recovery')
+        try:
+            with opener.open(f"http://127.0.0.1:{saved['port']}/health",timeout=2) as response:
+                if json.load(response).get('status')=='ok': return
+        except (OSError,ValueError): pass
+        if time.monotonic()>=deadline:
+            raise RuntimeError('gateway health deadline reached; running container and saved state retained')
+        time.sleep(.25)
 
 
 def main(req):
@@ -114,7 +131,8 @@ def main(req):
             saved["id"] = identity
             write(state, json.dumps(saved))
         run(["docker", "start", saved["name"]])
-        return {"installed": True, "container": name, "port": req["port"], "binding": "127.0.0.1"}
+        await_ready(saved)
+        return {"installed": True, "ready": True, "container": name, "port": req["port"], "binding": "127.0.0.1"}
 
 
 if __name__ == "__main__":

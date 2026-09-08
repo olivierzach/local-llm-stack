@@ -15,11 +15,12 @@ import os
 from pathlib import Path
 import re
 import sys
+import threading
 from urllib.parse import urlparse
 
 import requests
 
-from .config import fields, integer, name, read, require
+from .config import absolute, fields, integer, name, read, require, validate_saved_plan
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("spark_legacy_guard", ROOT / "scripts/context-guard-proxy.py")
@@ -35,13 +36,27 @@ def validate_registry(registry):
     for alias, r in registry["routes"].items():
         name(alias)
         fields(r, ("base_url", "upstream_model", "context_tokens", "max_output_tokens", "capabilities"),
-               ("tokenizer_base_url", "health_url", "upstream_key_env", "deployment_digest"))
-        for key in ("base_url", "tokenizer_base_url", "health_url"):
-            if not r.get(key): continue
-            u = urlparse(r[key])
-            require(u.scheme in ("http", "https") and u.hostname and not u.username and
-                    not u.password and not u.query and not u.fragment, "invalid registry URL")
-        require(r["base_url"].endswith("/v1"), "base_url must end with /v1")
+               ("tokenizer_base_url", "health_url", "upstream_key_env", "deployment_digest", "model_root", "replicas"))
+        endpoints = [r]
+        if 'replicas' in r:
+            require(isinstance(r['replicas'],list) and 2 <= len(r['replicas']) <= 32,'replicas must contain 2..32 endpoints')
+            require('model_root' in r and not r.get('upstream_key_env'),'replicas require one pinned local model contract')
+            require(len({e['base_url'] for e in r['replicas']}) == len(r['replicas']),'duplicate replica endpoint')
+            for e in r['replicas']:
+                fields(e,('base_url','tokenizer_base_url','health_url','deployment_digest'))
+                require(re.fullmatch(r'[a-f0-9]{64}',e['deployment_digest']),'invalid replica deployment digest')
+                require(e['tokenizer_base_url'] == e['base_url'].removesuffix('/v1') and
+                        e['health_url'] == e['base_url'].removesuffix('/v1')+'/health',
+                        'replica health and tokenizer must belong to its model endpoint')
+                endpoints.append(e)
+        for endpoint in endpoints:
+            for key in ("base_url", "tokenizer_base_url", "health_url"):
+                if not endpoint.get(key): continue
+                u = urlparse(endpoint[key])
+                require(u.scheme in ("http", "https") and u.hostname and not u.username and
+                        not u.password and not u.query and not u.fragment, "invalid registry URL")
+            require(endpoint["base_url"].endswith("/v1"), "base_url must end with /v1")
+        if 'model_root' in r: absolute(r['model_root'])
         require(isinstance(r["upstream_model"], str) and r["upstream_model"], "upstream model required")
         integer(r["context_tokens"], 256, 2097152)
         integer(r["max_output_tokens"], 1, r["context_tokens"] - 1)
@@ -51,16 +66,29 @@ def validate_registry(registry):
             require(re.fullmatch(r"[A-Z][A-Z0-9_]+", r["upstream_key_env"]), "invalid secret environment name")
 
 
-def from_plans(plans):
+def from_plans(plans, replicas=False):
     routes = {}
+    recipes = {}
     for p in plans:
+        validate_saved_plan(p)
         alias, e = p["recipe"]["alias"], p["endpoint"]
-        require(alias not in routes, f"duplicate alias {alias}; choose one placement per alias")
-        routes[alias] = {"base_url": e["base_url"], "upstream_model": alias,
+        endpoint = {"base_url": e["base_url"],
                          "tokenizer_base_url": e["base_url"].removesuffix("/v1"),
                          "health_url": e["base_url"].removesuffix("/v1") + "/health",
-                         "context_tokens": e["context_tokens"], "max_output_tokens": e["max_output_tokens"],
-                         "capabilities": e["capabilities"], "deployment_digest": p["digest"]}
+                         "deployment_digest":p['digest']}
+        if alias in routes:
+            require(replicas,f"duplicate alias {alias}; explicitly select --replicas for identical model deployments")
+            require(recipes[alias] == p['recipe'],'replicas must use the identical pinned recipe and model contract')
+            route = routes[alias]
+            if 'replicas' not in route:
+                route['replicas'] = [{k:route[k] for k in endpoint}]
+            route['replicas'].append(endpoint)
+        else:
+            recipes[alias] = p['recipe']
+            routes[alias] = {**endpoint, "upstream_model": alias,
+                "context_tokens": e["context_tokens"], "max_output_tokens": e["max_output_tokens"],
+                "capabilities": e["capabilities"],
+                "model_root":"/cache/hub/models--"+p['recipe']['model'].replace('/','--')+'/snapshots/'+p['recipe']['revision']}
     result = {"version": 1, "routes": routes}
     validate_registry(result)
     return result
@@ -70,9 +98,48 @@ def live(route):
     if not route.get("health_url"):
         return True  # Remote provider availability is established by its request.
     try:
-        return requests.get(route["health_url"], timeout=2).status_code == 200
-    except requests.RequestException:
+        with requests.get(route["health_url"], timeout=2) as response:
+            if response.status_code != 200: return False
+        if route.get('model_root'):
+            with requests.get(route['base_url']+'/models',timeout=2) as response:
+                response.raise_for_status()
+                models=response.json()['data']
+            return isinstance(models,list) and any(isinstance(m,dict) and m.get('id') == route['upstream_model'] and m.get('root') == route['model_root'] and
+                       m.get('max_model_len') == route['context_tokens'] for m in models)
+        return True
+    except (requests.RequestException,ValueError,KeyError,TypeError):
         return False
+
+
+def members(route):
+    common={k:v for k,v in route.items() if k!='replicas'}
+    return [{**common,**endpoint} for endpoint in route['replicas']] if 'replicas' in route else [common]
+
+
+class ReplicaPool:
+    """Least in-flight requests, rotating ties; one lease covers the entire stream."""
+    def __init__(self):
+        self.lock=threading.Lock()
+        self.active={}
+        self.ticket=0
+
+    def acquire(self,route):
+        healthy=[member for member in members(route) if live(member)]
+        if not healthy: return None
+        with self.lock:
+            offset=self.ticket % len(healthy)
+            index=min(range(len(healthy)),key=lambda i:(self.active.get(healthy[i]['base_url'],0),(i-offset)%len(healthy)))
+            selected=healthy[index]
+            key=selected['base_url']
+            self.active[key]=self.active.get(key,0)+1
+            self.ticket+=1
+            return selected
+
+    def release(self,route):
+        with self.lock:
+            key=route['base_url']
+            self.active[key]-=1
+            if self.active[key]==0: del self.active[key]
 
 
 class GatewayHandler(guard.ContextGuardHandler):
@@ -125,7 +192,7 @@ class GatewayHandler(guard.ContextGuardHandler):
             {"id": alias, "object": "model", "owned_by": "spark-cluster",
              "context_length": r["context_tokens"], "max_output_tokens": r["max_output_tokens"],
              "capabilities": r["capabilities"]}
-            for alias, r in registry["routes"].items() if live(r)]})
+            for alias, r in registry["routes"].items() if any(live(member) for member in members(r))]})
 
     def do_POST(self):
         if self.incoming_headers() is None: return
@@ -169,10 +236,11 @@ class GatewayHandler(guard.ContextGuardHandler):
         if payload.get("stream") and not caps["streaming"]:
             self.write_json(400, {"error": {"message": "This deployment does not support streaming"}})
             return
-        if not live(route):
+        selected=self.server.replica_pool.acquire(route)
+        if selected is None:
             self.write_json(503, {"error": {"type": "deployment_unavailable", "message": "Selected deployment is unavailable; no fallback was used"}})
             return
-        self._route = route
+        self._route = route = selected
         # A private per-request config prevents a concurrent registry update from
         # routing with a different model's token budget or cached tokenizer.
         self._request_config = replace(self.server.config,
@@ -180,7 +248,16 @@ class GatewayHandler(guard.ContextGuardHandler):
             fallback_model_contexts={}, context_cache={}, discover_model_context=False,
             default_output_tokens=route["max_output_tokens"], compact_model=alias,
             tokenizer_base_urls={alias: route["tokenizer_base_url"]} if route.get("tokenizer_base_url") else {})
-        super().do_POST()
+        try:
+            super().do_POST()
+        finally:
+            self.server.replica_pool.release(selected)
+
+    def context_headers(self,payload,**kwargs):
+        headers=super().context_headers(payload,**kwargs)
+        if self._route.get('deployment_digest'):
+            headers['X-Spark-Deployment']=self._route['deployment_digest']
+        return headers
 
     def sanitize_max_tokens(self, payload):
         result = super().sanitize_max_tokens(payload)
@@ -223,6 +300,7 @@ def serve(registry_path, host, port, key):
     server = guard.ContextGuardServer((host, port), GatewayHandler, cfg)
     server.registry_path = Path(registry_path)
     server.api_key = key
+    server.replica_pool = ReplicaPool()
     return server
 
 
