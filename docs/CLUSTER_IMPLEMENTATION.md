@@ -27,7 +27,7 @@ Other tools do not automatically participate in this reservation protocol.
 - [x] Node inspection and owned lifecycle, partial-failure cleanup and recovery unit tests
 - [x] Pinned standalone model on either node; completion on both and streaming on e8f1
 - [x] Gateway/guard placement and atomic route plus policy changes; HTTP tests and deployed authentication
-- [ ] OpenClaw, OMP, AIChat, llm and OpenRouter configuration adapters
+- [x] OpenClaw, OMP, AIChat, llm and OpenRouter configuration adapters (provider fixture acceptance; no real cloud account test)
 - [ ] Vector Bucket placement and actual embedding smoke on either node
 - [ ] Looped LLM immutable-source placement and managed job smoke on either node
 - [ ] Both fabric rails, repeatable model-copy checksums and throughput
@@ -145,9 +145,10 @@ Original copy checksums and transfer measurements remain under the controller's
 - Validate the staged Loop LLM and Vector Bucket workers on 66f1 after its research
   job finishes; extend
   audio preprocessing only with the required pinned dependencies and acceptance.
-- Complete explicit OpenRouter upstream credential provisioning, multi-host
-  failure/recovery acceptance, optimized recipe/performance comparisons, and
-  final review of the reproducible operator workflow.
+- Complete multi-host failure/recovery acceptance, optimized recipe/performance
+  comparisons, and final review of the reproducible operator workflow.
+- A real OpenRouter account/model call remains untested; provider transport and
+  credential lifecycle have passed local fixture acceptance on both gateways.
 
 ## Loop LLM GPU acceptance
 
@@ -295,3 +296,42 @@ failed-release preservation and gateway attachment ownership/credential checks.
 Baseline Compose configuration validation also passed. Fabric tuning, remaining
 cross-node GPU acceptance and explicit OpenRouter credential provisioning remain
 open as listed above.
+
+
+## Provider credentials and optional OpenRouter routing
+
+Both stable controllers now select release
+`8983febee5cfbf1ca9c1abd36e937a4ee66b4c21`. Both optional gateways were upgraded
+to `spark-gateway-2c33ee379a9b` after authenticated inspection showed no available
+inference model. Their existing keys, loopback ports and complete coding-replica
+registries were preserved. The protected 66f1 research container remained running
+with process 4030689; baseline Compose services were not changed.
+
+The gateway CLI supports explicit `credential-set`, `credential-status` and
+`credential-remove` operations. Input is a private regular key file owned by the
+controller user; credentials travel through SSH input, not command arguments.
+The node stores them with mode `0600` in the gateway's private config directory.
+Provisioning requires a registry reference and pins the exact upstream base URL.
+Rotation is atomic and applies to new requests; in-flight requests retain their
+selected key. Removal records a tombstone, including disabling legacy environment
+fallback for that name. It does not revoke the credential at the cloud provider.
+Unconfigured or destination-mismatched provider aliases are excluded from model
+listings and fail before sending an inference request. Local routes remain usable.
+
+The deterministic `probe-spark-provider.py` acceptance ran on both Sparks. Each
+run created only a local HTTP provider, temporarily added one explicit alias,
+and verified missing-key rejection, provisioning, model translation, authenticated
+text, rotation, authenticated SSE, removal and subsequent rejection. Both runs
+passed exactly two authorized provider requests; their fixture routes were removed
+and test credentials disabled. Gateway container IDs/start times remained unchanged
+during provisioning/rotation/removal. No cloud API key was read, copied or used,
+and no real OpenRouter request was sent. This establishes integration mechanics,
+not account authorization or cloud model quality.
+
+Evidence is retained under `data/cluster/provider-provisioning/` on the Mac and
+`~/projects/local-llm-stack-cluster/state/provider-probe.json` on each Spark. The
+full installed-release Linux suite passes **167 tests**, including origin binding,
+private-file validation, corruption handling and in-flight credential retention.
+Compose configuration validation passed. The operator runbook contains explicit
+OpenRouter route and per-gateway provisioning instructions; local models never
+fall back to that cloud route implicitly.
