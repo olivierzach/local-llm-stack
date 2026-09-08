@@ -87,7 +87,7 @@ def validate_recipe(r):
     fields(r, ("version", "kind", "image", "model", "revision", "alias", "context_tokens",
                "max_output_tokens", "capabilities", "dtype", "gpu_memory_utilization",
                "min_available_mib", "max_num_seqs", "extra_args", "parallelism", "validation"),
-           ("tool_call_parser",))
+           ("tool_call_parser", "default_chat_template_kwargs"))
     require(r["version"] == 1 and r["kind"] == "vllm", "unsupported recipe version/kind")
     require(re.fullmatch(r"[a-zA-Z0-9./_-]+@sha256:[0-9a-f]{64}", r["image"]),
             "image must be an immutable registry digest")
@@ -106,6 +106,10 @@ def validate_recipe(r):
     require(r.get("tool_call_parser") in (None, "hermes"), "unsupported tool parser")
     require(r["capabilities"]["tools"] == bool(r.get("tool_call_parser")),
             "tool capability requires an explicit supported parser")
+    if "default_chat_template_kwargs" in r:
+        fields(r["default_chat_template_kwargs"], ("enable_thinking",))
+        require(type(r["default_chat_template_kwargs"]["enable_thinking"]) is bool,
+                "enable_thinking must be a boolean")
     # Keep lifecycle-critical options under manifest control. Extend this allowlist
     # alongside a pinned runtime recipe and its validation, not arbitrary overrides.
     require(isinstance(r["extra_args"], list) and
@@ -171,6 +175,8 @@ def plan(inv, recipe, deployment):
                "--max-num-seqs", str(recipe["max_num_seqs"])] + recipe["extra_args"]
         if recipe.get("tool_call_parser"):
             cmd += ["--enable-auto-tool-choice", "--tool-call-parser", recipe["tool_call_parser"]]
+        if "default_chat_template_kwargs" in recipe:
+            cmd += ["--default-chat-template-kwargs", canonical(recipe["default_chat_template_kwargs"])]
         service = {
             "image": recipe["image"], "pull_policy": "never", "init": True,
             "container_name": "spark-" + owner, "labels": {"io.spark.owner": owner, "io.spark.digest": digest},

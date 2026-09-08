@@ -97,6 +97,17 @@ def test_no_implicit_distributed_support(inputs):
     with pytest.raises(config.ConfigError, match="does not support"): config.plan(inv, recipe, d)
 
 
+def test_explicit_model_template_defaults_are_typed_and_rendered(inputs):
+    inv, recipe, deployment = copy.deepcopy(inputs)
+    recipe['default_chat_template_kwargs'] = {'enable_thinking': False}
+    config.validate_recipe(recipe)
+    rendered = config.plan(inv,recipe,deployment)
+    command = rendered['compose']['e8f1']['services']['worker']['command']
+    assert json.loads(command[command.index('--default-chat-template-kwargs')+1]) == {'enable_thinking':False}
+    recipe['default_chat_template_kwargs']['enable_thinking'] = 'false'
+    with pytest.raises(config.ConfigError,match='boolean'): config.validate_recipe(recipe)
+
+
 @pytest.mark.parametrize("coordinator", ["66f1", "e8f1"])
 def test_distributed_placement_uses_fabric_and_explicit_ranks(coordinator):
     inv, recipe, d = config.load(ROOT, ROOT / "cluster/inventory.json", ROOT / "cluster/deployments/fast-tp2.json")

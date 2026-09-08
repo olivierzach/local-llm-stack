@@ -83,6 +83,34 @@ Use `fast-66f1.json` for the same model contract on 66f1. Two independent single
 deployments can run simultaneously. This provides replicas/independent jobs;
 automatic load balancing and failover are not implemented.
 
+`balanced-e8f1.json` and `balanced-66f1.json` select the cached Qwen3-14B revision
+as `local-balanced`, with a 16,384-token context and a 4,096-token output cap.
+The recipe defaults to non-thinking responses so ordinary clients receive final
+text without extra request settings. This uses vLLM's
+[server-level template defaults](https://docs.vllm.ai/en/latest/features/reasoning_outputs/#server-level-default-chat-template-kwargs),
+confirmed in the pinned runtime. The 14B model passed direct completion on e8f1
+and text/SSE through both gateways. Its 66f1 placement awaits GPU acceptance.
+This recipe advertises neither tools nor vision.
+
+To measure a live text model from its gateway's Spark:
+
+```bash
+.venv/bin/python scripts/benchmark-spark-inference.py \
+  --base-url http://127.0.0.1:4110/v1 \
+  --key-file "$HOME/.local/state/local-llm-cluster/gateway/api-key" \
+  --model local-balanced --concurrency 1 2 4 --requests 4 \
+  --max-tokens 128 --prompt-repeats 64 --prefix-mode unique \
+  --output data/cluster/balanced-benchmark.json
+```
+
+The benchmark warms weights/kernels, then measures client-observed first-token
+latency and server-reported completion counts. Each unique prompt starts with a
+new identifier to avoid intentional prefix-cache reuse. `--prefix-mode shared`
+measures repeated-prefix behavior separately. It rejects incomplete streams,
+missing token usage and reasoning output rather than reporting misleading text
+decode rates. Compare identical recipes/prompts before changing runtime settings;
+these synthetic requests do not measure answer quality.
+
 The controller refuses admission when another GPU process, GPU container,
 reservation or unresolved Loop LLM window exists. It does not stop other jobs.
 Reservations are per Unix user and persist across lost SSH/controller sessions.
@@ -218,7 +246,8 @@ Before running durable user jobs, enable user-service persistence once on the
 new Spark:
 
 ```bash
-sudo loginctl enable-linger statsparrot
+loginctl --no-ask-password enable-linger statsparrot
+loginctl show-user statsparrot -p Linger
 ```
 
 Then, after other GPU workloads are stopped:
@@ -227,6 +256,8 @@ Then, after other GPU workloads are stopped:
 .venv/bin/python scripts/spark-loop start --node e8f1 --job capacity-001
 .venv/bin/python scripts/spark-loop status --node e8f1 --job capacity-001
 .venv/bin/python scripts/spark-loop logs --node e8f1 --job capacity-001
+.venv/bin/python scripts/spark-loop wait --node e8f1 --job capacity-001 --timeout 600
+.venv/bin/python scripts/spark-loop fetch --node e8f1 --job capacity-001 --artifact probes/recurrent-80m.json
 .venv/bin/python scripts/spark-loop release --node e8f1 --job capacity-001
 ```
 
@@ -239,8 +270,23 @@ idle. Other legacy services are never paused: the adapter requires `idle_only`.
 adapter replaces host/root/window/job identities with the chosen placement.
 Models/datasets are separate artifacts; source staging does not clone research
 data or credentials. The default smoke recipe performs a bounded recurrent-model
-capacity probe. Staging is verified on both nodes; actual GPU job acceptance is
-pending linger setup on e8f1.
+capacity probe. Linger is now enabled on both nodes; enabling it for the current
+user succeeded without sudo on e8f1. If a different installation refuses that
+normal authorization path, its administrator must enable it once.
+
+New jobs write into `looped-llm-lab/runs/cluster/JOB/`, preserving earlier results.
+`fetch` collects only explicitly named regular files from a terminal job's own
+run directory and verifies their hashes. `wait` never relaunches a job on a
+timeout or transport failure. The existing supervisor enforces the separate
+`max_runtime_seconds` limit and persists its completion/recovery record.
+
+Staging works on the Mac or either Spark, locally or over configured peer SSH.
+`--ssh-key` remains an optional override; a Mac-specific private key is not
+required on the worker. Both nodes have the identical accepted source snapshot.
+The e8f1 CUDA probe passed 20 measured optimizer steps at about 10,755 synthetic
+tokens/second, with a 95 ms median step and 2.66 GB peak CUDA allocation. This is
+a training-shape smoke test, not corpus throughput or training-quality evidence.
+The 66f1 acceptance run awaits its existing research job finishing.
 
 ## Vector Bucket placement
 

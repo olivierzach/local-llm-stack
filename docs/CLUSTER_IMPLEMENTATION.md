@@ -133,18 +133,78 @@ Original copy checksums and transfer measurements remain under the controller's
 
 ## Remaining acceptance work
 
-- Apply the staged system package baseline and MTU test on both nodes; enable
-  user-service linger on e8f1 before durable Loop LLM jobs. These require sudo.
+- Apply the staged system package baseline and MTU test on both nodes. These
+  remain pending; user-service linger on e8f1 is now enabled.
 - Reprofile both rails at MTU 9000 and investigate throughput before claiming
   efficient use of the physical link.
 - Test reverse TP coordinator placement and pipeline parallelism; compare
   single-node, TP and PP latency/throughput with an optimized model recipe.
-- Validate real agent tool execution, vision and larger-model recipes. The
+- Validate real agent tool execution, vision and larger combined-node recipes. The
   baseline 4B recipe advertises no tools; the separate coder recipe has passed
   protocol-level tool calling and streaming, not coding-quality evaluation.
-- Run an actual Loop LLM GPU job on e8f1 through shared ownership. Validate the
-  staged Vector Bucket worker on 66f1 after its research job finishes; extend
+- Validate the staged Loop LLM and Vector Bucket workers on 66f1 after its research
+  job finishes; extend
   audio preprocessing only with the required pinned dependencies and acceptance.
 - Complete explicit OpenRouter upstream credential provisioning, multi-host
   failure/recovery acceptance, optimized recipe/performance comparisons, and
   final review of the reproducible operator workflow.
+
+## Loop LLM GPU acceptance
+
+The normal `loginctl --no-ask-password enable-linger statsparrot` operation
+succeeded on e8f1. Its existing project supervisor then ran
+`capacity-foundation-002`, using immutable image ID
+`sha256:2d08870c99da6e5e1f174a9aa53ba779fe30a8299675928931280a57dc60e4e8`.
+It completed 20 real forward/backward/Adam steps on CUDA with finite losses.
+The measured rate was 10,755 synthetic tokens/second, median step 95.09 ms, and
+peak CUDA allocation 2,657,227,776 bytes. The report explicitly excludes corpus
+quality, input-pipeline throughput and convergence claims.
+
+The accepted source snapshot is
+`89be22128c3ac1f554f01c69d9ef7bb1caa71885deabad6e341db4f38d832300`
+(133 files, 1,449,489 bytes). It is present on both nodes. The newer snapshot
+captures current user source without changing either research checkout.
+Staging was also repeated from each Spark to itself and its peer, proving that controller
+placement does not depend on a Mac key or self-SSH alias.
+
+The supervisor persisted success, removed its exact owned container and released
+its project window. The cluster CLI then fetched the checksummed probe report
+and released its shared GPU reservation. The report SHA-256 is
+`f36bf62e54e70045fe1f271db702f90ff0c2788a6110b7caf12549e43587b3cf`.
+Plans, logs, status, artifact checksums and the original report are retained under
+`data/cluster/loop/e8f1/capacity-foundation-002/`. The 66f1 research container was
+still running during this acceptance and was preserved.
+
+## Larger single-node acceptance and batching
+
+Qwen3-14B revision `40c069824f4251a91eefaf281ebe4c544efd3e18` passed direct
+completion on e8f1 under owner `balanced-e8f1-74d3d0e09112`. Both independently
+placed gateways passed real text and SSE requests as `local-balanced`, with a
+16,384-token context and 4,096-token output cap. The pinned recipe uses BF16,
+eager execution, prefix caching, up to eight sequences, 45% GPU memory utilization
+and non-thinking template defaults. The normal cache/image checks run before GPU
+admission; this acceptance used the already-mirrored weights.
+
+The bounded gateway benchmark used 128 output tokens, 64 repetitions of its
+synthetic context sentence, unique request prefixes, warm weights/kernels and
+actual SSE usage records. Four requests were measured at levels 1/2/4; eight
+requests were measured at level 8 after a separate warmup. Small sample sizes
+and synthetic prompts limit the conclusions to this workload.
+
+| Configured concurrency | Aggregate output tokens/s | Median first-token seconds | Median per-request decode tokens/s |
+| --- | ---: | ---: | ---: |
+| 1 | 8.12 | 0.394 | 8.26 |
+| 2 | 15.81 | 0.635 | 8.20 |
+| 4 | 30.17 | 1.105 | 8.07 |
+| 8 | 54.44 | 1.800 | 7.58 |
+
+This demonstrates useful batching and its latency tradeoff. It does not compare
+compiled execution, quantization, TP/PP, maximum context or production prompts.
+Raw per-request timings, exact plans and gateway probes are retained under
+`data/cluster/balanced-e8f1-74d3d0e09112/`. The prior gateway registries were
+restored, the owned test container removed and its GPU reservation released.
+The current larger-model placement on 66f1 is validated structurally, with GPU
+acceptance pending its research job finishing.
+
+The expanded Linux suite passes **142 tests**, including Loop finalization and
+artifact isolation, model template defaults and streaming benchmark accounting.
