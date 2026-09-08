@@ -337,6 +337,11 @@ implemented. Stop routing new requests before planned maintenance.
 
 ## Distributed inference and fabric profiling
 
+For the candidate BF16 80B model that exceeds one node's memory, see
+[the pinned large-model preparation workflow](SPARK_LARGE_MODEL.md). It includes
+bounded downloads, checksum-verified peer copies and TP/PP placements with either
+coordinator. Its full two-node runtime acceptance remains pending.
+
 ```bash
 scripts/sparkctl up --deployment cluster/deployments/fast-tp2.json
 scripts/sparkctl collectives --deployment cluster/deployments/fast-tp2.json

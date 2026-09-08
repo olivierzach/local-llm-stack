@@ -554,3 +554,26 @@ Artifacts and recovery records are under `data/cluster/loop/e8f1/fabric-load-001
 Loaded and post-load profiles are under `data/cluster/fabric-host-e8f1-training-load/`
 and `data/cluster/fabric-host-e8f1-post-training/`; the matched phase/PID checks
 and comparison are retained in `data/cluster/fabric-controlled-load-comparison.json`.
+
+## Combined-memory model preparation
+
+The candidate Qwen3-Next-80B-A3B-Instruct BF16 revision
+`9c7f2fbe84465e40164a94cc16cd30b6999b0cc7` has 41 weight shards totaling
+162,659,161,528 bytes, exceeding one Spark's RAM. A committed manifest pins all
+51 files (162,682,272,937 bytes), upstream SHA-256s, runtime image and download
+library. The CPU-only e8f1 download is bounded by Docker resource limits and a
+six-hour watchdog, uses no credential, and emits a peer-copy lock only after
+every file passes verification. Download and peer-copy completion remain pending.
+
+The exact pinned runtime loaded the model config and tokenizer offline:
+`Qwen3NextConfig`, 48 layers, attention heads 16/2 and linear heads 16/32. Those
+dimensions divide for TP=2 and PP=2, and the Instruct chat template rendered an
+11-token probe correctly. No weights or GPU kernels were loaded by that check.
+Its receipt is `data/cluster/large-model-preparation/offline-runtime-metadata.json`.
+
+Four deployments select TP=2 or PP=2 with either coordinator and the same
+`local-large` contract. Their recipe is explicitly a candidate: full model memory
+fit, hybrid kernels, generation, streaming and performance remain unvalidated.
+No gateway routes were changed. Admission now refuses partial numbered shard
+sets and missing index references before reserving GPU resources. The download,
+resume, copy and acceptance steps are documented in [SPARK_LARGE_MODEL.md](SPARK_LARGE_MODEL.md).
