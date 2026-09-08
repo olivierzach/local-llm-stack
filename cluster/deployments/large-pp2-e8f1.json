@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "name": "large-pp2-e8f1",
+  "recipe": "qwen3-next-80b-distributed",
+  "nodes": [
+    "66f1",
+    "e8f1"
+  ],
+  "coordinator": "e8f1",
+  "mode": "pipeline",
+  "tensor_parallel": 1,
+  "pipeline_parallel": 2,
+  "port": 8121,
+  "master_port": 29541
+}

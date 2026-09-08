@@ -87,7 +87,7 @@ def validate_recipe(r):
     fields(r, ("version", "kind", "image", "model", "revision", "alias", "context_tokens",
                "max_output_tokens", "capabilities", "dtype", "gpu_memory_utilization",
                "min_available_mib", "max_num_seqs", "extra_args", "parallelism", "validation"),
-           ("tool_call_parser", "default_chat_template_kwargs", "image_processing", "runtime_cache", "load_strategy"))
+           ("tool_call_parser", "default_chat_template_kwargs", "image_processing", "runtime_cache", "load_strategy", "mamba_cache_mode"))
     require(r["version"] == 1 and r["kind"] == "vllm", "unsupported recipe version/kind")
     require(re.fullmatch(r"[a-zA-Z0-9./_-]+@sha256:[0-9a-f]{64}", r["image"]),
             "image must be an immutable registry digest")
@@ -110,6 +110,8 @@ def validate_recipe(r):
         fields(r["default_chat_template_kwargs"], ("enable_thinking",))
         require(type(r["default_chat_template_kwargs"]["enable_thinking"]) is bool,
                 "enable_thinking must be a boolean")
+    if "mamba_cache_mode" in r:
+        require(r["mamba_cache_mode"] in ("none", "align"), "unsupported hybrid cache mode")
     if "load_strategy" in r:
         require(r["load_strategy"] in ("lazy", "eager", "prefetch"), "unsupported weight load strategy")
     if "runtime_cache" in r:
@@ -194,6 +196,8 @@ def plan(inv, recipe, deployment):
                "--max-model-len", str(recipe["context_tokens"]),
                "--gpu-memory-utilization", str(recipe["gpu_memory_utilization"]),
                "--max-num-seqs", str(recipe["max_num_seqs"])] + recipe["extra_args"]
+        if "mamba_cache_mode" in recipe:
+            cmd += ["--mamba-cache-mode", recipe["mamba_cache_mode"]]
         if "load_strategy" in recipe:
             cmd += ["--safetensors-load-strategy", recipe["load_strategy"]]
         if recipe.get("tool_call_parser"):

@@ -354,3 +354,35 @@ def test_port_check_allows_restart_but_rejects_listener():
             connection.close()  # Server closes first, leaving TIME_WAIT.
             assert client.recv(1) == b''
     node.check_port(address, port)
+
+
+def test_cached_snapshot_refuses_partial_download_and_unsafe_index(tmp_path):
+    snapshot=tmp_path/'model/snapshots/revision';snapshot.mkdir(parents=True)
+    (snapshot/'config.json').write_text('{}')
+    (snapshot/'model-00001-of-00002.safetensors').write_bytes(b'first')
+    with pytest.raises(RuntimeError,match='incomplete'): node.validate_cached_snapshot(snapshot)
+    (snapshot/'model-00002-of-00002.safetensors').write_bytes(b'second')
+    node.validate_cached_snapshot(snapshot)  # Complete unindexed snapshots remain supported.
+    index=snapshot/'model.safetensors.index.json'
+    index.write_text(json.dumps({'weight_map':{'tensor':'missing.safetensors'}}))
+    with pytest.raises(RuntimeError,match='missing shard'): node.validate_cached_snapshot(snapshot)
+    index.write_text(json.dumps({'weight_map':{'tensor':'../escape.safetensors'}}))
+    with pytest.raises(RuntimeError,match='unsafe'): node.validate_cached_snapshot(snapshot)
+    index.write_text(json.dumps({'weight_map':{'tensor':'model-00001-of-00002.safetensors'}}))
+    node.validate_cached_snapshot(snapshot)
+
+
+def test_hybrid_cache_and_large_parallel_placements():
+    for mode in ('tp2','pp2'):
+        plans=[]
+        for coordinator in ('66f1','e8f1'):
+            inv,recipe,deployment=config.load(ROOT,ROOT/'cluster/inventory.json',ROOT/f'cluster/deployments/large-{mode}-{coordinator}.json')
+            p=config.plan(inv,recipe,deployment);plans.append(p)
+            assert p['recipe']['alias']=='local-large'
+            for compose in p['compose'].values():
+                command=compose['services']['worker']['command']
+                assert command[command.index('--mamba-cache-mode')+1]=='align'
+            with pytest.raises(ValueError,match='hybrid cache'):
+                config.validate_recipe({**recipe,'mamba_cache_mode':'all'})
+        assert plans[0]['digest']!=plans[1]['digest']
+        assert plans[0]['recipe']==plans[1]['recipe']

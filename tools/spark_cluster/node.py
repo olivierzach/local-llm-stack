@@ -126,6 +126,39 @@ def check_port(address, port):
         s.listen(1)
 
 
+
+def validate_cached_snapshot(snapshot):
+    if snapshot.is_symlink():
+        raise RuntimeError("model snapshot directory must not be a symlink")
+    if not (snapshot / "config.json").is_file() or not any(snapshot.glob("*.safetensors")):
+        raise RuntimeError("pinned model snapshot is not cached; run model sync first")
+    for entry in snapshot.rglob("*"):
+        if entry.is_symlink() and (not entry.exists() or not entry.resolve().is_relative_to(snapshot.parent.parent.resolve())):
+            raise RuntimeError("model snapshot has broken or escaping symlinks")
+    numbered = {}
+    for path in snapshot.glob("*.safetensors"):
+        match = re.fullmatch(r"(.+)-(\d+)-of-(\d+)\.safetensors", path.name)
+        if match:
+            part, count = int(match[2]), int(match[3])
+            if not 1 <= part <= count <= 4096:
+                raise RuntimeError("invalid numbered model shard")
+            numbered.setdefault((match[1], count), set()).add(part)
+    if any(parts != set(range(1, count+1)) for (_, count), parts in numbered.items()):
+        raise RuntimeError("pinned model snapshot is incomplete; numbered shards missing")
+    index = snapshot / "model.safetensors.index.json"
+    if index.exists():
+        mapping = json.loads(index.read_text()).get("weight_map")
+        if not isinstance(mapping, dict) or not mapping or not all(isinstance(path, str) for path in mapping.values()):
+            raise RuntimeError("invalid model weight index")
+        for filename in set(mapping.values()):
+            relative = Path(filename)
+            if relative.is_absolute() or ".." in relative.parts or not filename.endswith(".safetensors"):
+                raise RuntimeError("unsafe model shard path")
+            path = snapshot / relative
+            if not path.is_file() or path.stat().st_size == 0:
+                raise RuntimeError("pinned model snapshot is incomplete; missing shard: " + filename)
+
+
 def reserve(request):
     old = reservation()
     if old:
@@ -147,11 +180,7 @@ def reserve(request):
     if image["Architecture"] != {"aarch64": "arm64", "x86_64": "amd64"}[node["architecture"]]:
         raise RuntimeError("container architecture mismatch")
     snapshot = Path(node["cache"]) / "hub" / ("models--" + recipe["model"].replace("/", "--")) / "snapshots" / recipe["revision"]
-    if not (snapshot / "config.json").is_file() or not any(snapshot.glob("*.safetensors")):
-        raise RuntimeError("pinned model snapshot is not cached; run model sync first")
-    for entry in snapshot.iterdir():
-        if entry.is_symlink() and not entry.exists():
-            raise RuntimeError("model snapshot has broken symlinks")
+    validate_cached_snapshot(snapshot)
     check_port(node["fabric"][0]["ip"], request["deployment"]["port"])
     if request["deployment"]["mode"] != "single":
         if not Path("/dev/infiniband").is_dir():
