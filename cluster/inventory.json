@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "nodes": {
+    "66f1": {
+      "hostname": "spark-66f1",
+      "ssh": "spark-66f1-wired",
+      "architecture": "aarch64",
+      "gpus": 1,
+      "cache": "/home/statsparrot/projects/local-llm-stack/data/huggingface",
+      "projects": "/home/statsparrot/projects",
+      "fabric": [
+        {"interface": "enp1s0f0np0", "ip": "10.10.20.1", "rdma": "rocep1s0f0"},
+        {"interface": "enP2p1s0f0np0", "ip": "10.10.21.1", "rdma": "roceP2p1s0f0"}
+      ]
+    },
+    "e8f1": {
+      "hostname": "spark-e8f1",
+      "ssh": "spark-e8f1-wired",
+      "architecture": "aarch64",
+      "gpus": 1,
+      "cache": "/home/statsparrot/projects/local-llm-stack/data/huggingface",
+      "projects": "/home/statsparrot/projects",
+      "fabric": [
+        {"interface": "enp1s0f0np0", "ip": "10.10.20.2", "rdma": "rocep1s0f0"},
+        {"interface": "enP2p1s0f0np0", "ip": "10.10.21.2", "rdma": "roceP2p1s0f0"}
+      ]
+    }
+  }
+}

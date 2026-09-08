@@ -1,4 +1,5 @@
 .env
+data/cluster/
 
 data/huggingface/
 data/open-webui/

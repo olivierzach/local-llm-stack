@@ -4,6 +4,12 @@ Self-hosted private assistant and fine-tuning lab for this Spark host.
 
 Deep explainers live in [docs/README.md](docs/README.md). For a full reproducible setup, start with [Spark Setup Runbook](docs/spark-setup-runbook.md).
 
+For optional interchangeable compute nodes, independent Context Guard gateways,
+and explicit multi-node deployments, see [the Spark cluster runbook](docs/CLUSTER.md).
+Existing single-host Compose and Make workflows continue to work. The
+[implementation record](docs/CLUSTER_IMPLEMENTATION.md) distinguishes tested
+capabilities from pending hardware and client acceptance.
+
 ## What This Runs
 
 - vLLM inference backends for `local-fast`, `local-balanced`, and optional `local-large`.

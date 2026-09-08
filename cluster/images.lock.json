@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "images": [
+    {"tag": "looped-llm-lab:runtime-25.09", "id": "sha256:2d08870c99da6e5e1f174a9aa53ba779fe30a8299675928931280a57dc60e4e8", "registry": null},
+    {"tag": "local-llm-stack-aichat:latest", "id": "sha256:eea8d11a065751b4abea17de96ce91692be2839f6f0f2debd955127123798aca", "registry": null},
+    {"tag": "ghcr.io/anomalyco/opencode:latest", "id": "sha256:2206bc01e370119c23894e949cd4d232c5f26be97637da26f9e92539fa9b9de6", "registry": "ghcr.io/anomalyco/opencode@sha256:bf9d0e84b7cedef436a8f57db4d48767cd5d8fc6604f666335c1cc916b199a97"},
+    {"tag": "ghcr.io/berriai/litellm:main-latest", "id": "sha256:a7ec324e5bb322cfa5e120e3c80a1f425a3aee9295916c260a643580b2024137", "registry": "ghcr.io/berriai/litellm@sha256:80ea654c506da9083503d00c1b323b2fecddf17af6add9bf01b2603938e17bd2"},
+    {"tag": "ghcr.io/open-webui/open-webui:main", "id": "sha256:56e6bf89f75f35dd4fa5caa1ea4d9634e805d92c1b88a40715b5b62f1b9a8db3", "registry": "ghcr.io/open-webui/open-webui@sha256:a26effeb220e132482bf7e0560b3404843e7bc40d23051144e062960df8df6b0"},
+    {"tag": "postgres:16-alpine", "id": "sha256:0ab885cf71916beded83c51df1ea71acddeab24048fd957b4f4471f59dcb9bc5", "registry": "postgres@sha256:e013e867e712fec275706a6c51c966f0bb0c93cfa8f51000f85a15f9865a28cb"},
+    {"tag": "grafana/grafana:11.4.0", "id": "sha256:48b3b3e6415ffa969075ee67f9d289849aa11a5870eeb130f9fb4f76dc0900a3", "registry": "grafana/grafana@sha256:d8ea37798ccc41061a62ab080f2676dda6bf7815558499f901bdb0f533a456fb"},
+    {"tag": "prom/prometheus:v2.55.1", "id": "sha256:f59c592ea6d90ba2e6c236355083e204d52e13eb8bd39d90c0770f71b90e4dd8", "registry": "prom/prometheus@sha256:2659f4c2ebb718e7695cb9b25ffa7d6be64db013daba13e05c875451cf51b0d3"},
+    {"tag": "vllm/vllm-openai:v0.25.1", "id": "sha256:30a38a1d74a17365eca400e83ffd885b250e0c8c0d3c5b508afa8c412d2ddf95", "registry": "vllm/vllm-openai@sha256:e4f88a835143cd22aee2397a26ec6bb80b3a4a6fe0c882bcbc63822904766089"},
+    {"tag": "nvcr.io/nvidia/vllm:25.09-py3", "id": "sha256:96d1b845de7f90adeb21fdc53c5f4b7eecd884844f0064d11d4904cbc19959cb", "registry": "nvcr.io/nvidia/vllm@sha256:15f380ad9c32f0ac57ac16e4b778c6f733c88b9ffe3a936035d0a59ad17b1aab"}
+  ]
+}

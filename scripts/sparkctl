@@ -1,0 +1,10 @@
+#!/usr/bin/env python3
+"""Run from a Mac or Spark using Python 3.10+ and OpenSSH; no pip dependencies."""
+from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+from spark_cluster.cli import entrypoint
+
+if __name__ == "__main__":
+    sys.exit(entrypoint())

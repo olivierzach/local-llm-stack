@@ -1,0 +1,12 @@
+{
+  "project_id": "looped-llm-lab",
+  "state_dir": "runs/operations",
+  "inference_policy": "idle_only",
+  "acknowledge_linger": false,
+  "max_runtime_seconds": 600,
+  "container": {
+    "image": "sha256:2d08870c99da6e5e1f174a9aa53ba779fe30a8299675928931280a57dc60e4e8",
+    "args": ["looplab", "--debug", "capacity", "probe", "--config", "configs/capacity/spark-recurrent-80m.json"],
+    "gpus": true
+  }
+}

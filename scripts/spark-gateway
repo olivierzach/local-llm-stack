@@ -1,0 +1,60 @@
+#!/usr/bin/env python3
+"""Install an independent Context Guard on either node without changing legacy Compose."""
+import argparse
+import json
+import os
+from pathlib import Path
+import secrets
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tools"))
+from spark_cluster.cli import remote, save_json
+from spark_cluster.config import read, validate_inventory
+from spark_cluster.gateway import from_plans, validate_registry
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("action", choices=("render", "up", "status", "probe", "routes", "down"))
+    p.add_argument("--node", required=True)
+    p.add_argument("--inventory", type=Path, default=ROOT / "cluster/inventory.json")
+    p.add_argument("--plan", type=Path, action="append", default=[])
+    p.add_argument("--registry", type=Path)
+    p.add_argument("--port", type=int, default=4110)
+    args = p.parse_args()
+    inv = read(args.inventory)
+    validate_inventory(inv)
+    if args.node not in inv["nodes"]: p.error("unknown node")
+    node = inv["nodes"][args.node]
+    output = ROOT / "data/cluster/gateways" / args.node
+    request = {"action": args.action, "node": node}
+    if args.action in ("render", "up", "routes"):
+        if args.registry and args.plan: p.error("choose --registry or --plan")
+        registry = read(args.registry) if args.registry else from_plans([read(path) for path in args.plan])
+        validate_registry(registry)
+        request["registry"] = registry
+        save_json(output / "registry.json", registry)
+    if args.action == "render":
+        print(json.dumps({"registry": str(output / "registry.json")}))
+        return
+    if args.action == "up":
+        output.mkdir(parents=True, exist_ok=True, mode=0o700)
+        key_path = output / "api-key"
+        if not key_path.exists():
+            fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "w") as f: f.write(secrets.token_urlsafe(48))
+        request.update(api_key=key_path.read_text().strip(), port=args.port,
+            image="sha256:a7ec324e5bb322cfa5e120e3c80a1f425a3aee9295916c260a643580b2024137",
+            files={path: (ROOT / path).read_text() for path in (
+                "scripts/context-guard-proxy.py", "tools/spark_cluster/gateway.py",
+                "tools/spark_cluster/config.py", "tools/spark_cluster/__init__.py")})
+    result = remote(node, request, ROOT / "tools/spark_cluster/gateway_node.py")
+    print(json.dumps(result))
+
+
+if __name__ == "__main__":
+    try: main()
+    except Exception as exc:
+        print(f"spark-gateway: {exc}", file=sys.stderr)
+        sys.exit(1)
