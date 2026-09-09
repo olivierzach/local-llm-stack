@@ -26,7 +26,7 @@ def configure(root, registry=None, disable=False):
         key = 'CONTEXT_GUARD_ROUTE_REGISTRY'
         lines = [line for line in text.splitlines()
                  if line.strip().split('=', 1)[0].removeprefix('export ').strip() != key]
-        lines.append(key + '=' + ('' if disable else '/routes/registry.json'))
+        lines.append(key + '=' + ('' if disable else 'data/context-guard-routes/registry.json'))
         if not disable:
             write(directory / 'registry.json', json.dumps(registry, indent=2) + '\n', 0o644)
         write(env, '\n'.join(lines) + '\n', env.stat().st_mode & 0o777)

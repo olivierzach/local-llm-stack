@@ -18,7 +18,7 @@ def test_activation_and_rollback_preserve_unrelated_configuration(tmp_path):
     result = routes.configure(tmp_path, registry)
     assert result['enabled'] and not result['services_restarted'] and not result['models_started']
     assert 'LITELLM_MASTER_KEY=private-fixture\nFAST_MODEL=custom/model\n' in env.read_text()
-    assert 'CONTEXT_GUARD_ROUTE_REGISTRY=/routes/registry.json\n' in env.read_text()
+    assert 'CONTEXT_GUARD_ROUTE_REGISTRY=data/context-guard-routes/registry.json\n' in env.read_text()
     assert env.stat().st_mode & 0o777 == 0o600
     routes.configure(tmp_path, registry)
     assert env.read_text().count('CONTEXT_GUARD_ROUTE_REGISTRY=') == 1

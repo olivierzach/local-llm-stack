@@ -403,7 +403,7 @@ services:
     volumes:
       - ./scripts:/workspace/scripts:ro
       - ./tools/spark_cluster:/workspace/tools/spark_cluster:ro
-      - ./data/context-guard-routes:/routes:ro
+      - ./data/context-guard-routes:/workspace/data/context-guard-routes:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     entrypoint: ["python"]

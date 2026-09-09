@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 import subprocess
 import threading
+from types import SimpleNamespace
 from http.server import ThreadingHTTPServer
 
 import pytest
@@ -109,9 +110,25 @@ def test_registry_updates_limits_and_destination_alias_together(running):
 
 
 def test_disabled_mode_uses_original_entrypoint(monkeypatch):
+    monkeypatch.setattr(legacy_gateway.guard, 'load_dotenv', lambda path: None)
     monkeypatch.delenv('CONTEXT_GUARD_ROUTE_REGISTRY', raising=False)
     monkeypatch.setattr(legacy_gateway.guard, 'main', lambda: 17)
     assert legacy_gateway.main() == 17
+
+
+def test_direct_entrypoint_loads_dotenv_and_resolves_registry_from_checkout(tmp_path, monkeypatch):
+    monkeypatch.delenv('CONTEXT_GUARD_ROUTE_REGISTRY', raising=False)
+    monkeypatch.delenv('LITELLM_MASTER_KEY', raising=False)
+    monkeypatch.setattr(legacy_gateway.guard, 'REPO_ROOT', tmp_path)
+    (tmp_path / '.env').write_text('CONTEXT_GUARD_ROUTE_REGISTRY=data/context-guard-routes/registry.json\nLITELLM_MASTER_KEY=' + KEY + '\n')
+    monkeypatch.setattr(sys, 'argv', ['context-guard-router.py'])
+    seen = {}
+    def serve(path, host, port, key, config):
+        seen.update(path=path, key=key)
+        return SimpleNamespace(serve_forever=lambda: None, server_close=lambda: seen.update(closed=True))
+    monkeypatch.setattr(legacy_gateway, 'serve', serve)
+    assert legacy_gateway.main() == 0
+    assert seen == {'path': tmp_path / 'data/context-guard-routes/registry.json', 'key': KEY, 'closed': True}
 
 
 def test_native_api_and_tokenizer_follow_the_same_endpoint(monkeypatch):

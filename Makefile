@@ -192,7 +192,10 @@ smoke:
 	set -a; source .env; set +a; ./scripts/smoke-test.sh
 
 context-guard:
-	set -ae; source .env; export QWEN38_API_BASE="$${QWEN38_API_BASE:-http://$${QWEN38_BIND_HOST:-$$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')}:$${QWEN38_PORT:-8012}/v1}"; python scripts/context-guard-proxy.py
+	set -ae; source .env; \
+	export QWEN38_API_BASE="$${QWEN38_API_BASE:-http://$${QWEN38_BIND_HOST:-$$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')}:$${QWEN38_PORT:-8012}/v1}"; \
+	export DEEPSEEKV4_API_BASE="$${DEEPSEEKV4_API_BASE:-http://$${DEEPSEEKV4_BIND_HOST:-$$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')}:$${DEEPSEEKV4_PORT:-8011}/v1}"; \
+	python scripts/context-guard-router.py
 
 context-guard-up:
 	$(DOCKER_COMPOSE) up -d context-guard

@@ -111,10 +111,12 @@ def serve(registry_path, host, port, key, config):
 
 
 def main():
+    guard.load_dotenv(guard.REPO_ROOT / '.env')
     path = os.getenv('CONTEXT_GUARD_ROUTE_REGISTRY')
     if not path:
         return guard.main()
-    guard.load_dotenv(guard.REPO_ROOT / '.env')
+    path = Path(path).expanduser()
+    if not path.is_absolute(): path = guard.REPO_ROOT / path
     args = guard.parser().parse_args()
     server = serve(path, args.host, args.port, os.getenv('LITELLM_MASTER_KEY', ''), guard.build_config(args))
     try:
