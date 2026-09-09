@@ -30,6 +30,18 @@ SERVICES = {
 PUBLIC_ENV = {'HF_HOME', 'VLLM_NO_USAGE_STATS', 'TIKTOKEN_ENCODINGS_BASE', 'CUTE_DSL_ARCH', 'MAX_JOBS'}
 
 
+def completed_text(stream):
+    events = [json.loads(line[6:]) for line in stream.splitlines()
+              if line.startswith('data: ') and line != 'data: [DONE]']
+    choices = [c for event in events for c in event.get('choices', [])]
+    text = ''.join(c.get('delta', {}).get('content') or '' for c in choices)
+    reasons = [c['finish_reason'] for c in choices if c.get('finish_reason')]
+    if (not text.strip() or 'data: [DONE]' not in stream or reasons != ['stop'] or
+            any('error' in event for event in events)):
+        raise RuntimeError('stream did not finish with a complete answer (finish reasons: ' + repr(reasons) + ')')
+    return {'text': text, 'stream_done': True, 'finish_reason': 'stop'}
+
+
 def load_definition(stack):
     # Compose omits inactive profiles unless explicitly selected. Rendering all
     # profiles starts nothing and is required to inspect optional model services.
@@ -90,19 +102,18 @@ def exercise(request, output, timeout):
                 raise TimeoutError('startup deadline exceeded')
             time.sleep(5)
         payload = {'model': request['recipe']['alias'], 'messages': [{'role': 'user', 'content': 'Say hello in one short sentence.'}],
-                   'max_tokens': 128, 'temperature': 0, 'stream': True}
+                   'max_tokens': 1024 if request['recipe']['alias'] in (
+                       'local-deepseek-r1-qwen32b', 'local-gpt-oss-120b', 'local-laguna-s-2.1') else 128,
+                   'temperature': 0, 'stream': True}
         if request['recipe']['model'].startswith('Qwen/Qwen3'):
             payload['chat_template_kwargs'] = {'enable_thinking': False}
         req = urllib.request.Request(url + '/chat/completions', data=json.dumps(payload).encode(),
                                      headers={'Content-Type': 'application/json'})
         with urllib.request.urlopen(req, timeout=180) as response:
             stream = response.read().decode()
-        events = [json.loads(line[6:]) for line in stream.splitlines() if line.startswith('data: ') and line != 'data: [DONE]']
-        text = ''.join(c.get('delta', {}).get('content', '') or '' for e in events for c in e.get('choices', []))
-        if not text.strip() or '[DONE]' not in stream:
-            raise RuntimeError('missing generated text or completed stream')
+        answer = completed_text(stream)
         report.update(passed=True, startup_and_completion_s=time.monotonic() - started,
-                      text=text, stream_done=True, image=request['recipe']['image'], revision=request['recipe']['revision'])
+                      **answer, acceptance_version=2, image=request['recipe']['image'], revision=request['recipe']['revision'])
     except Exception as error:
         report['error'] = str(error)
     finally:

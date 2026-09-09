@@ -17,6 +17,21 @@ def request():
             'deployment': {'port': 8180}}
 
 
+@pytest.mark.parametrize('reason', ['length', None, 'error'])
+def test_truncated_or_unfinished_output_is_not_acceptance(reason):
+    stream = 'data: ' + json.dumps({'choices': [{'delta': {'content': 'Still thinking'}, 'finish_reason': reason}]}) + '\n\ndata: [DONE]\n'
+    with pytest.raises(RuntimeError, match='complete answer'):
+        probe.completed_text(stream)
+
+
+def test_answer_fragments_require_normal_finish_and_done():
+    stream = ''.join('data: ' + json.dumps({'choices': [{'delta': {'content': text}, 'finish_reason': finish}]}) + '\n\n'
+                     for text, finish in [('Hel', None), ('lo!', None), ('', 'stop')])
+    with pytest.raises(RuntimeError): probe.completed_text(stream)
+    result = probe.completed_text(stream + 'data: [DONE]\n')
+    assert result == {'text': 'Hello!', 'stream_done': True, 'finish_reason': 'stop'}
+
+
 def test_failed_start_cleans_only_after_acquiring_lease(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(probe.node, 'check_port', lambda *a: None)
