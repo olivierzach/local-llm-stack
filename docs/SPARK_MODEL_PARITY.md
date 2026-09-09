@@ -11,8 +11,12 @@ was present in either stack's `models/adapters` during this inventory.
 
 Run on whichever Spark already has the catalog. Either node can be the source.
 The established peer aliases use `10.10.20.1` and `10.10.20.2`, on
-`enp1s0f0np0`. SSH is the transport over this physical fabric, not Wi-Fi and not a
-Mac relay. Check `ssh -G PEER` and `ip route get PEER_IP` before a new transfer.
+`enp1s0f0np0`. SSH is the transport over this physical fabric. The copy command
+checks the local hostname, direct route, interface address and authenticated
+peer hostname before hashing or copying. It pins SSH to that fabric IP/interface
+and disables jump hosts and reused multiplex sockets. A missing link fails the
+operation; it cannot fall back to Wi-Fi. Use `FABRIC_RAIL=1` to select the second
+inventoried rail; the default is rail 0. Either Spark can initiate the transfer.
 
 ```bash
 cd ~/projects/local-llm-stack
@@ -156,6 +160,8 @@ enabling remote drafting in the supported catalog.
 
 There is no permanent compute master. A deployment chooses its target,
 coordinator and, when supported, draft node. Client aliases and Context Guard
-placement are independent of these roles. Cross-node routing for all legacy
-aliases and participation of legacy Make launches in shared GPU admission remain
-separate integration work; copying artifacts alone does not establish either.
+placement are independent of these roles. The optional
+[existing-guard routing registry](CONTEXT_GUARD_PLACEMENT.md) can override legacy
+aliases without changing the client URL. Its hardware acceptance and participation
+of legacy Make launches in shared GPU admission remain separate work; copying
+artifacts alone does not establish either.

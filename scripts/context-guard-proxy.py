@@ -1069,6 +1069,9 @@ def build_config(args: argparse.Namespace) -> ProxyConfig:
     qwen_api_base = os.getenv("QWEN38_API_BASE")
     if qwen_api_base:
         tokenizer_defaults["local-qwen38-flash-next"] = qwen_api_base.rstrip("/").removesuffix("/v1")
+    deepseek_api_base = os.getenv("DEEPSEEKV4_API_BASE")
+    if deepseek_api_base:
+        tokenizer_defaults["local-deepseek-v4-flash"] = deepseek_api_base.rstrip("/").removesuffix("/v1")
     default_contexts = {
         "local-fast": env_int("FAST_MAX_MODEL_LEN", 32768),
         "local-balanced": env_int("BALANCED_MAX_MODEL_LEN", 32768),

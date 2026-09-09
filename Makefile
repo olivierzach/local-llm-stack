@@ -7,7 +7,7 @@ model-parity-check:
 
 model-parity-copy:
 	@test -n "$(PEER)" || { echo 'Use PEER=spark-e8f1-wired or PEER=spark-66f1-wired (run on the source Spark)' >&2; exit 2; }
-	python3 scripts/sync-spark-model-parity.py --root "$(CURDIR)" --peer "$(PEER)" --peer-root "$(or $(PEER_ROOT),$(CURDIR))" --catalog cluster/single-node-models.lock.json --output "$(or $(OUTPUT),data/model-parity/copy)"
+	python3 scripts/sync-spark-model-parity.py --root "$(CURDIR)" --peer "$(PEER)" --peer-root "$(or $(PEER_ROOT),$(CURDIR))" --catalog cluster/single-node-models.lock.json --fabric-rail "$(or $(FABRIC_RAIL),0)" --output "$(or $(OUTPUT),data/model-parity/copy)"
 
 model-runtime-prepare:
 	python3 scripts/prepare-spark-model-runtimes.py --root "$(CURDIR)" $(if $(BUNDLE_DIR),--bundle-dir "$(BUNDLE_DIR)",)
@@ -196,6 +196,16 @@ context-guard:
 
 context-guard-up:
 	$(DOCKER_COMPOSE) up -d context-guard
+
+.PHONY: context-routes context-routes-disable
+context-routes:
+	@test -n "$(ROUTES)" || { echo 'Use ROUTES=/path/to/complete-registry.json' >&2; exit 2; }
+	$(or $(PYTHON),.venv/bin/python) scripts/configure-context-routes.py --registry "$(ROUTES)"
+	$(DOCKER_COMPOSE) up -d --no-deps context-guard
+
+context-routes-disable:
+	$(or $(PYTHON),.venv/bin/python) scripts/configure-context-routes.py --disable
+	$(DOCKER_COMPOSE) up -d --no-deps context-guard
 
 aichat-build:
 	$(DOCKER_COMPOSE) --profile tui build aichat

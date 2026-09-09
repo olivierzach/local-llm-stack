@@ -348,6 +348,7 @@ services:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-change-me-local-router}
       LITELLM_SALT_KEY: ${LITELLM_SALT_KEY:-change-me-32-random-chars-minimum}
       QWEN38_API_BASE: http://${QWEN38_BIND_HOST:-host.docker.internal}:${QWEN38_PORT:-8012}/v1
+      DEEPSEEKV4_API_BASE: ${DEEPSEEKV4_API_BASE:-http://${DEEPSEEKV4_BIND_HOST:-host.docker.internal}:${DEEPSEEKV4_PORT:-8011}/v1}
       STORE_MODEL_IN_DB: "True"
       UI_USERNAME: admin
       UI_PASSWORD: ${LITELLM_MASTER_KEY:-sk-change-me-local-router}
@@ -370,12 +371,14 @@ services:
     environment:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-change-me-local-router}
       CONTEXT_GUARD_PORT: "4010"
+      CONTEXT_GUARD_ROUTE_REGISTRY: ${CONTEXT_GUARD_ROUTE_REGISTRY:-}
+      DEEPSEEKV4_API_BASE: ${DEEPSEEKV4_API_BASE:-http://${DEEPSEEKV4_BIND_HOST:-host.docker.internal}:${DEEPSEEKV4_PORT:-8011}/v1}
       CONTEXT_GUARD_UPSTREAM_BASE_URL: http://litellm:4000/v1
       CONTEXT_GUARD_DEFAULT_OUTPUT_TOKENS: ${CONTEXT_GUARD_DEFAULT_OUTPUT_TOKENS:-4096}
       CONTEXT_GUARD_MIN_OUTPUT_TOKENS: ${CONTEXT_GUARD_MIN_OUTPUT_TOKENS:-64}
       CONTEXT_GUARD_HEADROOM_TOKENS: ${CONTEXT_GUARD_HEADROOM_TOKENS:-2048}
       CONTEXT_GUARD_CHARS_PER_TOKEN: ${CONTEXT_GUARD_CHARS_PER_TOKEN:-3.0}
-      CONTEXT_GUARD_TOKENIZER_BASE_URLS: ${CONTEXT_GUARD_TOKENIZER_BASE_URLS:-local-fast=http://vllm-fast:8000,local-balanced=http://vllm-balanced:8000,local-coder=http://vllm-balanced:8000,local-large=http://vllm-large:8000,local-qwen30-a3b=http://vllm-qwen30a3b:8000,local-deepseek-r1-qwen32b=http://vllm-deepseek32b:8000,local-mistral-small=http://vllm-mistral24b:8000,local-balanced-smoke-lora=http://vllm-lora:8000,local-vision=http://vllm-vision:8000,local-gpt-oss-120b=http://vllm-gptoss120b:8000,local-laguna-s-2.1=http://vllm-lagunas21:8000,local-deepseek-v4-flash=http://host.docker.internal:8011,local-qwen38-flash-next=http://${QWEN38_BIND_HOST:-host.docker.internal}:${QWEN38_PORT:-8012}}
+      CONTEXT_GUARD_TOKENIZER_BASE_URLS: ${CONTEXT_GUARD_TOKENIZER_BASE_URLS:-local-fast=http://vllm-fast:8000,local-balanced=http://vllm-balanced:8000,local-coder=http://vllm-balanced:8000,local-large=http://vllm-large:8000,local-qwen30-a3b=http://vllm-qwen30a3b:8000,local-deepseek-r1-qwen32b=http://vllm-deepseek32b:8000,local-mistral-small=http://vllm-mistral24b:8000,local-balanced-smoke-lora=http://vllm-lora:8000,local-vision=http://vllm-vision:8000,local-gpt-oss-120b=http://vllm-gptoss120b:8000,local-laguna-s-2.1=http://vllm-lagunas21:8000,local-qwen38-flash-next=http://${QWEN38_BIND_HOST:-host.docker.internal}:${QWEN38_PORT:-8012}}
       CONTEXT_GUARD_TOKENIZER_TIMEOUT: ${CONTEXT_GUARD_TOKENIZER_TIMEOUT:-3.0}
       CONTEXT_GUARD_MAX_RETRIES: ${CONTEXT_GUARD_MAX_RETRIES:-3}
       CONTEXT_GUARD_KEEP_LAST_MESSAGES: ${CONTEXT_GUARD_KEEP_LAST_MESSAGES:-8}
@@ -396,11 +399,13 @@ services:
       QWEN38_MAX_MODEL_LEN: ${QWEN38_MAX_MODEL_LEN:-262144}
       CONTEXT_GUARD_MODEL_CONTEXTS: ${CONTEXT_GUARD_MODEL_CONTEXTS:-}
     volumes:
-      - ./scripts/context-guard-proxy.py:/app/context-guard-proxy.py:ro
+      - ./scripts:/workspace/scripts:ro
+      - ./tools/spark_cluster:/workspace/tools/spark_cluster:ro
+      - ./data/context-guard-routes:/routes:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     entrypoint: ["python"]
-    command: ["/app/context-guard-proxy.py", "--host", "0.0.0.0", "--port", "4010", "--upstream-base-url", "http://litellm:4000/v1"]
+    command: ["/workspace/scripts/context-guard-router.py", "--host", "0.0.0.0", "--port", "4010", "--upstream-base-url", "http://litellm:4000/v1"]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen(\"http://localhost:4010/health\", timeout=2)"]
       interval: 10s
@@ -530,4 +535,3 @@ services:
 networks:
   llm:
     driver: bridge
-
