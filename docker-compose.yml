@@ -203,7 +203,7 @@ services:
 
   vllm-lagunas21:
     <<: *vllm-common
-    image: ${LAGUNAS21_VLLM_IMAGE:-${VLLM_IMAGE:-nvcr.io/nvidia/vllm:25.09-py3}}
+    image: ${LAGUNAS21_VLLM_IMAGE:-vllm/vllm-openai@sha256:e4f88a835143cd22aee2397a26ec6bb80b3a4a6fe0c882bcbc63822904766089}
     entrypoint: []
     profiles: ["lagunas21"]
     environment:
@@ -273,6 +273,8 @@ services:
 
   vllm-vision:
     <<: *vllm-common
+    image: ${VISION_VLLM_IMAGE:-vllm/vllm-openai@sha256:e4f88a835143cd22aee2397a26ec6bb80b3a4a6fe0c882bcbc63822904766089}
+    entrypoint: []
     profiles: ["vision"]
     ports:
       - "${BIND_HOST:-127.0.0.1}:${VLLM_VISION_PORT:-8008}:8000"

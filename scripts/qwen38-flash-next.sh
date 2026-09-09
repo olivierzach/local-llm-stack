@@ -19,7 +19,8 @@ configure() {
   export TP1_MODEL_REVISION="$QWEN38_MODEL_REVISION"
   export TP1_MODEL_ID="$QWEN38_MODEL"
   export TP1_CONTAINER_NAME="$CONTAINER"
-  export IMAGE="$QWEN38_IMAGE" SERVED_MODEL_NAME=local-qwen38-flash-next
+  IMAGE="$QWEN38_IMAGE"
+  export IMAGE SERVED_MODEL_NAME=local-qwen38-flash-next
   export PORT="${QWEN38_PORT:-8012}"
   export TP1_BIND_HOST="${QWEN38_BIND_HOST:-$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')}"
   export MAX_MODEL_LEN="${QWEN38_MAX_MODEL_LEN:-262144}" YARN=0
@@ -41,6 +42,7 @@ configure() {
   [[ "$MAX_MODEL_LEN" =~ ^[0-9]+$ && "$MAX_MODEL_LEN" -ge 4096 && "$MAX_MODEL_LEN" -le 262144 ]] || die "context must be 4096..262144 (native rope)"
   [[ "$HOST_RESERVE_GIB" =~ ^[0-9]+$ && "$HOST_RESERVE_GIB" -ge 26 ]] || die "host reserve must be at least 26 GiB"
   [[ -z "$MTP_DRAFT_VOCAB" || "$MTP_DRAFT_VOCAB" =~ ^[a-zA-Z0-9_./-]+$ ]] || die "invalid draft vocabulary path"
+  IMAGE="$(python3 "$ROOT/scripts/resolve-spark-runtime-image.py")"
 }
 
 verify_recipe() {

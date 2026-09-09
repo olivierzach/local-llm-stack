@@ -3,6 +3,13 @@
 This is the implementation checklist, not a claim that every item already works.
 Existing Compose services, aliases, `.env`, and Make targets remain the baseline.
 
+**Parity correction (September 8):** identical Makefiles did not mean all models
+were installed. A full single-node catalog copy and native-engine preparation are
+now tracked in [SPARK_MODEL_PARITY.md](SPARK_MODEL_PARITY.md). The initial e8f1
+DeepSeek V4 test produced `LINK_OK` with local DSpark and completed SSE generation
+with drafting disabled. Other missing snapshots are still being transferred;
+do not treat the broader goal or all-model inference acceptance as complete.
+
 ## Design
 
 Versioned inventory describes nodes, SSH transports, model caches and fabric

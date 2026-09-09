@@ -1,6 +1,17 @@
 SHELL := /usr/bin/env bash
 DOCKER_COMPOSE ?= docker compose
 
+.PHONY: model-parity-check model-parity-copy model-runtime-prepare
+model-parity-check:
+	python3 scripts/audit-stack-models.py --root "$(CURDIR)"
+
+model-parity-copy:
+	@test -n "$(PEER)" || { echo 'Use PEER=spark-e8f1-wired or PEER=spark-66f1-wired (run on the source Spark)' >&2; exit 2; }
+	python3 scripts/sync-spark-model-parity.py --root "$(CURDIR)" --peer "$(PEER)" --peer-root "$(or $(PEER_ROOT),$(CURDIR))" --catalog cluster/single-node-models.lock.json --output "$(or $(OUTPUT),data/model-parity/copy)"
+
+model-runtime-prepare:
+	python3 scripts/prepare-spark-model-runtimes.py --root "$(CURDIR)" $(if $(BUNDLE_DIR),--bundle-dir "$(BUNDLE_DIR)",)
+
 
 .PHONY: init test check gpu-check up down logs ps smoke large-up balanced-up qwen30-up deepseek32-up mistral24-up gptoss120-up lagunas21-up deepseekv4-install deepseekv4-up deepseekv4-down deepseekv4-status deepseekv4-smoke download-model download-qwen32 download-qwen30 download-deepseek32 download-mistral24 download-gptoss120 download-lagunas21 download-vision training-up lora-train lora-serve lora-eval throughput-eval vision-up vision-eval context-guard context-guard-up aichat-build aichat opencode
 
@@ -103,6 +114,7 @@ deepseekv4-install:
 	set -a; source .env; set +a; ./scripts/deepseek-v4.sh install
 
 deepseekv4-up:
+	set -a; source .env; set +a; ./scripts/deepseek-v4.sh check-draft
 	bash scripts/qwen38-flash-next.sh stop
 	$(DOCKER_COMPOSE) stop vllm-fast vllm-balanced vllm-large vllm-qwen30a3b vllm-deepseek32b vllm-mistral24b vllm-gptoss120b vllm-lagunas21 vllm-lora vllm-vision
 	set -a; source .env; set +a; ./scripts/deepseek-v4.sh start
