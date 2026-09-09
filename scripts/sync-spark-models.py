@@ -139,6 +139,8 @@ def main():
     p.add_argument('--lock', type=Path, required=True)
     p.add_argument('--peer')
     p.add_argument('--peer-cache')
+    p.add_argument('--fabric-inventory', type=Path, help='require a direct inventoried Spark fabric route')
+    p.add_argument('--fabric-rail', type=int, default=0)
     args = p.parse_args()
     cache = args.cache.expanduser().resolve()
     if args.action == 'lock':
@@ -153,7 +155,12 @@ def main():
     if not args.peer_cache or not args.peer_cache.startswith('/') or any(c in args.peer_cache for c in '\n\r\x00'):
         p.error('absolute --peer-cache required')
     manifest = json.loads(args.lock.read_text())
-    ssh = ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-o', 'ServerAliveInterval=15', args.peer]
+    transport_argv = ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-o', 'ServerAliveInterval=15']
+    fabric = None
+    if args.fabric_inventory:
+        from spark_transfer import transport
+        transport_argv, args.peer, fabric = transport(args.peer, json.loads(args.fabric_inventory.read_text()), args.fabric_rail)
+    ssh = transport_argv + [args.peer]
     def target(action):
         r = subprocess.run(ssh + [shlex.join(['python3', '-c', RECEIVER])],
             input=json.dumps({'action': action, 'cache': args.peer_cache, 'lock': manifest}),
@@ -176,7 +183,7 @@ def main():
         file_list.flush()
         phase('rsync', note='includes rsync checksum preparation and SSH transfer')
         subprocess.run(['rsync', *RSYNC_FLAGS, '--files-from=' + file_list.name,
-            '-e', 'ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15',
+            '-e', shlex.join(transport_argv),
             str(cache) + '/', args.peer + ':' + args.peer_cache.rstrip('/') + '/'], check=True)
     rsync_s = time.monotonic()-started
     phase('destination-verification', rsync_s=round(rsync_s, 3))
@@ -186,6 +193,7 @@ def main():
     result.update(source_verify_s=round(source_verify_s, 3), rsync_s=round(rsync_s, 3),
                   destination_verify_s=round(time.monotonic()-verify_started, 3),
                   total_elapsed_s=round(time.monotonic()-total_started, 3))
+    if fabric: result['fabric'] = fabric
     print(json.dumps(result))
 
 

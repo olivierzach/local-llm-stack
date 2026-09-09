@@ -58,6 +58,8 @@ def main():
     parser.add_argument('--peer-root', required=True)
     parser.add_argument('--catalog', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--inventory', type=Path, default=Path(__file__).resolve().parents[1] / 'cluster/inventory.json')
+    parser.add_argument('--fabric-rail', type=int, default=0)
     args = parser.parse_args()
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.@-]*', args.peer):
         parser.error('invalid SSH peer')
@@ -73,9 +75,10 @@ def main():
     spec = importlib.util.spec_from_file_location('model_sync', helper)
     sync = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(sync)
-    ssh = ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10',
-           '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=4', args.peer]
-    report = {'catalog': catalog, 'started_at': time.time(), 'completed': [], 'failures': []}
+    from spark_transfer import transport
+    transport_argv, peer, fabric = transport(args.peer, json.loads(args.inventory.read_text()), args.fabric_rail)
+    ssh = transport_argv + [peer]
+    report = {'catalog': catalog, 'fabric': fabric, 'started_at': time.time(), 'completed': [], 'failures': []}
 
     def save():
         temporary = output / 'parity.json.tmp'
@@ -106,8 +109,8 @@ def main():
         for name in files:
             print(json.dumps({'phase': 'copy-gguf', 'file': name}), flush=True)
             run(['rsync', '-r', '--checksum', '--partial', '--partial-dir=.spark-parity-partial',
-                 '--protect-args', '-e', 'ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=4',
-                 str(root / name), args.peer + ':' + args.peer_root + '/' + name], timeout=14400)
+                 '--protect-args', '-e', shlex.join(transport_argv),
+                 str(root / name), peer + ':' + args.peer_root + '/' + name], timeout=14400)
         receiver('verify')
         if any(digest(root / name) != item['sha256'] for name, item in files.items()):
             raise ValueError('source GGUF changed during copy')
@@ -123,7 +126,8 @@ def main():
             lock_path = output / (model['repo'].replace('/', '--') + '.lock.json')
             lock_path.write_text(json.dumps(lock, indent=2) + '\n')
             result = run(['python3', str(helper), 'sync', '--cache', str(root / 'data/huggingface'),
-                          '--lock', str(lock_path), '--peer', args.peer,
+                          '--lock', str(lock_path), '--peer', peer,
+                          '--fabric-inventory', str(args.inventory.resolve()), '--fabric-rail', str(args.fabric_rail),
                           '--peer-cache', args.peer_root + '/data/huggingface'],
                          stdout=subprocess.PIPE, timeout=14400)
             receipt = json.loads(result.stdout)
