@@ -734,3 +734,29 @@ receipt records vector dimensions/normalization, artifact hash, source bundle,
 model revisions, runtime versions and elapsed time. CLAP track (2×512), CLAP clip
 (4×512) and MERT track (2×1024) GPU jobs passed on e8f1. The identical worker is
 staged on 66f1; its active research workload currently prevents GPU acceptance.
+
+## Launch preflight and recovery acceptance
+
+`sparkctl preflight --deployment cluster/deployments/fast-e8f1.json` reports
+cache, runtime, GPU admission, memory, port and fabric prerequisites without
+taking a GPU lease or starting a worker. A blocked node does not hide checks on
+the other node. Ports are briefly bound then closed. The report is a point-in-time
+observation; `up` repeats admission checks.
+
+On an idle node, the explicit destructive-to-its-own-worker acceptance tool can
+test recovery:
+
+```bash
+python3 scripts/probe-spark-recovery.py \
+  --deployment cluster/deployments/fast-e8f1.json --run-id check-001
+```
+
+It creates a fresh isolated deployment, verifies a completion, kills only its
+exact owned worker, verifies the retained recovery lease, cleans up, restarts,
+verifies another completion, and removes its worker/lease. Every run needs a new
+ID. It refuses other workloads and does not modify gateways. Reports include the
+saved plan needed for manual `sparkctl down --saved-plan PATH` after an
+unrecoverable controller interruption. This does not test replay of requests
+that were in flight at the instant of a crash.
+
+For the broader legacy model catalog, see [model parity](SPARK_MODEL_PARITY.md).

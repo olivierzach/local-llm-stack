@@ -159,6 +159,62 @@ def validate_cached_snapshot(snapshot):
                 raise RuntimeError("pinned model snapshot is incomplete; missing shard: " + filename)
 
 
+def preflight(request):
+    """Point-in-time launch diagnostics; never takes a lease or starts a worker."""
+    node, recipe = request['node'], request['recipe']
+    checks = []
+
+    def observe(label, action):
+        try:
+            details = action()
+            checks.append({'check': label, 'passed': True, 'details': details})
+            return details
+        except Exception as exc:
+            checks.append({'check': label, 'passed': False, 'error': str(exc)})
+
+    def condition(label, passed, details):
+        checks.append({'check': label, 'passed': bool(passed), 'details': details})
+
+    report = observe('host-inspection', lambda: doctor(node))
+    if report is not None:
+        condition('reservation', report['reservation'] is None, report['reservation'])
+        condition('research-window', report['research_window'] in (None, 'released', 'restored'), report['research_window'])
+        condition('gpu-idle', not report['gpu_processes'] and not report['gpu_containers'],
+                  {'processes': report['gpu_processes'], 'containers': report['gpu_containers']})
+        condition('shared-memory', report['memory_mib']['MemAvailable'] >= recipe['min_available_mib'],
+                  {'available_mib': report['memory_mib']['MemAvailable'], 'required_mib': recipe['min_available_mib']})
+        for rail in report['fabric']:
+            actual = {a['local'] for item in rail['addresses'] for a in item['addr_info'] if a['family'] == 'inet'}
+            condition('fabric-' + rail['interface'], rail['carrier'] == '1' and rail['ip'] in actual,
+                      {'carrier': rail['carrier'], 'expected_ip': rail['ip'], 'actual_ips': sorted(actual), 'mtu': rail['mtu']})
+
+    def image_check():
+        image = json.loads(run(['docker', 'image', 'inspect', recipe['image']]))[0]
+        expected = {'aarch64': 'arm64', 'x86_64': 'amd64'}[node['architecture']]
+        if image['Architecture'] != expected:
+            raise RuntimeError('container architecture mismatch')
+        return {'image': recipe['image'], 'architecture': image['Architecture']}
+
+    def cache_check():
+        snapshot = Path(node['cache']) / 'hub' / ('models--' + recipe['model'].replace('/', '--')) / 'snapshots' / recipe['revision']
+        validate_cached_snapshot(snapshot)
+        return {'snapshot': str(snapshot), 'weight_shards': len(list(snapshot.glob('*.safetensors'))),
+                'qualification': 'Structural check only; use the model-copy receipt for SHA-256 verification.'}
+
+    def port_check(port):
+        check_port(node['fabric'][0]['ip'], port)
+        return {'address': node['fabric'][0]['ip'], 'port': port}
+
+    observe('runtime-image', image_check)
+    observe('model-cache', cache_check)
+    observe('api-port', lambda: port_check(request['deployment']['port']))
+    if request['deployment']['mode'] != 'single':
+        condition('rdma-devices', Path('/dev/infiniband').is_dir(), {'path': '/dev/infiniband'})
+        observe('master-port', lambda: port_check(request['deployment']['master_port']))
+    return {'launchable': all(item['passed'] for item in checks), 'checks': checks,
+            'qualification': 'Point-in-time diagnostics. Ports are briefly bound and closed. No GPU reservation or worker is created; up rechecks admission.'}
+
+
 def reserve(request):
     old = reservation()
     if old:
@@ -369,6 +425,8 @@ def main(request):
         raise RuntimeError("invalid ownership identity")
     if action == "probe":
         return probe(request)
+    if action == "preflight":
+        return preflight(request)
     with locked():
         if action == "reserve-batch": return reserve_batch(request)
         if action == "reserve-workload": return workload_reservation(request)

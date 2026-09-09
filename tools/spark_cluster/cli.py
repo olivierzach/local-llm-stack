@@ -121,7 +121,7 @@ def up(p, timeout, output):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("validate", "render", "doctor", "up", "status", "down", "probe", "collectives", "cache-status", "cache-clear"))
+    parser.add_argument("action", choices=("validate", "render", "doctor", "preflight", "up", "status", "down", "probe", "collectives", "cache-status", "cache-clear"))
     parser.add_argument("--inventory", type=Path, default=ROOT / "cluster/inventory.json")
     parser.add_argument("--deployment", type=Path)
     parser.add_argument("--saved-plan", type=Path, help="exact rendered inputs for status/down/recovery")
@@ -145,8 +145,8 @@ def main(argv=None):
                 failures += 1
         return int(bool(failures))
     if args.saved_plan:
-        if args.deployment or args.action not in ("status", "down", "probe", "cache-status", "cache-clear"):
-            raise ConfigError("saved plans are for status/down/probe/cache operations, without --deployment")
+        if args.deployment or args.action not in ("preflight", "status", "down", "probe", "cache-status", "cache-clear"):
+            raise ConfigError("saved plans are for preflight/status/down/probe/cache operations, without --deployment")
         p = read(args.saved_plan)
         validate_saved_plan(p)
     else:
@@ -159,6 +159,19 @@ def main(argv=None):
         save_json(output / "plan.json", p)
         for node, compose in p["compose"].items(): save_json(output / f"compose-{node}.json", compose)
         emit({"owner": p["owner"], "output": str(output), "endpoint": p["endpoint"]})
+    elif args.action == "preflight":
+        reports = {}
+        for node_id in p['nodes']:
+            try:
+                reports[node_id] = call(p, node_id, 'preflight')
+            except Exception as exc:
+                reports[node_id] = {'launchable': False, 'error': str(exc)}
+        result = {'owner': p['owner'], 'digest': p['digest'], 'nodes': reports,
+                  'launchable': all(report['launchable'] for report in reports.values()),
+                  'recipe_validation': p['recipe']['validation']}
+        save_json(output / 'preflight.json', result)
+        emit(result)
+        return int(not result['launchable'])
     elif args.action == "up":
         if not 10 <= args.timeout <= 7200: raise ConfigError("startup timeout must be 10..7200 seconds")
         up(p, args.timeout, output)
