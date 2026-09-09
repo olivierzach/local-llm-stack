@@ -26,6 +26,7 @@ def measure(base_url, key, model, prompt, max_tokens):
         'max_tokens':max_tokens,'stream':True,'stream_options':{'include_usage':True}},
         stream=True,timeout=(10,180)) as response:
         response.raise_for_status()
+        deployment = response.headers.get('X-Spark-Deployment')
         for line in response.iter_lines(chunk_size=1,decode_unicode=True):
             if not line.startswith('data:'): continue
             body = line[5:].strip()
@@ -50,7 +51,7 @@ def measure(base_url, key, model, prompt, max_tokens):
     generated = usage['completion_tokens']
     return {'ttft_s':first-started,'elapsed_s':elapsed,'prompt_tokens':usage['prompt_tokens'],
         'completion_tokens':generated,'decode_tokens_per_second':(generated-1)/(elapsed-(first-started)),
-        'text_chars':len(text)}
+        'text_chars':len(text), 'deployment_digest':deployment}
 
 
 def summarize(records, elapsed):

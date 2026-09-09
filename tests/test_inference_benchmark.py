@@ -38,3 +38,18 @@ def test_measure_requires_real_usage_and_complete_text_stream(monkeypatch,bad):
         result=benchmark.measure('http://test/v1',None,'model','prompt',32)
         assert result['ttft_s']==.1 and result['completion_tokens']==4
         assert result['decode_tokens_per_second']==pytest.approx(7.5)
+
+
+@pytest.mark.parametrize('deployment', [None, 'a'*64])
+def test_measure_records_gateway_selection_without_requiring_it_for_direct_servers(monkeypatch, deployment):
+    lines = ['data: '+json.dumps({'choices':[{'delta':{'content':'hello'}}]}),
+             'data: '+json.dumps({'choices':[], 'usage':{'prompt_tokens':20,'completion_tokens':4}}),
+             'data: [DONE]']
+    session = Session(lines)
+    session.headers = {'X-Spark-Deployment':deployment} if deployment else {}
+    monkeypatch.setattr(benchmark.requests, 'Session', lambda:session)
+    ticks = iter([0,.1,.5])
+    monkeypatch.setattr(benchmark.time, 'monotonic', lambda:next(ticks))
+    result = benchmark.measure('http://test/v1', None, 'model', 'prompt', 32)
+    assert result['deployment_digest'] == deployment
+    assert result['completion_tokens'] == 4

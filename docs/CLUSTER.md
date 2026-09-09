@@ -349,9 +349,13 @@ scripts/sparkctl down --deployment cluster/deployments/fast-tp2.json
 ```
 
 The pinned vLLM runtime uses native multiprocess multi-node launch, explicit node
-ranks, an explicit coordinator address and Docker supervision. TP=2 with 66f1 as
-coordinator has passed real inference. `fast-pp2.json` selects e8f1 as coordinator
-and PP=2; its hardware acceptance is pending. Unsupported recipe modes fail
+ranks, an explicit coordinator address and Docker supervision. TP=2 and PP=2
+have passed real completion with either node coordinating, plus text/SSE through
+both independent gateways for reverse TP and both PP placements. Choose
+`fast-tp2.json` or `fast-tp2-e8f1.json` for TP; choose `fast-pp2.json` (e8f1
+coordinator) or `fast-pp2-66f1.json` for PP. The small-model measurements and their
+limits are recorded in [the implementation record](CLUSTER_IMPLEMENTATION.md).
+Unsupported recipe modes fail
 validation. TP × PP must equal the allocated GPU count.
 
 One QSFP cable exposes two logical fabric rails. Seeing 200000 Mb/s on both

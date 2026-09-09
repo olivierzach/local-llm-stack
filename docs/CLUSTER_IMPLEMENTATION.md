@@ -32,7 +32,7 @@ Other tools do not automatically participate in this reservation protocol.
 - [ ] Looped LLM immutable-source placement and managed job smoke on either node
 - [ ] Both fabric rails, repeatable model-copy checksums and throughput
 - [x] GPU NCCL correctness/bandwidth; runtime/driver compatibility evidence
-- [ ] True TP=2 completion on both GPUs; each coordinator placement
+- [x] True TP=2 completion on both GPUs; each coordinator placement
 - [ ] Explicit supported PP/replica modes, capacity/performance comparisons
 - [ ] Failure/recovery tests, operator runbook, clean reviewable changes
 
@@ -136,9 +136,9 @@ Original copy checksums and transfer measurements remain under the controller's
 - Apply the staged system package baseline and MTU test on both nodes. These
   remain pending; user-service linger on e8f1 is now enabled.
 - Investigate the measured sender-direction asymmetry and repeat the host-memory
-  profile with 66f1 idle. Compare MTU 9000 only as a measured follow-up; the fast
+  profile with 66f1 idle (completed below; the asymmetry persists). Compare MTU 9000 only as a measured follow-up; the fast
   direction already reaches about 185 Gb/s summed across rails at MTU 1500.
-- Test reverse TP coordinator placement and pipeline parallelism; compare
+- TP and PP with either coordinator passed. Complete comparisons of
   single-node, TP and PP latency/throughput with an optimized model recipe.
 - Validate larger combined-node recipes and the vision GPU placement on 66f1.
   The baseline 4B recipe advertises no tools; the separate coder recipe has passed
@@ -665,3 +665,64 @@ failures, errors or skips. The new preflight diagnosed the actual 66f1 directory
 in 0.42 seconds without hashing the source or starting another copy. The test
 receipt, exact failure and provisioning command are retained in
 `data/cluster/large-model-preparation/copy-permission-fix.json`.
+
+## Both GPUs idle: fabric and distributed placement acceptance
+
+On September 8, both research windows were released and both GPUs had no running
+processes or containers before acceptance. Research finished naturally; no
+research process or source tree was changed. The matched host-memory RDMA profile
+used one QP, 64 KiB messages, five-second samples, CPUs 5/15 and MTU 1500:
+
+| Sender | Rail 0 Gb/s | Rail 1 Gb/s | Concurrent rails summed Gb/s |
+| --- | ---: | ---: | ---: |
+| 66f1 | 14.11 | 13.46 | 26.51 |
+| e8f1 | 109.06 | 109.05 | 185.15 |
+
+GPU process samples were empty before and after all six cases. The earlier
+matched research-active run measured 9.27/9.17/17.78 Gb/s from 66f1 and
+109.05/109.03/185.14 Gb/s from e8f1. The slow direction improved, but the large
+asymmetry persists with both GPUs idle. Research activity alone does not explain
+it. These observations do not isolate every change between runs, and host-memory
+RDMA is not SSH model-copy or NCCL bandwidth. Raw reports and the checked
+comparison are in `data/cluster/fabric-host-both-idle/` and
+`data/cluster/fabric-both-idle-comparison.json`.
+
+Reverse TP=2 placement passed real completion with e8f1 coordinating. Runtime
+logs identify rank 0/TP 0 on e8f1 and rank 1/TP 1 on 66f1. Both independently
+placed gateways passed text and SSE with the selected deployment digest. The
+saved owner is `fast-tp2-e8f1-6416045c70ce`.
+
+PP=2 with e8f1 coordinating also passed completion and both gateway probes.
+Runtime logs identify PP 0 on e8f1 and PP 1 on 66f1, with TP 0 on each.
+Its saved owner is `fast-pp2-34b3b2907217`. These placements used the same pinned
+Qwen3-4B-Instruct-2507 revision, BF16, eager execution, context 8192, eight maximum
+sequences and 25% memory utilization per node. Each benchmark warmed the runtime,
+then measured four requests per concurrency level with unique prefixes, 16
+prompt repetitions and 64 output tokens:
+
+| Placement | Concurrency | Aggregate output tokens/s | Median first-token seconds |
+| --- | ---: | ---: | ---: |
+| TP=2, e8f1 coordinator | 1 | 36.08 | 0.082 |
+| TP=2, e8f1 coordinator | 2 | 80.92 | 0.149 |
+| TP=2, e8f1 coordinator | 4 | 148.09 | 0.233 |
+| PP=2, e8f1 coordinator | 1 | 21.29 | 0.065 |
+| PP=2, e8f1 coordinator | 2 | 43.42 | 0.112 |
+| PP=2, e8f1 coordinator | 4 | 96.72 | 0.166 |
+
+TP produced higher sustained throughput in this small workload; PP delivered
+its first token sooner. Single trials with synthetic prompts do not establish
+model quality, statistical significance or the best configuration for an 80B
+model. Both placements' containers were removed using their exact saved plans
+after tests, releasing their GPU reservations. Logs/plans remain in each owner's
+directory; benchmarks, gateway receipts and the validated comparison are under
+`data/cluster/distributed-acceptance/`.
+
+PP=2 with 66f1 coordinating subsequently passed the same completion and both
+gateway text/SSE probes under owner `fast-pp2-66f1-e258ef0f2f2c`. Rank logs show
+PP 0 on 66f1 and PP 1 on e8f1. At concurrency 1/2/4 it measured respectively
+21.45/43.79/82.99 aggregate output tokens/s, with median first-token times
+0.064/0.109/0.139 seconds. Both owned containers were removed and reservations
+released after collecting logs. Thus both TP and PP have real completion
+acceptance with either coordinator; the 80B recipe remains a separate pending
+acceptance. Recipe validation metadata now records these results, so newly
+rendered plan digests differ from the saved historical receipts.

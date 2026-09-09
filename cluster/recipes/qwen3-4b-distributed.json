@@ -14,5 +14,5 @@
   "max_num_seqs": 8,
   "extra_args": ["--enforce-eager", "--disable-custom-all-reduce"],
   "parallelism": ["tensor", "pipeline"],
-  "validation": "TP=2 completion and two-rank NCCL correctness passed with 66f1 coordinator. Reverse coordinator and PP acceptance pending."
+  "validation": "TP=2 and PP=2 completion passed with either coordinator. Reverse TP and both PP placements passed text/SSE through both gateways. Two-rank NCCL correctness passed. Small synthetic performance measurements are recorded in docs/CLUSTER_IMPLEMENTATION.md."
 }
