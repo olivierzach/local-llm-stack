@@ -171,6 +171,8 @@ There is no permanent compute master. A deployment chooses its target,
 coordinator and, when supported, draft node. Client aliases and Context Guard
 placement are independent of these roles. The optional
 [existing-guard routing registry](CONTEXT_GUARD_PLACEMENT.md) can override legacy
-aliases without changing the client URL. Its hardware acceptance and participation
-of legacy Make launches in shared GPU admission remain separate work; copying
-artifacts alone does not establish either.
+aliases without changing the client URL. Real DeepSeek text, SSE, tools and exact
+tokenization passed through both existing guards to e8f1; the unchanged Mac OMP
+alias also generated successfully. Existing GPU Make launches now use
+[shared admission](SPARK_GPU_ADMISSION.md). Copying artifacts alone does not
+establish every model's full feature acceptance on both nodes.

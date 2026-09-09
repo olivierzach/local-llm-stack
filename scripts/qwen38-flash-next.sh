@@ -30,7 +30,9 @@ configure() {
   export MAMBA_SSM_CACHE_DTYPE="${QWEN38_SSM_DTYPE-bfloat16}"
   export MAX_NUM_SEQS="${QWEN38_MAX_NUM_SEQS:-4}" MAX_NUM_BATCHED_TOKENS="${QWEN38_BATCHED_TOKENS:-2048}"
   export CUDAGRAPH_CAPTURE_SIZES=auto COMPILATION_MODE=0 MTP_K_SCHEDULE=""
-  export EXTRA_DOCKER_ARGS="-e VLLM_USE_V2_MODEL_RUNNER=1"
+  local root_digest
+  root_digest="$(python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.argv[1].encode()).hexdigest())' "$ROOT")"
+  export EXTRA_DOCKER_ARGS="-e VLLM_USE_V2_MODEL_RUNNER=1 --label io.spark.legacy-root-sha256=$root_digest --label io.spark.legacy-transaction=${SPARK_LEGACY_TRANSACTION:-}"
   export EXTRA_VLLM_ARGS="--revision $QWEN38_MODEL_REVISION --tokenizer-revision $QWEN38_MODEL_REVISION"
   export MTP_DRAFT_VOCAB="${QWEN38_DRAFT_VOCAB:-}"
   export REQUIRE_IDLE_GPU=true PLE_OFFLOAD=true GPU_MEMORY_UTILIZATION="" KV_CACHE_MEMORY=""

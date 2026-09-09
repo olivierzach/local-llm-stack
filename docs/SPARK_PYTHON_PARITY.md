@@ -52,3 +52,13 @@ environment afterward, since its entrypoint scripts contain its absolute path.
 On a current 66f1 checkout, `make python-parity-check` audits the original venv
 without changing it. On a new machine, the same lock and prepare command recreate
 the host environment without requiring a live source Spark or a coding agent.
+
+## September 9 activation
+
+e8f1's baseline `.venv` now points to
+`~/.local/share/spark-host-envs/20260909-locked`. All 167 locked packages match
+66f1, dependency checks pass, and real FP32/BF16 CUDA and AdamW checks passed
+before activation. The original venv is retained at
+`~/projects/local-llm-stack/.venv.before-parity-20260909`. Activation and CUDA
+receipts are in the controller's `state/python-parity/20260909/` directory.
+66f1's environment was not changed during its research run.

@@ -6,6 +6,9 @@ x-vllm-common: &vllm-common
   ipc: host
   shm_size: "16gb"
   gpus: all
+  labels:
+    io.spark.legacy-root-sha256: ${SPARK_LEGACY_ROOT_SHA256:-}
+    io.spark.legacy-transaction: ${SPARK_LEGACY_TRANSACTION:-}
   environment:
     HF_TOKEN: ${HF_TOKEN:-}
     HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
@@ -526,6 +529,9 @@ services:
     ipc: host
     shm_size: "16gb"
     gpus: all
+    labels:
+      io.spark.legacy-root-sha256: ${SPARK_LEGACY_ROOT_SHA256:-}
+      io.spark.legacy-transaction: ${SPARK_LEGACY_TRANSACTION:-}
     ports:
       - "${BIND_HOST:-127.0.0.1}:${JUPYTER_PORT:-8888}:8888"
     environment:

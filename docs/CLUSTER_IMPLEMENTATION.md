@@ -21,25 +21,28 @@ passed the stricter test after fixing validation of its zero-based shard index.
 The first sweep checked text generation, not every advertised tool/image feature;
 Laguna's response included a closing reasoning marker that still needs review.
 
-Native Qwen loaded at 262,144 context and answered directly. Its first downstream
-test hit a LiteLLM startup race; native Make startup now waits for both LiteLLM
-and Context Guard health. The downstream retest is running. DeepSeek V4's earlier
-local guard acceptance remains valid, but its live cross-node placement test is
-still pending. These results do not establish every model's acceptance on 66f1,
-whose current research job remains running.
+Native Qwen passed direct, LiteLLM and Context Guard generation, streaming tool
+calls and continuation, vision, output clamping, and an overflow test that
+prefilled 260,032 tokens within its 262,144-token context. Startup now waits for
+both router health checks, fixing the initial downstream readiness race. This
+was bounded acceptance, not a long soak. Qwen was stopped after acceptance.
 
-The original guard now has opt-in, atomic per-alias placement overrides; see
-[CONTEXT_GUARD_PLACEMENT.md](CONTEXT_GUARD_PLACEMENT.md). The files are staged on
-both nodes with overrides disabled. A CPU-only fixture passed through e8f1's real
-port-4010 guard to a backend on 66f1's private fabric address, including exact
-tokenization and authentication; the fixture was removed and overrides disabled.
-This was not a real model test. Migrated routes currently require the existing
-master key; virtual-key policy integration remains outstanding. The existing Mac
-OMP provider key matches 66f1's master key, so that workflow needs no new provider
-or credential. The current source passed all 244 Linux tests. Future catalog
-copies now verify and bind SSH to the direct fabric, disable jump/multiplex
-fallback, and record the physical route. Both rails passed live SSH checks, and a
-small rsync fixture passed end-to-end hash verification over rail 0.
+Both existing port-4010 guards now route `local-deepseek-v4-flash` to e8f1's
+normal DeepSeek service at `10.10.20.2:8011/v1`. Real text, SSE, tool-call,
+tool-result, exact-tokenization and invalid-key probes passed through both
+frontdoors. The cross-node request used the direct fabric; a stopped-backend
+probe returned 503 without falling back to an old model. The Mac's unchanged
+OMP model `spark-context-guard/local-deepseek-v4-flash` returned `OMP_E8F1_OK`.
+Its existing frontdoor still depends on 66f1 being reachable. Other aliases
+retain their original routing. See [CONTEXT_GUARD_PLACEMENT.md](CONTEXT_GUARD_PLACEMENT.md).
+Migrated routes currently require the existing master key; virtual-key policy
+integration remains outstanding.
+
+Future catalog copies verify and bind SSH to the direct fabric, disable
+jump/multiplex fallback, and record the physical route. Both rails passed live
+SSH checks, and a small rsync fixture passed end-to-end hash verification over
+rail 0. These results do not establish every model's acceptance on 66f1, whose
+research container `f66e99a411bd` remains running.
 
 The owned e8f1 recovery probe passed initial inference, exact-worker SIGKILL,
 retained reservation, owned cleanup, a fresh worker and another completion, then
@@ -50,9 +53,8 @@ partition or in-flight replay test. Its receipt is under
 The host Python gap is tracked separately in
 [SPARK_PYTHON_PARITY.md](SPARK_PYTHON_PARITY.md). A fresh hash-built e8f1 environment
 matches all 167 source packages excluding pip, passes 244 stack tests, and has
-passed real GB10 FP32/BF16 CUDA matrix checks plus an AdamW update. Activation is
-queued after native Qwen cleanup and requires an idle node; the original venv is
-retained for rollback. The same CUDA probe refused 66f1's active workload without
+passed real GB10 FP32/BF16 CUDA matrix checks plus an AdamW update. The validated environment is now the active baseline `.venv` on e8f1; its
+original venv is retained as `.venv.before-parity-20260909` for rollback. The same CUDA probe refused 66f1's active workload without
 taking a reservation. Root-managed system packages remain pending.
 
 ## Design
@@ -71,7 +73,9 @@ the same model capabilities and token budgets when placements change.
 GPU admission is exclusive by default. Existing GPU processes and containers
 block admission; no existing inference or research job is stopped implicitly.
 Reservations survive controller failure and require owned cleanup/recovery.
-Other tools do not automatically participate in this reservation protocol.
+Existing GPU Make commands also participate through
+[shared admission](SPARK_GPU_ADMISSION.md). Direct Docker/systemd/script calls
+and tools outside these adapters do not automatically participate.
 
 ## Acceptance checklist
 

@@ -49,6 +49,7 @@ def test_complete_stream_assembles_tool_arguments(monkeypatch):
     events = [fragment('{"key":', first=True), fragment('"alpha"}'),
               {"choices": [{"delta": {}, "finish_reason": "tool_calls"}]}, "[DONE]"]
     monkeypatch.setattr(module.requests, "post", lambda *a, **kw: Response(events))
+    monkeypatch.setattr(module, "memory", lambda: {})
     record, message = module.chat("http://unused/v1", {"stream": True}, "")
     assert record["finish_reason"] == "tool_calls"
     call = message["tool_calls"][0]

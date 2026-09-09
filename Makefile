@@ -2,6 +2,24 @@ SHELL := /usr/bin/env bash
 DOCKER_COMPOSE ?= docker compose
 .DEFAULT_GOAL := init
 
+# Public GPU operations share admission with sparkctl and the research adapters.
+SPARK_GPU_TARGETS := up balanced-up large-up qwen30-up deepseek32-up mistral24-up gptoss120-up lagunas21-up vision-up lora-serve training-up lora-train qwen38-up deepseekv4-up qwen38-down deepseekv4-down down
+.PHONY: $(SPARK_GPU_TARGETS) gpu-admission-check gpu-recover
+.PHONY: $(addprefix _spark-,$(SPARK_GPU_TARGETS)) _spark-admitted
+$(SPARK_GPU_TARGETS):
+	python3 scripts/spark-legacy-run.py run --root "$(CURDIR)" --target "$@"
+
+$(addprefix _spark-,$(SPARK_GPU_TARGETS)): | _spark-admitted
+_spark-admitted:
+	@python3 scripts/spark-legacy-run.py verify --root "$(CURDIR)"
+
+gpu-admission-check:
+	@test -n "$(TARGET)" || { echo 'Use TARGET=deepseekv4-up (or another GPU Make target)' >&2; exit 2; }
+	python3 scripts/spark-legacy-run.py check --root "$(CURDIR)" --target "$(TARGET)"
+
+gpu-recover:
+	python3 scripts/spark-legacy-run.py recover --root "$(CURDIR)"
+
 .PHONY: model-parity-check model-parity-copy model-runtime-prepare model-compose-test
 model-parity-check:
 	python3 scripts/audit-stack-models.py --root "$(CURDIR)"
@@ -46,28 +64,28 @@ check:
 gpu-check:
 	./scripts/gpu-container-check.sh
 
-up:
+_spark-up:
 	$(DOCKER_COMPOSE) up -d
 
-balanced-up:
+_spark-balanced-up:
 	$(DOCKER_COMPOSE) --profile balanced up -d vllm-balanced
 
-large-up:
+_spark-large-up:
 	$(DOCKER_COMPOSE) --profile large up -d vllm-large
 
-qwen30-up:
+_spark-qwen30-up:
 	$(DOCKER_COMPOSE) --profile qwen30a3b up -d vllm-qwen30a3b
 
-deepseek32-up:
+_spark-deepseek32-up:
 	$(DOCKER_COMPOSE) --profile deepseek32b up -d vllm-deepseek32b
 
-mistral24-up:
+_spark-mistral24-up:
 	$(DOCKER_COMPOSE) --profile mistral24b up -d vllm-mistral24b
 
-gptoss120-up:
+_spark-gptoss120-up:
 	$(DOCKER_COMPOSE) --profile gptoss120b up -d vllm-gptoss120b
 
-lagunas21-up:
+_spark-lagunas21-up:
 	$(DOCKER_COMPOSE) --profile lagunas21 up -d vllm-lagunas21
 
 # The recipe owns a host-network container, outside Compose's default startup.
@@ -78,14 +96,14 @@ qwen38-check:
 qwen38-install:
 	set -a; source .env; set +a; bash scripts/qwen38-flash-next.sh install
 
-qwen38-up:
+_spark-qwen38-up:
 	set -a; source .env; set +a; bash scripts/qwen38-flash-next.sh check
 	set -a; source .env; set +a; ./scripts/deepseek-v4.sh stop
 	$(DOCKER_COMPOSE) stop vllm-fast vllm-balanced vllm-large vllm-qwen30a3b vllm-deepseek32b vllm-mistral24b vllm-gptoss120b vllm-lagunas21 vllm-lora vllm-vision
 	set -a; source .env; set +a; bash scripts/qwen38-flash-next.sh start
 	$(DOCKER_COMPOSE) up -d --no-deps --force-recreate --wait --wait-timeout 180 litellm context-guard
 
-qwen38-down:
+_spark-qwen38-down:
 	bash scripts/qwen38-flash-next.sh stop
 
 qwen38-status:
@@ -130,14 +148,14 @@ qwen38-recovery:
 deepseekv4-install:
 	set -a; source .env; set +a; ./scripts/deepseek-v4.sh install
 
-deepseekv4-up:
+_spark-deepseekv4-up:
 	set -a; source .env; set +a; ./scripts/deepseek-v4.sh check-draft
 	bash scripts/qwen38-flash-next.sh stop
 	$(DOCKER_COMPOSE) stop vllm-fast vllm-balanced vllm-large vllm-qwen30a3b vllm-deepseek32b vllm-mistral24b vllm-gptoss120b vllm-lagunas21 vllm-lora vllm-vision
 	set -a; source .env; set +a; ./scripts/deepseek-v4.sh start
 	$(DOCKER_COMPOSE) up -d --no-deps --force-recreate --wait --wait-timeout 180 litellm context-guard
 
-deepseekv4-down:
+_spark-deepseekv4-down:
 	set -a; source .env; set +a; ./scripts/deepseek-v4.sh stop
 
 deepseekv4-status:
@@ -171,13 +189,13 @@ download-lagunas21:
 download-vision:
 	set -a; source .env; set +a; ./scripts/download-model.sh "$${VISION_MODEL:-Qwen/Qwen3-VL-4B-Instruct}"
 
-training-up:
+_spark-training-up:
 	$(DOCKER_COMPOSE) --profile training up -d training
 
-lora-train:
+_spark-lora-train:
 	$(DOCKER_COMPOSE) --profile training run --rm training python /workspace/training/train_lora.py --config /workspace/training/configs/qwen3-lora-smoke.yaml
 
-lora-serve:
+_spark-lora-serve:
 	$(DOCKER_COMPOSE) --profile lora up -d vllm-lora litellm
 
 lora-eval:
@@ -186,7 +204,7 @@ lora-eval:
 throughput-eval:
 	set -a; source .env; set +a; python scripts/load-test.py --model local-fast --concurrency $${CONCURRENCY:-4} --requests $${REQUESTS:-20} --max-tokens $${MAX_TOKENS:-128} --stream --json --jsonl evals/runs/throughput-local-fast.jsonl
 
-vision-up:
+_spark-vision-up:
 	$(DOCKER_COMPOSE) up -d postgres
 	$(DOCKER_COMPOSE) --profile vision up -d vllm-vision
 	$(DOCKER_COMPOSE) up -d --no-deps litellm
@@ -194,7 +212,7 @@ vision-up:
 vision-eval:
 	set -a; source .env; set +a; python scripts/run-evals.py --models local-vision --prompt-file evals/prompts/vision.jsonl
 
-down:
+_spark-down:
 	bash scripts/qwen38-flash-next.sh stop
 	-set -a; source .env; set +a; ./scripts/deepseek-v4.sh stop
 	$(DOCKER_COMPOSE) --profile large --profile qwen30a3b --profile deepseek32b --profile mistral24b --profile gptoss120b --profile lagunas21 --profile training --profile lora --profile vision down

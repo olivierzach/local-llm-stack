@@ -225,6 +225,7 @@ start_server() {
     --user \
     --unit "$SERVICE_NAME" \
     --collect \
+    --setenv "SPARK_LEGACY_TRANSACTION=${SPARK_LEGACY_TRANSACTION:-}" \
     --property "WorkingDirectory=$ROOT" \
     --property "StandardOutput=append:$LOG_FILE" \
     --property "StandardError=append:$LOG_FILE" \

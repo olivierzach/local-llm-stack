@@ -812,7 +812,7 @@ def test_lora_workflow_config_is_wired() -> None:
     config = yaml.safe_load((ROOT / "training/configs/qwen3-lora-smoke.yaml").read_text())
 
     for target in ["lora-train", "lora-serve", "lora-eval"]:
-        assert re.search(rf"^{target}:", makefile, re.MULTILINE)
+        assert re.search(rf"^{target}:", run(["make", "-qp"]).stdout, re.MULTILINE)
 
     assert "lora-eval:\n\tset -a; source .env; set +a; python scripts/run-evals.py" in makefile
     assert "local-balanced-smoke-lora" in aliases
@@ -834,7 +834,7 @@ def test_vision_and_throughput_workflow_config_is_wired() -> None:
     aliases = {entry["model_name"] for entry in litellm["model_list"]}
 
     for target in ["download-vision", "throughput-eval", "vision-up", "vision-eval"]:
-        assert re.search(rf"^{target}:", makefile, re.MULTILINE)
+        assert re.search(rf"^{target}:", run(["make", "-qp"]).stdout, re.MULTILINE)
 
     assert "local-vision" in aliases
     assert "vision-up:\n\t$(DOCKER_COMPOSE) up -d postgres\n\t$(DOCKER_COMPOSE) --profile vision up -d vllm-vision\n\t$(DOCKER_COMPOSE) up -d --no-deps litellm" in makefile
