@@ -30,7 +30,7 @@ Other tools do not automatically participate in this reservation protocol.
 - [x] OpenClaw, OMP, AIChat, llm and OpenRouter configuration adapters (provider fixture acceptance; no real cloud account test)
 - [ ] Vector Bucket placement and actual embedding smoke on either node
 - [ ] Looped LLM immutable-source placement and managed job smoke on either node
-- [ ] Both fabric rails, repeatable model-copy checksums and throughput
+- [x] Both fabric rails, repeatable model-copy checksums and throughput (direction asymmetry remains)
 - [x] GPU NCCL correctness/bandwidth; runtime/driver compatibility evidence
 - [x] True TP=2 completion on both GPUs; each coordinator placement
 - [ ] Explicit supported PP/replica modes, capacity/performance comparisons
@@ -780,3 +780,51 @@ complete Linux suite passes **201 tests**, including direct/gateway benchmark
 provenance cases. The two alternate TP/PP placement manifests validate under
 the updated recipe metadata. Later documentation-only commits do not change
 this installed runtime.
+
+## Verified 80B peer copy after directory provisioning
+
+The user created the selected model directory on 66f1 with ownership
+`statsparrot:statsparrot` and mode 0755. The shared `hub` parent remains
+`root:root` mode 0755. The corrected copy preflight then passed without changing
+shared-parent attributes or existing models.
+
+User service `spark-large-model-copy-9c7f2fbe8446-v3.service`, invocation
+`b13adbffac414c2baca0dd9eb734a20f`, used immutable controller release
+`69a767b25ae37a5fc07379c52c661c1386f7c9f7`. It ran under a local exclusive copy
+lock, four-hour runtime bound, 2 GiB memory limit, 400% CPU quota and nice level
+10. SSH used the direct peer route `10.10.20.2 → 10.10.20.1` on `enp1s0f0np0`.
+Neither the Mac connection nor Wi-Fi carried the model transfer.
+
+The completed copy verifies **51 files and 51 snapshot links**, totaling
+**162,682,272,937 bytes**, for Qwen3-Next-80B-A3B-Instruct revision
+`9c7f2fbe84465e40164a94cc16cd30b6999b0cc7`:
+
+| Phase | Seconds |
+| --- | ---: |
+| Source SHA-256 verification | 170.232 |
+| rsync checksum preparation and SSH copy | 574.851 |
+| Destination SHA-256 and snapshot-link verification | 255.568 |
+| Full operation including preflight | 1001.102 |
+
+The rsync-phase payload average was 2.264 Gb/s; the full-operation payload average
+was 1.300 Gb/s. A separate 30.004-second interface-counter sample during transfer
+measured 2.910 Gb/s. That sample includes other interface traffic and protocol
+overhead. The copy includes SSH, disk I/O and checksums under the stated resource
+limits; none of these measurements represent RDMA/NCCL bandwidth or the physical
+cable's maximum. A separate ten-second source CPU sample measured about 13% of
+one core for rsync and 57% for SSH; it does not establish a unique bottleneck.
+
+The final journal contains the complete verified receipt. The successful
+transient unit was garbage-collected and is inactive. Both caches also
+passed the controller's structural validation with all 41 weight shards, and
+66f1's `refs/main` points to the pinned revision. Raw journal, copy receipt,
+network/CPU samples and start limits are retained under
+`data/cluster/large-model-preparation/copy-v3-*`; the combined receipt is
+`copy-v3-acceptance.json`.
+
+The original permission blocker is resolved. The independent 66f1 research
+container `c02aa909356b6ec35d6a458db465f0e30f9cce993d3a5c198e4c1e16f14091fe`
+remained running, with its research window entered and no cluster GPU
+reservation taken. e8f1 remained GPU-idle. No 80B model was loaded and no gateway
+routes were changed during this copy; real large-model GPU acceptance still
+requires both nodes to be available.

@@ -103,11 +103,47 @@ I/O, so it is not a measurement of RDMA or NCCL bandwidth. e8f1 was selected as
 download source because its measured RDMA sender direction is faster; actual
 SSH model-copy throughput must still be measured independently.
 
-The sync command is a foreground operation. For an unattended copy, run it in a
-user service with `systemd-run --user --collect --unit=spark-large-model-copy`,
-using absolute script, cache and lock paths. Inspect that exact service and its
-journal before retrying. Do not run simultaneous copies into the same snapshot.
-A failed copy can be rerun: destination hashes must pass before success is reported.
+The sync command is a foreground operation. For an unattended copy after source
+download verification, use this bounded user service on e8f1. It pins the current
+release's absolute path and holds a local lock for the entire verification/copy:
+
+```bash
+copy_release="$(readlink -f ~/projects/local-llm-stack-cluster/current)"
+copy_state="$HOME/projects/local-llm-stack-cluster/state"
+copy_cache="$HOME/projects/local-llm-stack/data/huggingface"
+copy_unit="spark-large-model-copy-$(date +%Y%m%d%H%M%S)"
+systemd-run --user --unit="$copy_unit" \
+  --property=RuntimeMaxSec=4h --property=MemoryMax=2G \
+  --property=CPUQuota=400% --property=Nice=10 \
+  --property=KillMode=control-group --property=TimeoutStopSec=30s \
+  /usr/bin/flock --nonblock "$copy_state/large-model-copy.lock" \
+  /usr/bin/python3 -u "$copy_release/scripts/sync-spark-models.py" sync \
+  --cache "$copy_cache" \
+  --lock "$copy_cache/locks/qwen3-next-80b-9c7f2fbe8446.json" \
+  --peer spark-66f1-wired \
+  --peer-cache /home/statsparrot/projects/local-llm-stack/data/huggingface
+systemctl --user show "$copy_unit" -p LoadState -p ActiveState -p Result -p ExecMainStatus
+journalctl --user -u "$copy_unit" --no-pager -o cat
+```
+
+An active service is not a success receipt: wait for the final verified JSON and
+a successful terminal exit. Successful transient units may be garbage-collected
+and report `LoadState=not-found`; their default property values are not retained
+exit-status evidence. Keep the final verified JSON and journal from the exact
+unit/invocation, and inspect any failure messages before retrying.
+The memory limit includes reclaimable file cache;
+hashing a model larger than that limit does not load its weights onto a GPU.
+The four-hour limit and process-group cleanup apply to this source service; the
+peer commands run through SSH and do not inherit its CPU/memory limits. The
+copy can compete for destination disk/CPU resources with another workload.
+Record these limits when comparing timings. This service does not load a model
+or pause a research job.
+
+Inspect the exact service and journal before retrying. The lock excludes another
+copy launched through this wrapper on the same source; it does not coordinate
+copies launched elsewhere or directly without the lock. Do not run simultaneous
+copies into the same snapshot. A failed copy can be rerun: destination hashes
+must pass before success is reported.
 
 A user service started before Docker group membership changed may report socket
 permission denied even when Docker works over SSH. Launch the Docker-dependent
@@ -160,3 +196,13 @@ pinned image with networking and GPU access absent. Attention heads 16/2 and
 linear heads 16/32 divide by two; 48 layers divide into two 24-layer stages.
 The non-thinking chat template rendered correctly. These metadata checks do
 not establish distributed kernel correctness or sufficient runtime memory.
+
+The full pinned cache is now present on both nodes. On September 8, the peer copy
+verified all 51 files and 51 snapshot links (162,682,272,937 bytes) at 66f1 after
+re-verifying its e8f1 source. Both caches pass the controller's structural check
+with 41 weight shards. The complete operation took 1,001.102 seconds; a separate
+30-second interface-counter sample during active SSH transfer measured 2.91 Gb/s.
+This is file-transfer evidence, not RDMA throughput or 80B inference acceptance.
+The research job on 66f1 was preserved, and distributed GPU loading remains
+pending an idle window. See [the implementation record](CLUSTER_IMPLEMENTATION.md)
+for phase timings and the retained acceptance receipt.
