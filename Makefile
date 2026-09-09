@@ -20,6 +20,13 @@ gpu-admission-check:
 gpu-recover:
 	python3 scripts/spark-legacy-run.py recover --root "$(CURDIR)"
 
+.PHONY: native-fabric-plan native-fabric-config
+native-fabric-plan:
+	python3 scripts/configure-native-fabric.py --root "$(CURDIR)"
+
+native-fabric-config:
+	python3 scripts/configure-native-fabric.py --root "$(CURDIR)" --apply
+
 .PHONY: model-parity-check model-parity-copy model-runtime-prepare model-compose-test
 model-parity-check:
 	python3 scripts/audit-stack-models.py --root "$(CURDIR)"

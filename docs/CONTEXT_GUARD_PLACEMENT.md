@@ -21,13 +21,28 @@ separate origin-bound credential store.
 
 ## Native DeepSeek example
 
-First finish other GPU work on the selected target. In that target's `.env`, set
-`DEEPSEEKV4_BIND_HOST` to its private fabric IP: `10.10.20.2` for e8f1 or
-`10.10.20.1` for 66f1. Both local LiteLLM and its tokenizer configuration follow
-this setting. Start DeepSeek using the usual `make deepseekv4-up` after any
-existing DeepSeek instance has been stopped. Binding to the fabric makes the
-worker reachable by the peer; do not expose an unauthenticated worker on a
-public interface.
+Configure either node's native listeners from its inventory without restarting
+services:
+
+```bash
+cd ~/projects/local-llm-stack
+make native-fabric-plan
+make native-fabric-config
+```
+
+This sets `DEEPSEEKV4_BIND_HOST` and `QWEN38_BIND_HOST` to that host's first private
+fabric address after checking it is assigned to the expected interface. It
+preserves other `.env` settings and retains the original in
+`data/context-guard-routes/before-native-fabric.env`. Keep that backup private;
+it contains the original local credentials. Repeating the command is safe.
+
+Both local LiteLLM and native tokenizer configuration follow these settings.
+They take effect on the next model/router start. Finish other GPU work first,
+then use the usual `make deepseekv4-up` after any existing DeepSeek instance has
+been stopped. On September 9, both nodes were configured for their own fabric
+addresses without restarting e8f1 DeepSeek or 66f1 research. Binding to the fabric
+makes the worker reachable by the peer; do not expose an unauthenticated worker
+on a public interface.
 
 On the Spark running the client-facing Context Guard, save this as
 `deepseek-routes.json` (adjust node and actual configured context as needed):

@@ -57,6 +57,22 @@ passed real GB10 FP32/BF16 CUDA matrix checks plus an AdamW update. The validate
 original venv is retained as `.venv.before-parity-20260909` for rollback. The same CUDA probe refused 66f1's active workload without
 taking a reservation. Root-managed system packages remain pending.
 
+The shared Make admission update is installed on both baseline checkouts and in
+controller release `cb49ca40d35572254e97a159de482f0704d38ce4`. All 264 Linux
+regression tests passed. Live checks recognized e8f1's existing native DeepSeek,
+refused a conflicting large-model launch, refused inference on 66f1's active
+research window, and denied direct access to the internal Make gate. Model-file
+and 167-package Python checks passed on both. No service was restarted: e8f1
+DeepSeek kept its invocation and 66f1 kept research container `f66e99a411bd`.
+Receipts are in each controller's `state/admission-20260909/` directory.
+
+Immediate remaining hardware work requires an idle 66f1: its full model/Vector/
+Loop acceptance and the larger 80B combined deployment. Root-managed packages
+also remain missing (e8f1: ripgrep, sox, iperf3, openmpi-bin, libopenmpi-dev).
+The other open items include multi-host failure testing, migrated virtual-key
+policy/accounting, and a separately validated remote-drafter engine. The pinned
+DS4 engine supports local drafting or drafting off, not a remote drafter.
+
 ## Design
 
 Versioned inventory describes nodes, SSH transports, model caches and fabric
