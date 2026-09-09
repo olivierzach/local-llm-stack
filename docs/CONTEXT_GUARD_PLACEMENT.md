@@ -70,6 +70,20 @@ their legacy route. To disable all overrides and restore the original guard:
 make context-routes-disable
 ```
 
+With the target running and the registry active, verify the normal guard URL:
+
+```bash
+make context-route-test MODEL=local-deepseek-v4-flash RUN_ID=placement-001 TOOLS=1 THINKING_DISABLED=1
+```
+
+This checks model discovery, text and SSE completion, exact tokenizer counts and
+context policy, invalid-key rejection, and a synthetic streamed tool call/result.
+It executes no external tool. The test uses the current host's guard key and
+starts no model. `GATEWAY_URL` can select another reachable guard using that same
+credential. Use a fresh run ID for every receipt. Replica and authenticated cloud
+backends have their separate probes; this command expects a single local backend
+or TP/PP coordinator with its exact tokenizer endpoint.
+
 ## Single-node, TP/PP and replicas
 
 Use saved controller plans to derive the exact model identity, context,

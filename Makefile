@@ -216,7 +216,7 @@ context-guard:
 context-guard-up:
 	$(DOCKER_COMPOSE) up -d context-guard
 
-.PHONY: context-routes context-routes-disable
+.PHONY: context-routes context-routes-disable context-route-test
 context-routes:
 	@test -n "$(ROUTES)" || { echo 'Use ROUTES=/path/to/complete-registry.json' >&2; exit 2; }
 	$(or $(PYTHON),.venv/bin/python) scripts/configure-context-routes.py --registry "$(ROUTES)"
@@ -225,6 +225,10 @@ context-routes:
 context-routes-disable:
 	$(or $(PYTHON),.venv/bin/python) scripts/configure-context-routes.py --disable
 	$(DOCKER_COMPOSE) up -d --no-deps context-guard
+
+context-route-test:
+	@test -n "$(MODEL)" -a -n "$(RUN_ID)" || { echo 'Use MODEL=alias RUN_ID=fresh-id; optional TOOLS=1 THINKING_DISABLED=1' >&2; exit 2; }
+	$(or $(PYTHON),.venv/bin/python) scripts/probe-context-route.py --model "$(MODEL)" --output "$(or $(OUTPUT),data/context-route-tests/$(RUN_ID).json)" $(if $(GATEWAY_URL),--base-url "$(GATEWAY_URL)",) $(if $(filter 1 true yes,$(TOOLS)),--tools,) $(if $(filter 1 true yes,$(THINKING_DISABLED)),--thinking-disabled,)
 
 aichat-build:
 	$(DOCKER_COMPOSE) --profile tui build aichat
