@@ -13,21 +13,47 @@ normal e8f1 `make deepseekv4-up DRAFT_MODE=local` path also started successfully
 its local Context Guard returned `GUARD_OK` with the 65,536-token context policy.
 Do not treat the broader goal or all-model inference acceptance as complete.
 
-**September 9 follow-up:** the e8f1 sequential runtime sweep has produced streamed
-answers from the legacy `local-fast`, `local-balanced`, `local-large` and
-`local-qwen30-a3b` configurations. R1 loaded and generated, but its first test
-cut off during reasoning; it requires a stricter retest with the reasoning parser
-and a larger output budget. Other model acceptance is still in progress.
+**September 9 follow-up:** all nine Compose configurations have now loaded and
+produced streamed answers on e8f1: fast, balanced, large, Qwen30, DeepSeek R1,
+Mistral, GPT-OSS, Laguna and vision. R1's stricter retest passed with the reasoning
+parser, a larger output budget and an explicit `finish_reason=stop`. GPT-OSS also
+passed the stricter test after fixing validation of its zero-based shard index.
+The first sweep checked text generation, not every advertised tool/image feature;
+Laguna's response included a closing reasoning marker that still needs review.
+
+Native Qwen loaded at 262,144 context and answered directly. Its first downstream
+test hit a LiteLLM startup race; native Make startup now waits for both LiteLLM
+and Context Guard health. The downstream retest is running. DeepSeek V4's earlier
+local guard acceptance remains valid, but its live cross-node placement test is
+still pending. These results do not establish every model's acceptance on 66f1,
+whose current research job remains running.
 
 The original guard now has opt-in, atomic per-alias placement overrides; see
 [CONTEXT_GUARD_PLACEMENT.md](CONTEXT_GUARD_PLACEMENT.md). The files are staged on
-both nodes with overrides disabled and existing services left running. Migrated
-routes currently require the existing master key; virtual-key policy integration
-and a live cross-node acceptance are outstanding. The routing, tokenizer-identity
-correction and stricter stream checker passed all 242 Linux tests. Future catalog
+both nodes with overrides disabled. A CPU-only fixture passed through e8f1's real
+port-4010 guard to a backend on 66f1's private fabric address, including exact
+tokenization and authentication; the fixture was removed and overrides disabled.
+This was not a real model test. Migrated routes currently require the existing
+master key; virtual-key policy integration remains outstanding. The existing Mac
+OMP provider key matches 66f1's master key, so that workflow needs no new provider
+or credential. The current source passed all 244 Linux tests. Future catalog
 copies now verify and bind SSH to the direct fabric, disable jump/multiplex
 fallback, and record the physical route. Both rails passed live SSH checks, and a
 small rsync fixture passed end-to-end hash verification over rail 0.
+
+The owned e8f1 recovery probe passed initial inference, exact-worker SIGKILL,
+retained reservation, owned cleanup, a fresh worker and another completion, then
+verified final cleanup. This is single-worker recovery, not a multi-host network
+partition or in-flight replay test. Its receipt is under
+`state/recovery/e8f1-20260909/` in the controller installation.
+
+The host Python gap is tracked separately in
+[SPARK_PYTHON_PARITY.md](SPARK_PYTHON_PARITY.md). A fresh hash-built e8f1 environment
+matches all 167 source packages excluding pip, passes 244 stack tests, and has
+passed real GB10 FP32/BF16 CUDA matrix checks plus an AdamW update. Activation is
+queued after native Qwen cleanup and requires an idle node; the original venv is
+retained for rollback. The same CUDA probe refused 66f1's active workload without
+taking a reservation. Root-managed system packages remain pending.
 
 ## Design
 
@@ -59,7 +85,7 @@ Other tools do not automatically participate in this reservation protocol.
 - [x] Both fabric rails, repeatable model-copy checksums and throughput (direction asymmetry remains)
 - [x] GPU NCCL correctness/bandwidth; runtime/driver compatibility evidence
 - [x] True TP=2 completion on both GPUs; each coordinator placement
-- [ ] Explicit supported PP/replica modes, capacity/performance comparisons
+- [x] Explicit supported PP/replica modes, initial capacity/performance comparisons
 - [ ] Failure/recovery tests, operator runbook, clean reviewable changes
 
 ## Initial constraints (2026-09-07)
