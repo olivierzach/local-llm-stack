@@ -28,7 +28,22 @@ add `WHEELHOUSE=/path/to/wheels`; this disables pip's network access.
 
 Use the new environment explicitly until its CPU imports, CUDA smoke and stack
 regression tests pass. GPU validation must obtain the shared workload reservation
-and wait for an idle research window. Existing model containers keep their own
+and wait for an idle research window:
+
+```bash
+make python-parity-test VENV="$HOME/.local/share/spark-host-envs/20260909" RUN_ID=host-001
+```
+
+This runs small FP32/BF16 CUDA matrix checks and an AdamW backward/update step,
+then releases its reservation. It refuses active research or other GPU workloads.
+After a controller interruption, use the saved request to release its reservation
+once the probe process has exited:
+
+```bash
+python3 scripts/probe-spark-python.py --cleanup-request data/python-parity/host-001/request.json
+```
+
+Existing model containers keep their own
 Python environments. Replacing the baseline `.venv` is a separate maintenance
 step: wait for that node's jobs to finish, retain the original directory for
 rollback, and point `.venv` at the validated environment. Do not move the new

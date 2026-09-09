@@ -16,13 +16,17 @@ model-compose-test:
 	@test -n "$(RUN_ID)" || { echo 'Use a fresh RUN_ID; optionally select MODELS="local-fast local-large"' >&2; exit 2; }
 	$(or $(PYTHON),.venv/bin/python) scripts/probe-stack-models.py --stack-root "$(CURDIR)" --run-id "$(RUN_ID)" --output "$(or $(OUTPUT),data/model-parity/inference/$(RUN_ID))" $(foreach alias,$(MODELS),--alias "$(alias)")
 
-.PHONY: python-parity-check python-parity-prepare
+.PHONY: python-parity-check python-parity-prepare python-parity-test
 python-parity-check:
 	python3 scripts/bootstrap-spark-python.py check --venv "$(or $(VENV),$(CURDIR)/.venv)"
 
 python-parity-prepare:
 	@test -n "$(VENV)" || { echo 'Use VENV=/absolute/path/to/a/new/environment; existing environments are never replaced' >&2; exit 2; }
 	python3 scripts/bootstrap-spark-python.py create --venv "$(VENV)" $(if $(WHEELHOUSE),--wheelhouse "$(WHEELHOUSE)",)
+
+python-parity-test:
+	@test -n "$(RUN_ID)" || { echo 'Use a fresh RUN_ID; this CUDA smoke requires an idle GPU and research window' >&2; exit 2; }
+	python3 scripts/probe-spark-python.py --venv "$(or $(VENV),$(CURDIR)/.venv)" --output "$(or $(OUTPUT),data/python-parity/$(RUN_ID))"
 
 
 .PHONY: init test check gpu-check up down logs ps smoke large-up balanced-up qwen30-up deepseek32-up mistral24-up gptoss120-up lagunas21-up deepseekv4-install deepseekv4-up deepseekv4-down deepseekv4-status deepseekv4-smoke download-model download-qwen32 download-qwen30 download-deepseek32 download-mistral24 download-gptoss120 download-lagunas21 download-vision training-up lora-train lora-serve lora-eval throughput-eval vision-up vision-eval context-guard context-guard-up aichat-build aichat opencode
