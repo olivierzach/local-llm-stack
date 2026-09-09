@@ -32,6 +32,17 @@ def test_answer_fragments_require_normal_finish_and_done():
     assert result == {'text': 'Hello!', 'stream_done': True, 'finish_reason': 'stop'}
 
 
+def test_indexed_zero_based_shards_are_complete_without_filename_guessing(tmp_path):
+    (tmp_path / 'config.json').write_text('{}')
+    names = ['model-00000-of-00001.safetensors', 'model-00001-of-00001.safetensors']
+    for name in names: (tmp_path / name).write_bytes(b'weights')
+    (tmp_path / 'model.safetensors.index.json').write_text(json.dumps({'weight_map': dict(zip(('a', 'b'), names))}))
+    probe.node.validate_cached_snapshot(tmp_path)
+    (tmp_path / names[0]).unlink()
+    with pytest.raises(RuntimeError, match='missing shard'):
+        probe.node.validate_cached_snapshot(tmp_path)
+
+
 def test_failed_start_cleans_only_after_acquiring_lease(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(probe.node, 'check_port', lambda *a: None)

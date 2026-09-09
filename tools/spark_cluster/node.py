@@ -135,16 +135,6 @@ def validate_cached_snapshot(snapshot):
     for entry in snapshot.rglob("*"):
         if entry.is_symlink() and (not entry.exists() or not entry.resolve().is_relative_to(snapshot.parent.parent.resolve())):
             raise RuntimeError("model snapshot has broken or escaping symlinks")
-    numbered = {}
-    for path in snapshot.glob("*.safetensors"):
-        match = re.fullmatch(r"(.+)-(\d+)-of-(\d+)\.safetensors", path.name)
-        if match:
-            part, count = int(match[2]), int(match[3])
-            if not 1 <= part <= count <= 4096:
-                raise RuntimeError("invalid numbered model shard")
-            numbered.setdefault((match[1], count), set()).add(part)
-    if any(parts != set(range(1, count+1)) for (_, count), parts in numbered.items()):
-        raise RuntimeError("pinned model snapshot is incomplete; numbered shards missing")
     index = snapshot / "model.safetensors.index.json"
     if index.exists():
         mapping = json.loads(index.read_text()).get("weight_map")
@@ -157,6 +147,19 @@ def validate_cached_snapshot(snapshot):
             path = snapshot / relative
             if not path.is_file() or path.stat().st_size == 0:
                 raise RuntimeError("pinned model snapshot is incomplete; missing shard: " + filename)
+        # The index is authoritative. GPT-OSS uses zero-based shard names whose
+        # suffix denotes the last index, unlike conventional one-based totals.
+        return
+    numbered = {}
+    for path in snapshot.glob("*.safetensors"):
+        match = re.fullmatch(r"(.+)-(\d+)-of-(\d+)\.safetensors", path.name)
+        if match:
+            part, count = int(match[2]), int(match[3])
+            if not 1 <= part <= count <= 4096:
+                raise RuntimeError("invalid numbered model shard without a weight index")
+            numbered.setdefault((match[1], count), set()).add(part)
+    if any(parts != set(range(1, count+1)) for (_, count), parts in numbered.items()):
+        raise RuntimeError("pinned model snapshot is incomplete; numbered shards missing")
 
 
 def preflight(request):
