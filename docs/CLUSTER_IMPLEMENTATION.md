@@ -66,6 +66,17 @@ and 167-package Python checks passed on both. No service was restarted: e8f1
 DeepSeek kept its invocation and 66f1 kept research container `f66e99a411bd`.
 Receipts are in each controller's `state/admission-20260909/` directory.
 
+The follow-up release `b0b839f1123cb62ecf911f214913e49f02010a9d` is now installed
+on both nodes and passed **268 Linux tests**, with zero failures or skips. It
+adds `make native-fabric-plan` and `make native-fabric-config`. Both baseline
+checkouts now configure native DeepSeek and Qwen listeners on their own first
+fabric addresses (`10.10.20.1` and `10.10.20.2`). These settings apply on the next
+native-model start; no running service was restarted to apply them. Final hashes
+match for all eight compared runtime files, both guards remain healthy, and the
+same DeepSeek invocation and research container remain running. Final receipts
+are `state/admission-20260909/final-verification.json` on each node, with local
+copies under `data/cluster/continuation-20260909/`.
+
 Immediate remaining hardware work requires an idle 66f1: its full model/Vector/
 Loop acceptance and the larger 80B combined deployment. Root-managed packages
 also remain missing (e8f1: ripgrep, sox, iperf3, openmpi-bin, libopenmpi-dev).
