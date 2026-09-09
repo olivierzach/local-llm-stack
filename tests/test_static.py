@@ -293,6 +293,12 @@ def test_context_guard_forces_history_reduction_after_backend_overflow() -> None
     assert prepared["messages"] == [payload["messages"][-1]]
 
 
+def test_default_make_still_initializes_the_stack() -> None:
+    default = subprocess.check_output(['make', '-n'], cwd=ROOT, text=True)
+    explicit = subprocess.check_output(['make', '-n', 'init'], cwd=ROOT, text=True)
+    assert default == explicit
+
+
 def test_context_guard_prefers_native_tokenizer(monkeypatch: pytest.MonkeyPatch) -> None:
     from types import SimpleNamespace
 

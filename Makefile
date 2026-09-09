@@ -1,5 +1,6 @@
 SHELL := /usr/bin/env bash
 DOCKER_COMPOSE ?= docker compose
+.DEFAULT_GOAL := init
 
 .PHONY: model-parity-check model-parity-copy model-runtime-prepare model-compose-test
 model-parity-check:
