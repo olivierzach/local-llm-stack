@@ -311,9 +311,17 @@ the same whether one or several members are available.
 
 HTTP concurrency, stream isolation, unavailable/wrong-model exclusion and
 non-replay tests pass. Both physical gateways have passed real tool and streaming
-requests with e8f1 serving while the 66f1 replica is unavailable. Simultaneous
-two-GPU replica throughput and live member-loss acceptance remain pending the
-66f1 research job finishing.
+requests with e8f1 serving while the 66f1 replica is unavailable. Concurrent
+two-GPU replica requests also passed through both gateways using `local-fast`:
+each gateway's four-request batch selected two requests per node. After owned
+removal of the 66f1 model, both unchanged registries served fresh text and SSE
+requests entirely through e8f1. This tests new-request routing after member
+removal; it does not claim recovery of an interrupted generation or physical
+network-partition acceptance.
+
+`benchmark-spark-inference.py` records each response's `deployment_digest` from
+the gateway's selection header (null for a direct server). It identifies the
+selected saved route, not cryptographic attestation of a running container.
 
 The controller refuses admission when another GPU process, GPU container,
 reservation or unresolved Loop LLM window exists. It does not stop other jobs.

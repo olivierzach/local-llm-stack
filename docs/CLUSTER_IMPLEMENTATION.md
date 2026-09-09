@@ -726,3 +726,57 @@ released after collecting logs. Thus both TP and PP have real completion
 acceptance with either coordinator; the 80B recipe remains a separate pending
 acceptance. Recipe validation metadata now records these results, so newly
 rendered plan digests differ from the saved historical receipts.
+
+## Standalone comparison and live replica removal
+
+Both standalone deployments then passed readiness concurrently, using the same
+pinned 4B model and image. Their exact owners are `fast-66f1-9466bdccf4c6` and
+`fast-e8f1-275b40b23720`. The workload settings match the distributed benchmark
+above, but standalone recipes use 30% memory utilization rather than 25% and
+omit the distributed `--disable-custom-all-reduce` flag. These differences are
+retained in the comparison reports.
+
+| Configured concurrency | 66f1 standalone output tokens/s | e8f1 standalone output tokens/s | Replicas through e8f1 gateway output tokens/s |
+| --- | ---: | ---: | ---: |
+| 1 | 21.93 | 22.23 | 22.01 |
+| 2 | 51.05 | 51.28 | 43.48 |
+| 4 | 98.26 | 99.42 | 100.83 |
+
+The replica gateway measured median first-token latency of 0.075/0.073/0.101
+seconds at concurrency 1/2/4. Its per-response selection headers show two requests
+on each physical deployment at every level. The 66f1 gateway's separate
+four-concurrent-request sample also selected two requests per node and measured
+100.26 aggregate output tokens/s, with 0.108 seconds median first-token latency.
+Headers identify gateway-selected plans; real model readiness and saved runtime
+logs independently record the deployed model identities.
+
+At these small concurrency levels, replicas did not materially increase total
+throughput over batching on one node. TP had higher aggregate throughput, while
+one node had higher throughput per allocated GPU. This does not establish the
+best placement at higher concurrency, for larger models, or by wall power.
+The comparison reports retain exact contracts, model revisions and plan digests.
+
+After the completed batches, the controller removed only the owned 66f1 model.
+Both unchanged gateway registries then passed fresh real text and SSE requests,
+selecting only the surviving e8f1 deployment. This is controlled member-removal
+acceptance, not an in-flight crash/partition test. The e8f1 model was subsequently
+removed. Both shared GPU reservations are null, and both original gateway
+registries were restored and their canonical SHA-256 hashes checked against the
+saved originals. Raw results are under `data/cluster/distributed-acceptance/`.
+
+A new independent research job started on 66f1 after replica cleanup:
+`looplab-looped-llm-lab-single-deep17-1788921378180908767`, container
+`c02aa909356b6ec35d6a458db465f0e30f9cce993d3a5c198e4c1e16f14091fe`.
+The staged Loop LLM acceptance attempt refused admission before taking a GPU
+reservation because that research window was entered. The job was preserved.
+Loop, Vector Bucket and vision acceptance on 66f1 again await an idle window.
+The separate 80B peer copy still awaits the administrator-created writable model
+directory described above. No copy job is currently running.
+
+Release `69a767b25ae37a5fc07379c52c661c1386f7c9f7` was installed on both nodes
+without restarting baseline services. It adds selected deployment IDs to
+benchmark records while keeping direct-server measurements compatible. The
+complete Linux suite passes **201 tests**, including direct/gateway benchmark
+provenance cases. The two alternate TP/PP placement manifests validate under
+the updated recipe metadata. Later documentation-only commits do not change
+this installed runtime.
