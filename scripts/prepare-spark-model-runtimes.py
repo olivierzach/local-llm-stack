@@ -67,7 +67,7 @@ def main():
                           text=True, capture_output=True)
     if qwen.returncode == 0 and qwen.stdout.strip() == 'true':
         parser.error('stop the Qwen runtime before preparing its mounted recipe')
-    if qwen.returncode and 'No such' not in qwen.stderr:
+    if qwen.returncode and 'no such' not in qwen.stderr.lower():
         parser.error('cannot establish Qwen runtime state: ' + qwen.stderr.strip())
     records = []
     for name, relative, url, revision, patch, changed, bundle in [

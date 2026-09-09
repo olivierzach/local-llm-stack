@@ -160,6 +160,12 @@ services:
       - vllm.entrypoints.openai.api_server
       - --model
       - ${MISTRAL24B_MODEL:-mistralai/Mistral-Small-3.2-24B-Instruct-2506}
+      - --tokenizer-mode
+      - mistral
+      - --config-format
+      - mistral
+      - --load-format
+      - mistral
       - --served-model-name
       - local-mistral-small
       - --host
@@ -172,7 +178,7 @@ services:
       - ${MISTRAL24B_GPU_MEMORY_UTILIZATION:-0.80}
       - --enable-auto-tool-choice
       - --tool-call-parser
-      - hermes
+      - mistral
 
   vllm-gptoss120b:
     <<: *vllm-common

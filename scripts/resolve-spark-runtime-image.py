@@ -15,7 +15,7 @@ def resolve(pins):
         result = subprocess.run(['docker', 'image', 'inspect', reference],
                                 text=True, capture_output=True)
         if result.returncode:
-            if 'No such image' in result.stderr:
+            if 'no such image' in result.stderr.lower():
                 continue
             raise RuntimeError('cannot inspect pinned image: ' + result.stderr.strip())
         image = json.loads(result.stdout)[0]

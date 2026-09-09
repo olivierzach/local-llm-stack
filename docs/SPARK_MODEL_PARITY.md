@@ -50,6 +50,15 @@ The initial transfer report is under
 started with a frozen script/catalog in `~/scratch/spark-parity-20260908/` so later
 source edits cannot alter the active job. This receipt does not certify inference.
 
+That initial job completed successfully in 6,610.9 seconds, including repeated
+source/destination hashing and verification of models already present. The
+verified catalog totals 802,055,924,532 bytes; this is catalog size, not all newly
+transmitted bytes or a link throughput benchmark. All eleven catalog entries
+(ten snapshots and the two-file DeepSeek group) passed without failures.
+The GPT-OSS auxiliary `o200k_base.tiktoken` file was subsequently copied over the
+same link and SHA-256 verified separately (3,613,922 bytes). It is now included in
+the catalog so future parity copies/checks also cover it.
+
 ## Native engines and imported images
 
 DeepSeek uses DS4 commit `4ad370b4a338efe9723a386673c0e04f6e214108`, our native
@@ -78,9 +87,43 @@ offline fallback, and rejects a different identity or architecture.
 
 Vision and Laguna have explicit newer image defaults; the legacy NGC image does
 not implement Qwen3-VL. Other model services retain their existing defaults.
+Mistral's service uses the native Tekken tokenizer and Mistral config/load/tool
+formats required by its [model card](https://huggingface.co/mistralai/Mistral-Small-3.2-24B-Instruct-2506).
 `make model-parity-check` reports presence/structure separately from inference
 acceptance; it does not promise every quantization/kernel/context configuration
 fits merely because its files exist.
+
+## Sequential inference acceptance
+
+The installed controller can test all nine Compose model definitions on the
+current node, using their configured model/context/quantization arguments in
+isolated workers. It never contacts the peer or changes existing model services.
+The test changes only the API bind/port, pins the model revision and image ID,
+and runs offline without forwarding credentials. It uses the shared GPU lease,
+requires an idle node, and verifies a completed stream before exact-ID cleanup.
+
+```bash
+cd ~/projects/local-llm-stack-cluster/current
+runtime/bin/python scripts/probe-stack-models.py \
+  --run-id models-001 \
+  --output "$HOME/projects/local-llm-stack-cluster/state/model-tests/models-001"
+```
+
+Use `--alias local-mistral-small` (repeatable) for selected models, and a fresh
+output directory for each attempt. This probes the serving arguments, not the
+legacy Make switching behavior or every tool/vision capability. Native DS4 and
+Qwen3.8 recipe acceptance is separate. Failed launches retain diagnostic logs
+under the controller's ownership state. To recover after an interrupted probe:
+
+```bash
+runtime/bin/python scripts/probe-stack-models.py \
+  --cleanup-request /absolute/path/to/run/local-mistral-small/request.json
+```
+
+Do not run GPU acceptance on a node carrying the research workload. A failed or
+partial report is not all-model acceptance; `finished` and `all_passed` must both
+be true. The test is suitable for a bounded systemd user service; refreshed
+Docker group membership may require launching it through `sg docker -c`.
 
 ## Drafting and placement
 

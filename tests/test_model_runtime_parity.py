@@ -104,3 +104,13 @@ def test_copy_receiver_detects_corruption_and_rejects_symlink_targets(tmp_path):
     other.write_bytes(b'model')
     p.symlink_to(other)
     assert verify().returncode != 0
+
+
+def test_mistral_native_tokenizer_is_accepted_but_missing_tokenizer_is_not(tmp_path):
+    audit = module('stack_artifacts', 'audit-stack-models.py')
+    (tmp_path / 'config.json').write_text(json.dumps({'architectures': ['Mistral3ForConditionalGeneration']}))
+    (tmp_path / 'model.safetensors').write_bytes(b'weights')
+    with pytest.raises(ValueError, match='tekken'):
+        audit.snapshot_check(tmp_path)
+    (tmp_path / 'tekken.json').write_text('{}')
+    assert audit.snapshot_check(tmp_path)['weight_shards'] == 1

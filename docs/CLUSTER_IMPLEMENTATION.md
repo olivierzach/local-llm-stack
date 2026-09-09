@@ -7,8 +7,11 @@ Existing Compose services, aliases, `.env`, and Make targets remain the baseline
 were installed. A full single-node catalog copy and native-engine preparation are
 now tracked in [SPARK_MODEL_PARITY.md](SPARK_MODEL_PARITY.md). The initial e8f1
 DeepSeek V4 test produced `LINK_OK` with local DSpark and completed SSE generation
-with drafting disabled. Other missing snapshots are still being transferred;
-do not treat the broader goal or all-model inference acceptance as complete.
+with drafting disabled. The full catalog copy has now completed: 802,055,924,532
+bytes verified across ten snapshots and two GGUFs, with no copy failures. The
+normal e8f1 `make deepseekv4-up DRAFT_MODE=local` path also started successfully;
+its local Context Guard returned `GUARD_OK` with the 65,536-token context policy.
+Do not treat the broader goal or all-model inference acceptance as complete.
 
 ## Design
 

@@ -36,7 +36,7 @@ assert root.is_absolute()
 for name,item in r['files'].items():
  p=pathlib.Path(name)
  assert not p.is_absolute() and '..' not in p.parts
- assert str(p).startswith('models/deepseek-v4/') and p.suffix=='.gguf'
+ assert (p.parent==pathlib.Path('models/deepseek-v4') and p.suffix=='.gguf') or str(p)=='data/huggingface/tiktoken/o200k_base.tiktoken'
  path=root/p
  assert not path.is_symlink() and not any(q.is_symlink() for q in path.parents)
  if r['action']=='prepare':
@@ -86,15 +86,16 @@ def main():
     # DeepSeek is first so its native runtime can be checked during later copies.
     try:
         files = {}
-        for name in catalog['gguf']:
+        for name in catalog['gguf'] + catalog.get('auxiliary', []):
             relative = Path(name)
             if (relative.is_absolute() or '..' in relative.parts or
-                    relative.parent != Path('models/deepseek-v4') or relative.suffix != '.gguf'):
+                    not ((relative.parent == Path('models/deepseek-v4') and relative.suffix == '.gguf') or
+                         str(relative) == 'data/huggingface/tiktoken/o200k_base.tiktoken')):
                 raise ValueError('unsafe GGUF catalog path')
             path = root / relative
             if path.is_symlink() or not path.is_file() or not path.resolve().is_relative_to(root):
                 raise ValueError('missing or unsafe GGUF: ' + name)
-            print(json.dumps({'phase': 'hash-source-gguf', 'file': name}), flush=True)
+            print(json.dumps({'phase': 'hash-source-file', 'file': name}), flush=True)
             files[name] = {'size': path.stat().st_size, 'sha256': digest(path)}
         (output / 'deepseek-gguf.lock.json').write_text(json.dumps(files, indent=2) + '\n')
         def receiver(action):
