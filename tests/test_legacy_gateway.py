@@ -59,9 +59,12 @@ def chat(url, model, key=KEY, **kwargs):
 
 def test_existing_alias_moves_without_forwarding_client_credential(running):
     url, legacy, moved, *_ = running
+    moved.strict_tokenizer_model = 'physical-model'
     response = chat(url, 'local-fast', stream=True)
     assert response.status_code == 200, response.text
     assert response.headers['X-Context-Limit'] == '4096'
+    assert response.headers['X-Context-Input-Tokens'] == '10'
+    assert moved.tokenizer_model == 'physical-model'
     assert 'data: [DONE]' in response.text
     assert moved.received[-1]['payload']['model'] == 'physical-model'
     assert moved.received[-1]['authorization'] is None

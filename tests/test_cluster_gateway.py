@@ -36,6 +36,10 @@ class Backend(BaseHTTPRequestHandler):
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         if self.path == "/tokenize":
+            self.server.tokenizer_model = body.get('model')
+            if getattr(self.server, 'strict_tokenizer_model', None) and body.get('model') != self.server.strict_tokenizer_model:
+                self.send_error(400)
+                return
             self.reply({"count": 10})
             return
         self.server.received.append({"payload": body, "authorization": self.headers.get("Authorization")})

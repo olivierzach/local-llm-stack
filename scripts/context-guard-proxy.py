@@ -296,6 +296,7 @@ class ProxyConfig:
     discover_model_context: bool
     verbose: bool
     tokenizer_base_urls: dict[str, str] = field(default_factory=dict)
+    tokenizer_models: dict[str, str] = field(default_factory=dict)
     tokenizer_timeout_s: float = 3.0
     max_compaction_retries: int = 3
     context_cache: dict[str, int] = field(default_factory=dict)
@@ -559,7 +560,7 @@ class ContextGuardHandler(BaseHTTPRequestHandler):
                 )
                 if key in payload
             }
-            tokenizer_payload["model"] = model
+            tokenizer_payload["model"] = self.config.tokenizer_models.get(model, model)
             cache_key = hashlib.sha256(compact_json(tokenizer_payload).encode("utf-8")).hexdigest()
             token_cache = getattr(self, "_token_count_cache", {})
             if cache_key in token_cache:

@@ -283,6 +283,7 @@ class GatewayHandler(guard.ContextGuardHandler):
             upstream_base_url=route["base_url"], model_contexts={alias: route["context_tokens"]},
             fallback_model_contexts={}, context_cache={}, discover_model_context=False,
             default_output_tokens=route["max_output_tokens"], compact_model=alias,
+            tokenizer_models={alias: route["upstream_model"]},
             tokenizer_base_urls={alias: route["tokenizer_base_url"]} if route.get("tokenizer_base_url") else {})
         try:
             super().do_POST()
