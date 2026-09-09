@@ -13,6 +13,22 @@ normal e8f1 `make deepseekv4-up DRAFT_MODE=local` path also started successfully
 its local Context Guard returned `GUARD_OK` with the 65,536-token context policy.
 Do not treat the broader goal or all-model inference acceptance as complete.
 
+**September 9 follow-up:** the e8f1 sequential runtime sweep has produced streamed
+answers from the legacy `local-fast`, `local-balanced`, `local-large` and
+`local-qwen30-a3b` configurations. R1 loaded and generated, but its first test
+cut off during reasoning; it requires a stricter retest with the reasoning parser
+and a larger output budget. Other model acceptance is still in progress.
+
+The original guard now has opt-in, atomic per-alias placement overrides; see
+[CONTEXT_GUARD_PLACEMENT.md](CONTEXT_GUARD_PLACEMENT.md). The files are staged on
+both nodes with overrides disabled and existing services left running. Migrated
+routes currently require the existing master key; virtual-key policy integration
+and a live cross-node acceptance are outstanding. The routing, tokenizer-identity
+correction and stricter stream checker passed all 242 Linux tests. Future catalog
+copies now verify and bind SSH to the direct fabric, disable jump/multiplex
+fallback, and record the physical route. Both rails passed live SSH checks, and a
+small rsync fixture passed end-to-end hash verification over rail 0.
+
 ## Design
 
 Versioned inventory describes nodes, SSH transports, model caches and fabric

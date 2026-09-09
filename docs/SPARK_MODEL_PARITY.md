@@ -104,7 +104,10 @@ current node, using their configured model/context/quantization arguments in
 isolated workers. It never contacts the peer or changes existing model services.
 The test changes only the API bind/port, pins the model revision and image ID,
 and runs offline without forwarding credentials. It uses the shared GPU lease,
-requires an idle node, and verifies a completed stream before exact-ID cleanup.
+requires an idle node, and verifies nonempty answer text, `finish_reason=stop`
+and the SSE end marker before exact-ID cleanup. A token-limit cutoff is not a
+completed answer. Reasoning models receive a larger test output budget; R1's
+service separates reasoning using vLLM's `deepseek_r1` parser.
 
 ```bash
 cd ~/projects/local-llm-stack-cluster/current
