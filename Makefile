@@ -82,7 +82,7 @@ qwen38-up:
 	set -a; source .env; set +a; ./scripts/deepseek-v4.sh stop
 	$(DOCKER_COMPOSE) stop vllm-fast vllm-balanced vllm-large vllm-qwen30a3b vllm-deepseek32b vllm-mistral24b vllm-gptoss120b vllm-lagunas21 vllm-lora vllm-vision
 	set -a; source .env; set +a; bash scripts/qwen38-flash-next.sh start
-	$(DOCKER_COMPOSE) up -d --no-deps --force-recreate litellm context-guard
+	$(DOCKER_COMPOSE) up -d --no-deps --force-recreate --wait --wait-timeout 180 litellm context-guard
 
 qwen38-down:
 	bash scripts/qwen38-flash-next.sh stop
@@ -134,7 +134,7 @@ deepseekv4-up:
 	bash scripts/qwen38-flash-next.sh stop
 	$(DOCKER_COMPOSE) stop vllm-fast vllm-balanced vllm-large vllm-qwen30a3b vllm-deepseek32b vllm-mistral24b vllm-gptoss120b vllm-lagunas21 vllm-lora vllm-vision
 	set -a; source .env; set +a; ./scripts/deepseek-v4.sh start
-	$(DOCKER_COMPOSE) up -d --no-deps --force-recreate litellm context-guard
+	$(DOCKER_COMPOSE) up -d --no-deps --force-recreate --wait --wait-timeout 180 litellm context-guard
 
 deepseekv4-down:
 	set -a; source .env; set +a; ./scripts/deepseek-v4.sh stop
