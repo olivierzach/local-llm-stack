@@ -1,6 +1,7 @@
 import importlib.util
 import json
 from pathlib import Path
+import shutil
 
 import pytest
 
@@ -72,3 +73,16 @@ def test_probe_keeps_model_arguments_but_excludes_credentials(monkeypatch):
     assert worker['command'][-2:] == ['--revision', 'c'*40]
     assert worker['command'][worker['command'].index('--max-model-len')+1] == '32768'
     assert worker['restart'] == 'no' and worker['labels']['io.spark.owner'] == r['owner']
+
+
+@pytest.mark.skipif(not shutil.which('docker'), reason='requires Compose CLI, no Docker daemon or GPU')
+def test_sweep_renders_optional_profiles_without_starting_containers(tmp_path):
+    (tmp_path / 'compose.yaml').write_text('''name: profile-render-fixture
+services:
+  default-model:
+    image: example.invalid/unused
+  optional-model:
+    image: example.invalid/unused
+    profiles: [optional]
+''')
+    assert set(probe.load_definition(tmp_path)['services']) == {'default-model', 'optional-model'}

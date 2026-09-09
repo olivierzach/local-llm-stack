@@ -30,6 +30,13 @@ SERVICES = {
 PUBLIC_ENV = {'HF_HOME', 'VLLM_NO_USAGE_STATS', 'TIKTOKEN_ENCODINGS_BASE', 'CUTE_DSL_ARCH', 'MAX_JOBS'}
 
 
+def load_definition(stack):
+    # Compose omits inactive profiles unless explicitly selected. Rendering all
+    # profiles starts nothing and is required to inspect optional model services.
+    return json.loads(subprocess.check_output(
+        ['docker', 'compose', '--profile', '*', 'config', '--format', 'json'], cwd=stack, text=True))
+
+
 def build_request(stack, definition, model, host, port, run_id):
     service = definition['services'][SERVICES[model['alias']]]
     command = list(service['command'])
@@ -136,7 +143,7 @@ def main():
     if len(host) != 1:
         parser.error('current host must match exactly one inventory node; no remote execution')
     stack = args.stack_root.expanduser().resolve()
-    definition = json.loads(subprocess.check_output(['docker', 'compose', 'config', '--format', 'json'], cwd=stack, text=True))
+    definition = load_definition(stack)
     catalog = json.loads((stack / 'cluster/single-node-models.lock.json').read_text())
     args.output.mkdir(parents=True, exist_ok=False)
     reports = []

@@ -104,7 +104,7 @@ requires an idle node, and verifies a completed stream before exact-ID cleanup.
 
 ```bash
 cd ~/projects/local-llm-stack-cluster/current
-runtime/bin/python scripts/probe-stack-models.py \
+.venv/bin/python scripts/probe-stack-models.py \
   --run-id models-001 \
   --output "$HOME/projects/local-llm-stack-cluster/state/model-tests/models-001"
 ```
@@ -116,7 +116,7 @@ Qwen3.8 recipe acceptance is separate. Failed launches retain diagnostic logs
 under the controller's ownership state. To recover after an interrupted probe:
 
 ```bash
-runtime/bin/python scripts/probe-stack-models.py \
+.venv/bin/python scripts/probe-stack-models.py \
   --cleanup-request /absolute/path/to/run/local-mistral-small/request.json
 ```
 
