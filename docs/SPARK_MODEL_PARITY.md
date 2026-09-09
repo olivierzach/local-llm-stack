@@ -99,6 +99,12 @@ fits merely because its files exist.
 
 ## Sequential inference acceptance
 
+From either baseline checkout, run `make model-compose-test RUN_ID=models-001`.
+Use a fresh run ID each time. Select a subset with
+`MODELS="local-fast local-large"`; omit it for all nine Compose models. Native
+DeepSeek V4 and Qwen3.8 have their separate smoke/acceptance targets. This command
+requires an idle GPU and uses the controller's shared reservation and cleanup.
+
 The installed controller can test all nine Compose model definitions on the
 current node, using their configured model/context/quantization arguments in
 isolated workers. It never contacts the peer or changes existing model services.
