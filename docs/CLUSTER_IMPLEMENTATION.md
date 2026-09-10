@@ -3,6 +3,30 @@
 This is the implementation checklist, not a claim that every item already works.
 Existing Compose services, aliases, `.env`, and Make targets remain the baseline.
 
+**CPU routing follow-up (September 9):** controller release
+`ec0fc3f97e5562909749d8a95782591cc8d55739` and its streaming-recovery change are
+installed on both Sparks. The full Linux suite passed **292 tests**, including
+24 CPU-only socket/relay checks. Incomplete SSE now carries an explicit error
+without a false completion marker; failed requests are never silently replayed,
+and their routing slots are released. `make routing-failure-test` reproduces the
+fault suite without any GPU or live-application access. See
+[ROUTING_FAILURES.md](ROUTING_FAILURES.md).
+
+Both CPU guards were restarted after idle-connection checks, retaining their
+images, credentials and route registries. Real text, SSE, streamed tool calls,
+synthetic tool-result continuation and invalid-key rejection passed through
+both guards to e8f1 DeepSeek. Fam Chat's unchanged OpenWebUI endpoint also
+returned `FAM_STREAM_FIX_OK` in 2.07 seconds; no family history was read or
+message posted. e8f1 DeepSeek retained invocation
+`c5d543fd23444ec69f67afd11cc3e256` and PID 808918. On 66f1, the current research
+job is now `looplab-looped-llm-lab-optimizer-diagnostic-1789011687347222720`,
+container `cf0e71a2d24c`, GPU PID 262929. The obsolete earlier container ID caused
+the first maintenance attempt to stop before changes; activation then preserved
+the current container and GPU PID exactly. Receipts are under
+`data/cluster/stream-recovery-20260909/` locally and in each controller's
+`state/stream-recovery-20260909/` directory. Physical network partition tests,
+frontdoor host failover and migrated virtual-key accounting remain outstanding.
+
 **Parity correction (September 8):** identical Makefiles did not mean all models
 were installed. A full single-node catalog copy and native-engine preparation are
 now tracked in [SPARK_MODEL_PARITY.md](SPARK_MODEL_PARITY.md). The initial e8f1
