@@ -26,3 +26,4 @@ Start here:
 19. [Terminal UI](tui.md)
 20. [Qwen3.8 Single-Spark Runbook](qwen38-flash-next.md)
 21. [Spark GPU Admission And Recovery](SPARK_GPU_ADMISSION.md)
+22. [Routing Failures And Streaming Recovery](ROUTING_FAILURES.md)

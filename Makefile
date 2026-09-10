@@ -20,6 +20,10 @@ gpu-admission-check:
 gpu-recover:
 	python3 scripts/spark-legacy-run.py recover --root "$(CURDIR)"
 
+.PHONY: routing-failure-test
+routing-failure-test:
+	.venv/bin/python -m pytest tests/test_stream_failures.py -q
+
 .PHONY: native-fabric-plan native-fabric-config
 native-fabric-plan:
 	python3 scripts/configure-native-fabric.py --root "$(CURDIR)"

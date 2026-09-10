@@ -118,3 +118,6 @@ Compute roles are interchangeable. The current client URL still depends on the
 machine hosting that URL; this feature does not create a floating IP or make a
 powered-off gateway available. Either Spark can host the same guard configuration
 and routing commands. Automated front-door failover is separate work.
+
+See [Routing failures and streaming recovery](ROUTING_FAILURES.md) for interrupted
+streams, explicit retry behavior and CPU-only fault tests.

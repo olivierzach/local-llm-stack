@@ -9,6 +9,7 @@ import hashlib
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+from itertools import chain
 import math
 import os
 from pathlib import Path
@@ -18,6 +19,7 @@ from typing import Any
 from urllib.parse import urlparse, urlunparse
 
 import requests
+from urllib3.exceptions import HTTPError as UpstreamTransportError
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -357,6 +359,54 @@ class ContextGuardServer(ThreadingHTTPServer):
     ):
         super().__init__(server_address, handler_class)
         self.config = config
+
+
+class IncompleteEventStream(ValueError):
+    """The upstream cannot certify a complete OpenAI chat stream."""
+
+
+def sse_events(chunks, max_event_bytes=16 * 1024 * 1024):
+    """Yield complete SSE frames, retaining partial frames until their delimiter.
+
+    Accept LF, CRLF and CR line endings, including delimiters split across reads.
+    A partial tool-argument frame must never be joined to our terminal error.
+    """
+    pending = bytearray()
+    line_start = scan = 0
+    newline = re.compile(rb"\r\n|\r|\n")
+    for chunk in chain(chunks, [None]):
+        final = chunk is None
+        if not final:
+            pending.extend(chunk)
+        while match := newline.search(pending, scan):
+            if not final and match.group() == b"\r" and match.end() == len(pending):
+                scan = match.start()  # The next read may begin with LF.
+                break
+            end = match.end()
+            if end > max_event_bytes:
+                raise IncompleteEventStream("upstream SSE event exceeds the relay limit")
+            if match.start() == line_start:
+                event = bytes(pending[:end])
+                del pending[:end]
+                line_start = scan = 0
+                yield event
+            else:
+                line_start = scan = end
+        else:
+            scan = len(pending)
+        if len(pending) > max_event_bytes:
+            raise IncompleteEventStream("upstream SSE event exceeds the relay limit")
+    if pending:
+        raise IncompleteEventStream("upstream ended inside an SSE event")
+
+
+def sse_data(event):
+    lines = []
+    for line in event.splitlines():
+        field, separator, value = line.partition(b":")
+        if field == b"data":
+            lines.append(value.removeprefix(b" ") if separator else b"")
+    return b"\n".join(lines)
 
 
 class ContextGuardHandler(BaseHTTPRequestHandler):
@@ -1006,33 +1056,73 @@ class ContextGuardHandler(BaseHTTPRequestHandler):
         payload: dict[str, Any] | None = None,
         retry_count: int = 0,
     ) -> None:
-        self.send_response(response.status_code)
-        for name, value in response.headers.items():
-            if name.lower() not in HOP_BY_HOP_HEADERS:
-                self.send_header(name, value)
-        if payload is not None:
-            for name, value in self.context_headers(
-                payload,
-                compacted=compacted,
-                retry_count=retry_count,
-            ).items():
-                self.send_header(name, value)
-        elif compacted:
-            self.send_header("X-Context-Guard", "compacted")
-        self.end_headers()
+        try:
+            self.send_response(response.status_code)
+            for name, value in response.headers.items():
+                if name.lower() not in HOP_BY_HOP_HEADERS:
+                    self.send_header(name, value)
+            if payload is not None:
+                for name, value in self.context_headers(
+                    payload,
+                    compacted=compacted,
+                    retry_count=retry_count,
+                ).items():
+                    self.send_header(name, value)
+            elif compacted:
+                self.send_header("X-Context-Guard", "compacted")
+            self.end_headers()
 
-        if stream:
-            try:
+            event_stream = (stream and response.ok and payload is not None and
+                            response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() == "text/event-stream")
+            if event_stream:
+                self.relay_chat_events(response)
+            elif stream:
                 for chunk in response.iter_content(chunk_size=None):
                     if chunk:
                         self.wfile.write(chunk)
                         self.wfile.flush()
-            finally:
-                response.close()
-            return
+            else:
+                self.wfile.write(response.content)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            # Client cancellation closes the upstream too; the gateway's finally
+            # block then releases its selected replica. Never replay a request.
+            self.close_connection = True
+        finally:
+            response.close()
 
-        self.wfile.write(response.content)
-        response.close()
+    def relay_chat_events(self, response):
+        def chunks():
+            # read1 returns available bytes instead of waiting for a large buffer
+            # or EOF on non-chunked HTTP responses; it also avoids bytewise reads.
+            read1 = getattr(response.raw, "read1", None)
+            if read1 is None:
+                # Compatibility with older urllib3 releases in existing images.
+                yield from response.iter_content(chunk_size=1)
+                return
+            while data := read1(65536, decode_content=True):
+                yield data
+
+        try:
+            for event in sse_events(chunks()):
+                data = sse_data(event)
+                body = None
+                if data and data.strip() != b"[DONE]":
+                    body = json.loads(data)  # Malformed events cannot finish successfully.
+                self.wfile.write(event)
+                self.wfile.flush()
+                if data.strip() == b"[DONE]":
+                    return
+                if isinstance(body, dict) and body.get("error"):
+                    return  # Preserve the backend error; do not append a success marker.
+            raise IncompleteEventStream("upstream ended without [DONE]")
+        except (requests.RequestException, UpstreamTransportError, ValueError):
+            # Headers may already be HTTP 200. Signal failure within SSE, omit
+            # [DONE], and do not include exception text/URLs/credentials.
+            error = {"error": {"type": "upstream_stream_interrupted",
+                               "message": "The model stream did not complete. Partial output is incomplete; retry explicitly."}}
+            self.wfile.write(b"data: " + json.dumps(error).encode() + b"\n\n")
+            self.wfile.flush()
+            self.close_connection = True
 
     def write_json(
         self,
