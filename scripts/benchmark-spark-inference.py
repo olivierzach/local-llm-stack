@@ -12,7 +12,8 @@ import uuid
 import requests
 
 
-def measure(base_url, key, model, prompt, max_tokens, request_timeout=180, capture_text=False):
+def measure(base_url, key, model, prompt, max_tokens, request_timeout=180, capture_text=False,
+            *, temperature=0, messages=None):
     session = requests.Session()
     session.trust_env = False
     if key: session.headers['Authorization'] = 'Bearer ' + key
@@ -24,7 +25,8 @@ def measure(base_url, key, model, prompt, max_tokens, request_timeout=180, captu
     finish_reason = None
     started_at = time.time()
     with session, session.post(base_url + '/chat/completions',json={
-        'model':model,'messages':[{'role':'user','content':prompt}], 'temperature':0,
+        'model':model,'messages':messages if messages is not None else [{'role':'user','content':prompt}],
+        'temperature':temperature,
         'max_tokens':max_tokens,'stream':True,'stream_options':{'include_usage':True}},
         stream=True,timeout=(10,request_timeout)) as response:
         response.raise_for_status()

@@ -63,3 +63,22 @@ def test_measure_rejects_error_even_after_valid_text_and_usage(monkeypatch):
     monkeypatch.setattr(benchmark.requests, 'Session', lambda: session)
     with pytest.raises(RuntimeError, match='streaming error'):
         benchmark.measure('http://test/v1', None, 'model', 'prompt', 32)
+
+
+def test_measure_preserves_multiturn_and_sampling_settings(monkeypatch):
+    lines = ['data: '+json.dumps({'choices':[{'delta':{'content':'hello'},'finish_reason':'stop'}]}),
+             'data: '+json.dumps({'choices':[],'usage':{'prompt_tokens':20,'completion_tokens':4}}),
+             'data: [DONE]']
+    session = Session(lines)
+    captured = {}
+    def post(url, **kwargs):
+        captured.update(kwargs['json'])
+        return session
+    session.post = post
+    monkeypatch.setattr(benchmark.requests, 'Session', lambda:session)
+    messages = [{'role':'user','content':'first'}, {'role':'assistant','content':'reply'},
+                {'role':'user','content':'continue'}]
+    result = benchmark.measure('http://test/v1', None, 'model', 'unused', 256,
+                               capture_text=True, temperature=.7, messages=messages)
+    assert captured['messages'] == messages and captured['temperature'] == .7
+    assert result['text'] == 'hello' and result['finish_reason'] == 'stop'
