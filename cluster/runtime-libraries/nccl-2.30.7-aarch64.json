@@ -1,0 +1,7 @@
+{
+  "version": "2.30.7",
+  "url": "https://files.pythonhosted.org/packages/d1/21/a73174c6157101bdf1ffc22b517f76ff0082613989dd9bc8f43e8034caac/nvidia_nccl_cu13-2.30.7-py3-none-manylinux_2_18_aarch64.whl",
+  "wheel_sha256": "ca786ffa5a647c75d4d1f5cc72a6c4f537947e2ba8823d7c8aaf768e7a7b9f77",
+  "member": "nvidia/nccl/lib/libnccl.so.2",
+  "sha256": "fc7ea66334edbc934aa25959b9907dbb2b91a1d2485beff18839afc45cbc08d0"
+}

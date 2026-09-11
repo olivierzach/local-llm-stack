@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "kind": "vllm",
+  "image": "vllm/vllm-openai@sha256:e4f88a835143cd22aee2397a26ec6bb80b3a4a6fe0c882bcbc63822904766089",
+  "model": "Qwen/Qwen3-Next-80B-A3B-Instruct",
+  "revision": "9c7f2fbe84465e40164a94cc16cd30b6999b0cc7",
+  "alias": "local-large",
+  "context_tokens": 262144,
+  "max_output_tokens": 16384,
+  "capabilities": {
+    "text": true,
+    "vision": false,
+    "tools": false,
+    "streaming": true
+  },
+  "dtype": "bfloat16",
+  "gpu_memory_utilization": 0.8,
+  "min_available_mib": 102400,
+  "max_num_seqs": 1,
+  "extra_args": [
+    "--enforce-eager",
+    "--disable-custom-all-reduce",
+    "--enable-prefix-caching"
+  ],
+  "parallelism": [
+    "tensor"
+  ],
+  "validation": "Candidate native MTP=2 with checksum-pinned NCCL 2.30.7 replacing both container library consumers. Mixed-communicator stress passed 60000 iterations; full serving acceptance required.",
+  "runtime_cache": true,
+  "load_strategy": "lazy",
+  "mamba_cache_mode": "align",
+  "speculative_config": {
+    "method": "mtp",
+    "num_speculative_tokens": 2
+  },
+  "async_scheduling": false,
+  "nccl_launch_order_implicit": true,
+  "flashinfer_sampler": false,
+  "nccl_library": {
+    "version": "2.30.7",
+    "sha256": "fc7ea66334edbc934aa25959b9907dbb2b91a1d2485beff18839afc45cbc08d0"
+  }
+}

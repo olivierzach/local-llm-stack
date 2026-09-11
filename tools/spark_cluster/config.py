@@ -87,7 +87,7 @@ def validate_recipe(r):
     fields(r, ("version", "kind", "image", "model", "revision", "alias", "context_tokens",
                "max_output_tokens", "capabilities", "dtype", "gpu_memory_utilization",
                "min_available_mib", "max_num_seqs", "extra_args", "parallelism", "validation"),
-           ("tool_call_parser", "default_chat_template_kwargs", "image_processing", "runtime_cache", "load_strategy", "mamba_cache_mode", "speculative_config", "async_scheduling", "nccl_launch_order_implicit", "flashinfer_sampler", "disable_pynccl"))
+           ("tool_call_parser", "default_chat_template_kwargs", "image_processing", "runtime_cache", "load_strategy", "mamba_cache_mode", "speculative_config", "async_scheduling", "nccl_launch_order_implicit", "flashinfer_sampler", "disable_pynccl", "nccl_library"))
     require(r["version"] == 1 and r["kind"] == "vllm", "unsupported recipe version/kind")
     require(re.fullmatch(r"[a-zA-Z0-9./_-]+@sha256:[0-9a-f]{64}", r["image"]),
             "image must be an immutable registry digest")
@@ -121,6 +121,10 @@ def validate_recipe(r):
         require(type(r["flashinfer_sampler"]) is bool, "flashinfer_sampler must be a boolean")
     if "disable_pynccl" in r:
         require(type(r["disable_pynccl"]) is bool, "disable_pynccl must be a boolean")
+    if "nccl_library" in r:
+        fields(r['nccl_library'], ('version', 'sha256'))
+        require(isinstance(r['nccl_library']['version'], str) and re.fullmatch(r'2\.[0-9]+\.[0-9]+', r['nccl_library']['version']), 'invalid NCCL version')
+        require(isinstance(r['nccl_library']['sha256'], str) and re.fullmatch(r'[a-f0-9]{64}', r['nccl_library']['sha256']), 'invalid NCCL SHA-256')
     if "speculative_config" in r:
         speculative = r["speculative_config"]
         fields(speculative, ("method", "num_speculative_tokens"))
@@ -248,6 +252,12 @@ def plan(inv, recipe, deployment):
         if "disable_pynccl" in recipe:
             service["environment"]["VLLM_DISABLE_PYNCCL"] = (
                 "1" if recipe["disable_pynccl"] else "0")
+        if "nccl_library" in recipe:
+            library = recipe['nccl_library']
+            source = str(Path(node['cache']).parent / 'runtime-libraries/nccl' / library['sha256'] / 'libnccl.so.2')
+            target = '/usr/local/lib/python3.12/dist-packages/nvidia/nccl/lib/libnccl.so.2'
+            service['volumes'].append({'type': 'bind', 'source': source, 'target': target, 'read_only': True})
+            service['environment']['VLLM_NCCL_SO_PATH'] = target
         if recipe.get("runtime_cache"):
             service["volumes"].append({"type": "volume", "source": "runtime-cache", "target": "/root/.cache"})
             service["environment"].update({"VLLM_CACHE_ROOT": "/root/.cache/vllm",

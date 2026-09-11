@@ -101,7 +101,10 @@ Disabling FlashInfer sampling therefore does not fix this failure.
 
 A small model-free reproducer alternates PyNccl reductions with PyTorch gathers.
 The mixed path stalled around iteration 2300; using PyTorch for both operations
-completed 6000 iterations. `scripts/stress-spark-collectives.py` preserves that
+completed 6000 iterations. An extended run with periodic reduction checks passed
+60000 iterations (2.16 million collective calls) in 85.1 seconds. The mixed path
+with the same checks stalled again around iteration 6500.
+`scripts/stress-spark-collectives.py` preserves that
 experiment, including gather correctness and periodic reduction checks. Run it
 on two reserved, otherwise idle GPU containers with the same pinned image and
 fabric environment, rank 0 on the chosen master and rank 1 on its peer. Wrap
@@ -112,8 +115,36 @@ Candidate `large-tp2-mtp2-torch-nccl-{66f1,e8f1}` adds `disable_pynccl: true`,
 rendering the runtime's supported `VLLM_DISABLE_PYNCCL=1`. Its existing
 all-reduce fallback uses PyTorch's device process group, matching all-gather.
 The native sampler and NCCL ordering settings remain fixed during this test.
-Full-model acceptance remains pending; a communication microbenchmark is not
-a substitute for the serving checks.
+Full-model acceptance failed: two 1024-token profiles completed at 44.11 and
+49.13 tokens/s, then the planning request stalled. Both GPUs were in all-gather,
+with one communicator reporting matching counts (5433 gathers, 112064 reductions).
+Thus unifying communicators is insufficient despite the small test passing.
+
+The next candidate `large-tp2-mtp2-nccl2307-{66f1,e8f1}` keeps the native sampler
+and implicit ordering, restores the normal mixed communicator path, and replaces
+both runtime NCCL consumers with **2.30.7**. The same mixed-path correctness test
+passed **60000 iterations / 2.16 million calls in 79.9 seconds** on both ranks.
+Stock 2.28.9 also stalled with forced Simple protocol and blocking-wait settings.
+This comparison motivates full serving acceptance; it is not acceptance itself.
+
+The ARM64 NVIDIA wheel and extracted library have independent SHA-256 pins in
+`cluster/runtime-libraries/nccl-2.30.7-aarch64.json`. Install on each node:
+
+```bash
+python3 scripts/install-spark-nccl.py \
+  --manifest cluster/runtime-libraries/nccl-2.30.7-aarch64.json \
+  --cache "$HOME/projects/local-llm-stack/data/huggingface"
+```
+
+Use `--wheel /path/to/pinned.whl` to reuse a download copied over the direct cable.
+The installer stages a regular read-only file under `data/runtime-libraries`;
+it does not install a host package or change drivers. Preflight, reservation and
+start verify its digest. Compose mounts it over the image's original library
+path and sets `VLLM_NCCL_SO_PATH` to that same path. Merely using `LD_PRELOAD`
+left two library versions mapped and failed the test. Verify actual runtime
+NCCL logs and mapped library paths: `torch.cuda.nccl.version()` reports PyTorch's
+build-time NCCL macros, even when a different compatible library is loaded.
+
 
 ## Reproduce the candidate from either controller
 
@@ -122,9 +153,9 @@ issuing the command need not be the chosen coordinator. With both GPUs free,
 use a fresh receipt directory and the pinned controller release:
 
 ```bash
-cd ~/projects/local-llm-stack-cluster/releases/6ccdce897d0b12ba0976603fe3bfe87addf137c4
+cd ~/projects/local-llm-stack-cluster/current
 qwen_run="$HOME/projects/local-llm-stack-cluster/state/qwen-mtp-$(date +%Y%m%d-%H%M%S)"
-qwen_deployment=cluster/deployments/large-tp2-mtp2-ordered-e8f1.json
+qwen_deployment=cluster/deployments/large-tp2-mtp2-nccl2307-e8f1.json
 scripts/sparkctl preflight --deployment "$qwen_deployment" --output "$qwen_run"
 scripts/sparkctl up --deployment "$qwen_deployment" --output "$qwen_run" --timeout 3600
 .venv/bin/python scripts/profile-spark-decode.py \
