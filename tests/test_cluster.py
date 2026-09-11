@@ -452,3 +452,24 @@ def test_nccl_launch_order_setting_is_consistent_and_preserves_fabric(coordinato
     recipe['nccl_launch_order_implicit'] = '1'
     with pytest.raises(config.ConfigError, match='boolean'):
         config.validate_recipe(recipe)
+
+
+@pytest.mark.parametrize('coordinator', ['66f1', 'e8f1'])
+@pytest.mark.parametrize('enabled', [False, True])
+def test_sampler_choice_changes_only_owned_runtime_environment(coordinator, enabled):
+    inv, recipe, d = config.load(ROOT, ROOT / 'cluster/inventory.json',
+        ROOT / f'cluster/deployments/large-tp2-mtp2-ordered-{coordinator}.json')
+    old = config.plan(inv, recipe, d)
+    recipe['flashinfer_sampler'] = enabled
+    config.validate_recipe(recipe)
+    new = config.plan(inv, recipe, d)
+    assert old['endpoint'] == new['endpoint'] and old['digest'] != new['digest']
+    for node_id in new['nodes']:
+        before = old['compose'][node_id]['services']['worker']
+        after = new['compose'][node_id]['services']['worker']
+        assert after['command'] == before['command']
+        assert after['environment'] == {**before['environment'],
+            'VLLM_USE_FLASHINFER_SAMPLER': '1' if enabled else '0'}
+    recipe['flashinfer_sampler'] = '0'
+    with pytest.raises(config.ConfigError, match='boolean'):
+        config.validate_recipe(recipe)

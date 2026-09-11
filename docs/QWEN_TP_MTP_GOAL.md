@@ -75,7 +75,55 @@ Candidate `large-tp2-mtp2-ordered-{66f1,e8f1}` adds the typed recipe option
 `NCCL_LAUNCH_ORDER_IMPLICIT=1` on both workers. Existing recipes are unchanged.
 [NCCL 2.28.9 documents](https://docs.nvidia.com/deeplearning/nccl/archives/nccl_2289/user-guide/docs/env.html#nccl-launch-order-implicit)
 this opt-in ordering mechanism for separate communicators on one device.
-Hardware acceptance of this candidate is pending.
+This candidate failed extended acceptance. It completed all three 1024-token
+profiles at 47.16–52.83 tokens/s, retrieved all codes from 260029 input tokens,
+and reused 259280 prefix tokens (TTFT 132.07s unique, 1.27s repeated). Eight
+subsequent requests completed, then sampled code generation stalled. Captures
+show rank 0 in drafter-logits all-gather and rank 1 synchronizing rejection
+sampler output; collective counts stopped at AllGather 24971/24973 and AllReduce
+514586/514589. Thus implicit ordering alone is not an accepted fix.
+
+The next `large-tp2-mtp2-native-sampler-{66f1,e8f1}` candidate retains ordering
+and adds `flashinfer_sampler: false`, rendering the supported
+`VLLM_USE_FLASHINFER_SAMPLER=0` on both workers. The stock runtime source uses
+this to select its native bonus-token sampler; MTP remains enabled. A
+[reported FlashInfer 0.6.13 sampling hang](https://github.com/vllm-project/vllm/issues/52247)
+motivates this experiment, but the kernel causing our stall has not been
+identified. Full hardware acceptance remains required.
+
+## Reproduce the candidate from either controller
+
+Both installed controllers have the same deployment manifests. The machine
+issuing the command need not be the chosen coordinator. With both GPUs free,
+use a fresh receipt directory and the pinned controller release:
+
+```bash
+cd ~/projects/local-llm-stack-cluster/releases/6ccdce897d0b12ba0976603fe3bfe87addf137c4
+qwen_run="$HOME/projects/local-llm-stack-cluster/state/qwen-mtp-$(date +%Y%m%d-%H%M%S)"
+qwen_deployment=cluster/deployments/large-tp2-mtp2-ordered-e8f1.json
+scripts/sparkctl preflight --deployment "$qwen_deployment" --output "$qwen_run"
+scripts/sparkctl up --deployment "$qwen_deployment" --output "$qwen_run" --timeout 3600
+.venv/bin/python scripts/profile-spark-decode.py \
+  --saved-plan "$qwen_run/plan.json" --max-tokens 1024 --output "$qwen_run/decode.json"
+.venv/bin/python scripts/probe-spark-long-context.py \
+  --saved-plan "$qwen_run/plan.json" --input-tokens 260032 --output "$qwen_run/long-context.json"
+.venv/bin/python scripts/soak-spark-serving.py \
+  --saved-plan "$qwen_run/plan.json" --rounds 3 --max-tokens 1024 --output "$qwen_run/soak.json"
+```
+
+Run commands sequentially and stop on any failure. Startup's short probe does
+not replace these acceptance checks. To inspect or stop only this deployment:
+
+```bash
+scripts/sparkctl status --saved-plan "$qwen_run/plan.json"
+scripts/sparkctl down --saved-plan "$qwen_run/plan.json"
+```
+
+The `...-66f1.json` manifest changes coordinator placement; its hardware
+acceptance remains separate. Do not launch both placements simultaneously.
+The controller refuses unrelated GPU owners rather than stopping their jobs.
+The full controller CPU suite passed **318 tests** on e8f1 at release `6ccdce8`;
+that result does not certify GPU runtime behavior.
 
 ## Client route after acceptance
 
@@ -89,7 +137,9 @@ all other route overrides and the backend's served-model name:
 ```
 
 Activate using the existing stack's documented Context Guard restart procedure,
-then run `probe-context-route.py --model local-qwen3-next-80b` through each node.
+then run the existing stack's `scripts/probe-context-route.py
+--model local-qwen3-next-80b --output /path/to/new-route-receipt.json` through
+each node, using that stack's `.env` and registry.
 The new alias is distinct from `local-large` and `local-deepseek-v4-flash`; existing
 clients are not silently assigned a different model. This does not yet certify
 Qwen tool calling: the current TP recipe advertises text and streaming only.
