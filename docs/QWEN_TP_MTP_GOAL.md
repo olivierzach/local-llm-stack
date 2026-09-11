@@ -6,6 +6,10 @@ and native MTP speculative decoding, and leave the accepted deployment serving.
 DeepSeek may stay down during this work. Preserve unrelated workloads, existing
 model aliases and reversible single-node startup paths.
 
+The latest hardware results are in [QWEN_TP_MTP_ACCEPTANCE.md](QWEN_TP_MTP_ACCEPTANCE.md).
+The NCCL 2.30.7 candidate passed full serving and both guards with e8f1 coordinating;
+66f1 coordinator acceptance is now running.
+
 ## Acceptance criteria
 
 - Pinned model revision and runtime; matching worker configuration on both nodes.

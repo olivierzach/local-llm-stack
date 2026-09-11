@@ -1,5 +1,6 @@
 """Bounded two-Spark mixed/unified NCCL reproducer; run in reserved idle GPU containers."""
 import argparse, datetime, json, time
+from pathlib import Path
 import torch
 import torch.distributed as dist
 from vllm.distributed.device_communicators.pynccl import PyNcclCommunicator
@@ -16,6 +17,10 @@ dist.init_process_group('nccl',init_method=f'tcp://{a.master}:{a.port}',rank=a.r
 g=dist.new_group([0,1],backend='gloo')
 nc=PyNcclCommunicator(g,device=0)
 if a.mode!='torch' and nc.disabled:raise RuntimeError('mixed/pynccl test requires an active PyNccl communicator')
+print(json.dumps({'rank': a.rank, 'torch_build_nccl': torch.cuda.nccl.version(),
+                  'pynccl_runtime': getattr(nc, 'nccl_version', None),
+                  'mapped_libraries': sorted({line.split()[-1] for line in
+                      Path('/proc/self/maps').read_text().splitlines() if 'libnccl' in line})}), flush=True)
 start=time.monotonic()
 for step in range(a.steps):
     n=1+step%3
