@@ -1,9 +1,12 @@
 # Qwen BF16 tensor parallelism with native speculation
 
-The NCCL 2.30.7 candidate passed the full bounded serving suite with **e8f1
-coordinating**, plus both existing Context Guards, on September 11, 2026.
-The same suite with **66f1 coordinating is in progress**. This document records
-actual evidence; it does not certify unrestricted concurrency or long-term uptime.
+The pinned NCCL 2.30.7 recipe passed the full bounded serving suite with **either
+Spark coordinating** on September 11, 2026. The **66f1-coordinated placement is
+left running**, with native MTP enabled and DeepSeek intentionally down. Both
+existing Context Guards and both independent client gateways passed real text
+and streaming checks. This completes the focused Qwen TP+MTP serving objective;
+it does not certify unrestricted concurrency, other parallelism recipes or
+long-term uptime.
 
 ## Pinned configuration
 
@@ -63,9 +66,55 @@ evidence for the workload, not a peak-bandwidth benchmark. Sampled minimum host
 available memory was 9.88 GiB (66f1) and 10.12 GiB (e8f1); peak GPU temperatures
 were 76°C and 77°C respectively.
 
+## 66f1 coordinator results and current service
+
+Controller source used by the unattended acceptance command:
+`c2b4e46f72cb74e103e175562650f7059b2d02f7`.
+Deployment digest: `ca01d2875558ae6de36a94375ebb74ad4020cc27c8981ed8abc6cbfc573fe1a9`.
+Receipts: `data/cluster/serving-20260910/mtp-nccl2307-66f1-01/`; the full sequence
+is in `serving/acceptance.json`, with e8f1 telemetry and gateway checks in `peer/`.
+All checks completed without a worker restart or stall.
+
+| Case | Output tokens | Decode tokens/s |
+|---|---:|---:|
+| Explanation | 1024 | 50.69 |
+| Code | 1024 | 51.52 |
+| Planning | 1024 | 45.83 |
+| Long explanation | 4096 | 48.92 |
+| Long code | 4096 | 53.73 |
+| Long planning | 4096 | 48.70 |
+
+The 18-request soak generated 18432 tokens; median decode speed was **48.02
+tokens/s**, with **10959 / 14942 proposed tokens accepted (73.3%)**. Near-context
+retrieval used **260023 input tokens**, recovered all codes, and reused 259280
+prefix tokens. First-token latency was **140.63s fresh / 1.25s repeated**.
+Profiles, soak and retrieval generated 33878 tokens, excluding warmups and
+client probes. The complete sequence took 851.35 seconds after startup.
+
+Both nodes recorded **171.25–171.55 GB per direction** on the direct RoCE rails,
+with exactly matching peer byte deltas and zero receive errors/transmit discards.
+Sampled available host memory stayed above 8.52 GiB (66f1) and 11.75 GiB (e8f1);
+peak sampled GPU temperatures were 77°C on both. Temporary diagnostic monitors
+were stopped after acceptance; the model workers remained healthy and running.
+
+Backend: `http://10.10.20.1:8121/v1`, served internally as `local-large`.
+Stable client alias: **`local-qwen3-next-80b`**. The alias was first verified
+against e8f1, then kept unchanged while its route moved to the accepted 66f1
+coordinator. No permanent master node is required.
+
+From either installed controller, inspect or stop the current deployment:
+
+```bash
+cd ~/projects/local-llm-stack-cluster/current
+qwen_plan="$HOME/projects/local-llm-stack-cluster/state/serving-20260910/mtp-nccl2307-66f1-01/plan.json"
+scripts/sparkctl status --saved-plan "$qwen_plan"
+# When intentionally releasing both GPUs:
+scripts/sparkctl down --saved-plan "$qwen_plan"
+```
+
 ## Context Guard
 
-Both existing port-4010 guards passed text, SSE, exact token counting, the
+Both existing port-4010 guards passed with each coordinator: text, SSE, exact token counting, the
 262144 context limit and invalid-key rejection for **`local-qwen3-next-80b`**.
 Their `local-deepseek-v4-flash` registry entries remained unchanged. DeepSeek is
 intentionally down and is therefore omitted from health-filtered model discovery;
@@ -73,18 +122,44 @@ configuration preservation is separate from backend availability. The initial
 probe requiring that offline model to be discoverable failed as expected; the
 Qwen-specific probe then passed on both nodes. No guard restart was needed.
 
+Both independent port-4110 gateways also passed text and SSE against the final
+66f1 deployment, with its exact deployment digest in response headers. Their
+existing `local-coder` routes were preserved. `spark-gateway routes --merge
+--alias local-qwen3-next-80b --plan PLAN` reproduces the additive update under a
+registry lock. Mac controller attachments were refreshed, and generated OMP,
+OpenClaw, AIChat and llm profiles include Qwen on either gateway. Profile
+configuration plus gateway acceptance does not certify every client feature.
+
+The existing Mac OMP provider discovers
+`spark-context-guard/local-qwen3-next-80b` through its unchanged endpoint. Its
+model override now sets `maxTokens: 16384`; the catalog confirms a 262144 context
+window, 16384 output cap, text input and no separate reasoning stream. All other
+OMP configuration was preserved, with a private backup. To reproduce that cap,
+add under the existing provider's `modelOverrides`:
+
+```yaml
+local-qwen3-next-80b:
+  maxTokens: 16384
+```
+
+Fam Chat's configured upstream remains Context Guard; its authenticated UI
+session was not separately exercised in this run.
+
 This Qwen recipe advertises text and streaming. Tool calling, image input and a
 separate thinking stream are not accepted capabilities of this recipe.
 
 ## Reproduction and limits
 
-The installed controller `c2b4e46f72cb74e103e175562650f7059b2d02f7` adds a single
-fail-fast acceptance command. It retains the same serving recipe and digest as
+Controller `c2b4e46f72cb74e103e175562650f7059b2d02f7` adds a single
+fail-fast acceptance command. `558bdf76d979eaad8e4f4c3b6fc8045543bdbf2f` adds
+the tested additive gateway publication command; both controllers have it. It retains the same serving recipe and digest as
 `767e81b`. Follow [QWEN_TP_MTP_GOAL.md](QWEN_TP_MTP_GOAL.md) for library staging,
 startup, acceptance, route installation and exact-plan cleanup.
 
 The full Linux regression suite passed 335 tests at `767e81b`; three additional
-acceptance-orchestration failure tests passed at `c2b4e46`. Earlier stock-NCCL
+acceptance-orchestration failure tests passed at `c2b4e46`. Gateway merge and
+regression checks passed 26 tests locally; both new merge tests also passed on
+Linux at `558bdf7`. Earlier stock-NCCL
 candidates failed repeatedly. Keep their diagnostics: the working combination
 is the pinned recipe above, not a claim that every NCCL upgrade or speculative
 configuration is interchangeable. Multi-request full-context concurrency,

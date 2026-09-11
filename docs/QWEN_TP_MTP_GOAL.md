@@ -1,14 +1,15 @@
 # Qwen two-Spark TP + native speculation acceptance
 
-Active objective requested September 10, 2026: make the full BF16
+Focused objective achieved September 11, 2026 (requested September 10): make the full BF16
 Qwen3-Next-80B-A3B-Instruct model usable across both Sparks with tensor parallelism
 and native MTP speculative decoding, and leave the accepted deployment serving.
 DeepSeek may stay down during this work. Preserve unrelated workloads, existing
 model aliases and reversible single-node startup paths.
 
 The latest hardware results are in [QWEN_TP_MTP_ACCEPTANCE.md](QWEN_TP_MTP_ACCEPTANCE.md).
-The NCCL 2.30.7 candidate passed full serving and both guards with e8f1 coordinating;
-66f1 coordinator acceptance is now running.
+The NCCL 2.30.7 recipe passed full serving with either coordinator, both existing
+Context Guards and both independent client gateways. The accepted 66f1
+placement remains running. Broader project work and other recipes are separate.
 
 ## Acceptance criteria
 
