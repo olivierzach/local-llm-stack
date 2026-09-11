@@ -59,3 +59,20 @@ followed by a continuation, repeated across three rounds (temperatures 0, 0.7,
 accepted-token counters, preserving completed requests if a later one fails.
 It does not launch, restart or stop workers. Long-context retrieval remains a
 separate check using `probe-spark-long-context.py`.
+
+The reproduction froze again on the code request. Before debugger attachment,
+NCCL RAS reported frozen all-gather counts **2713/2710** and all-reduce counts
+**56033/56028** across ranks 0/1. Rank 0's Python stack waited in `_to_list`;
+rank 1 waited in the drafter's `fc` all-gather. The runtime routes these gathers
+through PyTorch and reductions through PyNccl, using separate communicators.
+This supports testing cross-communicator launch ordering, but unequal launched
+counts alone are not proof of the root cause. CUDA debugger attachment from a
+separate namespace could not resolve the target symbols/devices; no actual
+stuck CUDA kernel was identified by that capture.
+
+Candidate `large-tp2-mtp2-ordered-{66f1,e8f1}` adds the typed recipe option
+`nccl_launch_order_implicit: true`, rendered identically as
+`NCCL_LAUNCH_ORDER_IMPLICIT=1` on both workers. Existing recipes are unchanged.
+[NCCL 2.28.9 documents](https://docs.nvidia.com/deeplearning/nccl/archives/nccl_2289/user-guide/docs/env.html#nccl-launch-order-implicit)
+this opt-in ordering mechanism for separate communicators on one device.
+Hardware acceptance of this candidate is pending.

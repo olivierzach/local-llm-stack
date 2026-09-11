@@ -433,3 +433,22 @@ def test_hybrid_cache_and_large_parallel_placements():
                 config.validate_recipe({**recipe,'mamba_cache_mode':'all'})
         assert plans[0]['digest']!=plans[1]['digest']
         assert plans[0]['recipe']==plans[1]['recipe']
+
+
+@pytest.mark.parametrize('coordinator', ['66f1', 'e8f1'])
+def test_nccl_launch_order_setting_is_consistent_and_preserves_fabric(coordinator):
+    inv, recipe, d = config.load(ROOT, ROOT / 'cluster/inventory.json',
+        ROOT / f'cluster/deployments/large-tp2-256k-mtp2-{coordinator}.json')
+    old = config.plan(inv, recipe, d)
+    recipe['nccl_launch_order_implicit'] = True
+    config.validate_recipe(recipe)
+    new = config.plan(inv, recipe, d)
+    assert old['endpoint'] == new['endpoint'] and old['digest'] != new['digest']
+    for node_id in new['nodes']:
+        before = old['compose'][node_id]['services']['worker']['environment']
+        after = new['compose'][node_id]['services']['worker']['environment']
+        assert 'NCCL_LAUNCH_ORDER_IMPLICIT' not in before
+        assert after == {**before, 'NCCL_LAUNCH_ORDER_IMPLICIT': '1'}
+    recipe['nccl_launch_order_implicit'] = '1'
+    with pytest.raises(config.ConfigError, match='boolean'):
+        config.validate_recipe(recipe)

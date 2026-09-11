@@ -87,7 +87,7 @@ def validate_recipe(r):
     fields(r, ("version", "kind", "image", "model", "revision", "alias", "context_tokens",
                "max_output_tokens", "capabilities", "dtype", "gpu_memory_utilization",
                "min_available_mib", "max_num_seqs", "extra_args", "parallelism", "validation"),
-           ("tool_call_parser", "default_chat_template_kwargs", "image_processing", "runtime_cache", "load_strategy", "mamba_cache_mode", "speculative_config", "async_scheduling"))
+           ("tool_call_parser", "default_chat_template_kwargs", "image_processing", "runtime_cache", "load_strategy", "mamba_cache_mode", "speculative_config", "async_scheduling", "nccl_launch_order_implicit"))
     require(r["version"] == 1 and r["kind"] == "vllm", "unsupported recipe version/kind")
     require(re.fullmatch(r"[a-zA-Z0-9./_-]+@sha256:[0-9a-f]{64}", r["image"]),
             "image must be an immutable registry digest")
@@ -114,6 +114,9 @@ def validate_recipe(r):
         require(r["mamba_cache_mode"] in ("none", "align"), "unsupported hybrid cache mode")
     if "async_scheduling" in r:
         require(type(r["async_scheduling"]) is bool, "async_scheduling must be a boolean")
+    if "nccl_launch_order_implicit" in r:
+        require(type(r["nccl_launch_order_implicit"]) is bool,
+                "nccl_launch_order_implicit must be a boolean")
     if "speculative_config" in r:
         speculative = r["speculative_config"]
         fields(speculative, ("method", "num_speculative_tokens"))
@@ -261,6 +264,9 @@ def plan(inv, recipe, deployment):
                 "NCCL_IB_HCA": "=" + ",".join(r["rdma"] + ":1" for r in node["fabric"]),
                 "NCCL_IB_GID_INDEX": "3", "NCCL_IB_DISABLE": "0",
                 "NCCL_DEBUG": "INFO", "NCCL_DEBUG_SUBSYS": "INIT,NET"})
+            if "nccl_launch_order_implicit" in recipe:
+                service["environment"]["NCCL_LAUNCH_ORDER_IMPLICIT"] = (
+                    "1" if recipe["nccl_launch_order_implicit"] else "0")
             service["devices"] = ["/dev/infiniband:/dev/infiniband"]
             service["cap_add"] = ["IPC_LOCK"]
             service["ulimits"] = {"memlock": {"soft": -1, "hard": -1}}
