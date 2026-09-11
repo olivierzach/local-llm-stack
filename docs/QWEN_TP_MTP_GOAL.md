@@ -76,3 +76,20 @@ Candidate `large-tp2-mtp2-ordered-{66f1,e8f1}` adds the typed recipe option
 [NCCL 2.28.9 documents](https://docs.nvidia.com/deeplearning/nccl/archives/nccl_2289/user-guide/docs/env.html#nccl-launch-order-implicit)
 this opt-in ordering mechanism for separate communicators on one device.
 Hardware acceptance of this candidate is pending.
+
+## Client route after acceptance
+
+To add the accepted saved plan to an existing stack's Context Guard, preserving
+all other route overrides and the backend's served-model name:
+
+```bash
+.venv/bin/python scripts/configure-context-routes.py \
+  --root "$HOME/projects/local-llm-stack" --plan /path/to/accepted-plan.json \
+  --merge --alias local-qwen3-next-80b
+```
+
+Activate using the existing stack's documented Context Guard restart procedure,
+then run `probe-context-route.py --model local-qwen3-next-80b` through each node.
+The new alias is distinct from `local-large` and `local-deepseek-v4-flash`; existing
+clients are not silently assigned a different model. This does not yet certify
+Qwen tool calling: the current TP recipe advertises text and streaming only.
