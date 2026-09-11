@@ -91,6 +91,30 @@ this to select its native bonus-token sampler; MTP remains enabled. A
 motivates this experiment, but the kernel causing our stall has not been
 identified. Full hardware acceptance remains required.
 
+The native-sampler candidate also failed: three profiles and near-context
+retrieval passed, then the third soak request (greedy code) stalled. Debugging
+inside the owned worker's mount/PID namespaces succeeded: **both GPUs were in
+`ncclDevKernel_AllGather_RING_LL`**, with matching RAS launched counts (12788
+all-gathers, 263578 all-reduces). The kernel name alone does not establish the
+selected protocol; NCCL shares kernel names across protocol implementations.
+Disabling FlashInfer sampling therefore does not fix this failure.
+
+A small model-free reproducer alternates PyNccl reductions with PyTorch gathers.
+The mixed path stalled around iteration 2300; using PyTorch for both operations
+completed 6000 iterations. `scripts/stress-spark-collectives.py` preserves that
+experiment, including gather correctness and periodic reduction checks. Run it
+on two reserved, otherwise idle GPU containers with the same pinned image and
+fabric environment, rank 0 on the chosen master and rank 1 on its peer. Wrap
+each rank in `timeout --kill-after=15 420`; use matching `--master`, `--port`,
+`--mode mixed|torch|pynccl`, and `--steps` arguments. It does not load a model.
+
+Candidate `large-tp2-mtp2-torch-nccl-{66f1,e8f1}` adds `disable_pynccl: true`,
+rendering the runtime's supported `VLLM_DISABLE_PYNCCL=1`. Its existing
+all-reduce fallback uses PyTorch's device process group, matching all-gather.
+The native sampler and NCCL ordering settings remain fixed during this test.
+Full-model acceptance remains pending; a communication microbenchmark is not
+a substitute for the serving checks.
+
 ## Reproduce the candidate from either controller
 
 Both installed controllers have the same deployment manifests. The machine

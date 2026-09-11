@@ -87,7 +87,7 @@ def validate_recipe(r):
     fields(r, ("version", "kind", "image", "model", "revision", "alias", "context_tokens",
                "max_output_tokens", "capabilities", "dtype", "gpu_memory_utilization",
                "min_available_mib", "max_num_seqs", "extra_args", "parallelism", "validation"),
-           ("tool_call_parser", "default_chat_template_kwargs", "image_processing", "runtime_cache", "load_strategy", "mamba_cache_mode", "speculative_config", "async_scheduling", "nccl_launch_order_implicit", "flashinfer_sampler"))
+           ("tool_call_parser", "default_chat_template_kwargs", "image_processing", "runtime_cache", "load_strategy", "mamba_cache_mode", "speculative_config", "async_scheduling", "nccl_launch_order_implicit", "flashinfer_sampler", "disable_pynccl"))
     require(r["version"] == 1 and r["kind"] == "vllm", "unsupported recipe version/kind")
     require(re.fullmatch(r"[a-zA-Z0-9./_-]+@sha256:[0-9a-f]{64}", r["image"]),
             "image must be an immutable registry digest")
@@ -119,6 +119,8 @@ def validate_recipe(r):
                 "nccl_launch_order_implicit must be a boolean")
     if "flashinfer_sampler" in r:
         require(type(r["flashinfer_sampler"]) is bool, "flashinfer_sampler must be a boolean")
+    if "disable_pynccl" in r:
+        require(type(r["disable_pynccl"]) is bool, "disable_pynccl must be a boolean")
     if "speculative_config" in r:
         speculative = r["speculative_config"]
         fields(speculative, ("method", "num_speculative_tokens"))
@@ -243,6 +245,9 @@ def plan(inv, recipe, deployment):
         if "flashinfer_sampler" in recipe:
             service["environment"]["VLLM_USE_FLASHINFER_SAMPLER"] = (
                 "1" if recipe["flashinfer_sampler"] else "0")
+        if "disable_pynccl" in recipe:
+            service["environment"]["VLLM_DISABLE_PYNCCL"] = (
+                "1" if recipe["disable_pynccl"] else "0")
         if recipe.get("runtime_cache"):
             service["volumes"].append({"type": "volume", "source": "runtime-cache", "target": "/root/.cache"})
             service["environment"].update({"VLLM_CACHE_ROOT": "/root/.cache/vllm",
