@@ -18,18 +18,20 @@
   "min_available_mib": 102400,
   "max_num_seqs": 1,
   "extra_args": [
+    "--enforce-eager",
     "--disable-custom-all-reduce",
     "--enable-prefix-caching"
   ],
   "parallelism": [
     "tensor"
   ],
-  "validation": "Candidate single-request native-256K BF16 TP recipe. Hardware acceptance pending. MTP uses checkpoint-native drafter weights; no remote drafter endpoint.",
+  "validation": "Candidate single-request native-256K BF16 TP recipe with eager execution and synchronous scheduling. Hardware acceptance pending; the preceding compiled/async candidate stalled during warmup. MTP uses checkpoint-native drafter weights.",
   "runtime_cache": true,
   "load_strategy": "lazy",
   "mamba_cache_mode": "align",
   "speculative_config": {
     "method": "mtp",
     "num_speculative_tokens": 2
-  }
+  },
+  "async_scheduling": false
 }

@@ -14,10 +14,18 @@ RPC timeout and EngineDeadError; owned workers were cleaned up and DeepSeek was
 restored. This is a failed concurrency case, not validated 128K multi-user
 capacity. The planned compiled sweep did not start after that failure.
 
-The next candidates prioritize single-request long-answer speed:
+The initial compiled 256K candidate loaded and replied `ready`, then stopped
+producing tokens during the 256-token benchmark warmup. That is not a successful
+long-answer or full-context acceptance. Its saved plan and logs remain under
+`data/cluster/serving-20260910/decode-256k/` at release `293ba32`.
+
+The revised candidates prioritize single-request long-answer speed:
 `large-tp2-256k-plain-{66f1,e8f1}` and
 `large-tp2-256k-mtp2-{66f1,e8f1}`. Both use the native 262144-token context,
-one scheduled sequence, BF16 weights and the same pinned engine. These are
+one scheduled sequence, BF16 weights and the same pinned engine, with eager
+execution and `async_scheduling: false`. These conservative settings remove
+compilation and scheduling overlap as variables; they are not a proven diagnosis
+of the preceding stall. These are
 **pending hardware acceptance**, not replacements for the working recipes.
 The MTP variant adds `speculative_config: {"method":"mtp","num_speculative_tokens":2}`;
 omitting that field disables speculation. It changes deployment ownership and

@@ -143,6 +143,18 @@ def test_mtp_pipeline_parallelism_fails_before_launch(inputs):
         config.plan(inv, recipe, deployment)
 
 
+def test_explicit_synchronous_scheduling_is_typed_and_optional(inputs):
+    inv, recipe, deployment = copy.deepcopy(inputs)
+    baseline = config.plan(inv, recipe, deployment)
+    recipe['async_scheduling'] = False
+    config.validate_recipe(recipe)
+    enabled = config.plan(inv, recipe, deployment)
+    assert '--no-async-scheduling' in enabled['compose']['e8f1']['services']['worker']['command']
+    assert enabled['digest'] != baseline['digest']
+    recipe['async_scheduling'] = 'false'
+    with pytest.raises(config.ConfigError, match='boolean'): config.validate_recipe(recipe)
+
+
 @pytest.mark.parametrize("coordinator", ["66f1", "e8f1"])
 def test_distributed_placement_uses_fabric_and_explicit_ranks(coordinator):
     inv, recipe, d = config.load(ROOT, ROOT / "cluster/inventory.json", ROOT / "cluster/deployments/fast-tp2.json")
