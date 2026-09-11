@@ -167,7 +167,17 @@ scripts/sparkctl up --deployment "$qwen_deployment" --output "$qwen_run" --timeo
 ```
 
 Run commands sequentially and stop on any failure. Startup's short probe does
-not replace these acceptance checks. To inspect or stop only this deployment:
+not replace these acceptance checks. The same serving sequence, including three
+4096-token output profiles after the soak, is available as one command:
+
+```bash
+.venv/bin/python scripts/accept-spark-serving.py \
+  --saved-plan "$qwen_run/plan.json" --output "$qwen_run/acceptance"
+```
+
+It stops at the first failed check, preserves receipts and does not restart
+workers or install routes. Its result is bounded reliability evidence, not an
+uptime guarantee. To inspect or stop only this deployment:
 
 ```bash
 scripts/sparkctl status --saved-plan "$qwen_run/plan.json"
@@ -177,8 +187,8 @@ scripts/sparkctl down --saved-plan "$qwen_run/plan.json"
 The `...-66f1.json` manifest changes coordinator placement; its hardware
 acceptance remains separate. Do not launch both placements simultaneously.
 The controller refuses unrelated GPU owners rather than stopping their jobs.
-The full controller CPU suite passed **318 tests** on e8f1 at release `6ccdce8`;
-that result does not certify GPU runtime behavior.
+The full Linux controller suite passed **335 tests**, zero failures or skips,
+on e8f1 at release `767e81b`. That result does not certify GPU runtime behavior.
 
 ## Client route after acceptance
 
@@ -191,8 +201,10 @@ all other route overrides and the backend's served-model name:
   --merge --alias local-qwen3-next-80b
 ```
 
-Activate using the existing stack's documented Context Guard restart procedure,
-then run the existing stack's `scripts/probe-context-route.py
+When the existing guard already mounts the registry directory and has
+`CONTEXT_GUARD_ROUTE_REGISTRY` set, its next request reads the updated registry;
+no restart is needed. Otherwise activate using the stack's documented Context
+Guard restart procedure. Then run the existing stack's `scripts/probe-context-route.py
 --model local-qwen3-next-80b --output /path/to/new-route-receipt.json` through
 each node, using that stack's `.env` and registry.
 The new alias is distinct from `local-large` and `local-deepseek-v4-flash`; existing
