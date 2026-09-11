@@ -15,9 +15,27 @@ Its near-127K two-request warmup failed with a worker RPC timeout/EngineDeadErro
 cleanup released both owned workers and restored DeepSeek without cleanup errors.
 The compiled sweep did not start. The user's revised priority is bounded
 single-request long-answer measurements, including optional native MTP speculation.
-The new 256K plain/MTP candidate recipes require hardware acceptance.
+The compiled 256K candidate also stalled during its answer warmup and was cleaned
+up, with DeepSeek restored. The subsequent eager/synchronous, one-sequence 256K
+plain recipe passed three 1024-token answers (27.0–28.6 decode tok/s), followed by
+correct retrieval from 260026 input tokens and verified repeated-prefix reuse.
+First-token latency fell from 126.43s to 1.26s on the repeat. The matched MTP=2
+run completed one 1024-token explanation at 50.16 decode tok/s (1.84× plain),
+then stalled on the next code-generation request. MTP has not passed acceptance;
+its remaining prompts and near-full-context probe did not complete. The plain
+recipe's success is a bounded measurement, not a long-term reliability claim.
+Both MTP workers were subsequently removed with no cleanup errors. Native
+DeepSeek on e8f1 was restored (invocation `9c7f716bde1847d6bf425f56835615bd`).
+Fresh text, SSE, streamed tool-call, synthetic tool-result, exact token-policy
+and invalid-key checks passed through both existing Context Guards to that
+backend. Fam Chat was not separately re-tested during this final restoration.
 
-Release `df70e10f6f6a074053404ce3db068c4d19756986` is installed on both nodes
+Controller `7245abcea01a9790e802454aa4cedcdebf72abd5` is installed identically on
+both nodes. It adds optional typed native MTP and scheduling controls without
+changing existing manifests. The preceding release passed all 309 Linux tests;
+the scheduling follow-up passed 66 targeted Linux checks.
+
+Earlier release `df70e10f6f6a074053404ce3db068c4d19756986` was installed on both nodes
 without changing running workers or existing checkouts; **298 Linux tests pass**
 with zero failures or skips. It adds tokenizer-sized serving profiles and
 additive 128K candidate manifests. The baseline receipts and full test report

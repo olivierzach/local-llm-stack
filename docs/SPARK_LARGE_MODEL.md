@@ -4,9 +4,11 @@ The candidate `Qwen/Qwen3-Next-80B-A3B-Instruct` BF16 model has 162,659,161,528
 bytes of weight shards (151.49 GiB), exceeding either Spark's physical memory.
 On September 10, 2026, the pinned runtime passed actual two-node TP=2 loading,
 generation and streaming, including a temporary Context Guard, with 66f1 as
-coordinator. The 16K eager recipe is the first measured baseline. Larger-context,
-compiled and 80B pipeline-parallel variants require their own acceptance; this
-recipe adds no gateway route automatically.
+coordinator. The 16K eager recipe is the first measured baseline. The later
+single-request 256K eager/synchronous recipe also passed long-answer generation
+and near-full-context retrieval with e8f1 coordinating. Compiled and 80B
+pipeline-parallel variants still require acceptance; recipes add no gateway route
+automatically.
 
 The 128K eager capacity run subsequently completed single-request inputs near
 127K at about 26.6 decode tokens/s. Its two-request near-127K warmup hit a worker
@@ -25,8 +27,9 @@ The revised candidates prioritize single-request long-answer speed:
 one scheduled sequence, BF16 weights and the same pinned engine, with eager
 execution and `async_scheduling: false`. These conservative settings remove
 compilation and scheduling overlap as variables; they are not a proven diagnosis
-of the preceding stall. These are
-**pending hardware acceptance**, not replacements for the working recipes.
+of the preceding stall. The plain variant passed the bounded checks below;
+MTP failed the multi-prompt acceptance run described below and remains experimental.
+Neither replaces an existing route.
 The MTP variant adds `speculative_config: {"method":"mtp","num_speculative_tokens":2}`;
 omitting that field disables speculation. It changes deployment ownership and
 requires a controlled restart. Existing recipes and endpoint aliases are unchanged.
@@ -54,6 +57,58 @@ comprehensive quality benchmark. The current Instruct model has no separate
 thinking stream; these measurements describe answer generation, not a validated
 thinking-model recipe. Upstream reference:
 [vLLM Qwen3-Next MTP recipe](https://github.com/vllm-project/recipes/blob/main/Qwen/Qwen3-Next.md).
+
+### Single-request baseline measured on September 10
+
+Release `7245abc`, e8f1 coordinator, TP=2, eager execution, synchronous scheduling,
+80% memory budget, 262144 context limit and one scheduled sequence:
+
+| Task | Output tokens | Decode tok/s | Total seconds |
+|---|---:|---:|---:|
+| Explanation | 1024 | 27.22 | 37.83 |
+| Python code | 1024 | 28.58 | 36.02 |
+| Deployment plan | 1024 | 27.01 | 38.08 |
+
+All completed normally at the requested output cap. This is a three-case
+performance sample, not a code-correctness or reasoning-quality benchmark.
+The separate retrieval probe processed **260026 input tokens** and recovered
+all three synthetic codes. First-token latency was **126.43 seconds** on the
+unique prompt and **1.26 seconds** when repeated; the repeat recorded **259488
+prefix-cache hits**. Both answers were correct and ended normally. The 44-token
+retrieval answers are too short to substitute for the sustained-answer benchmark.
+Receipts: `data/cluster/serving-20260910/decode-256k-eager-sync/plain/`.
+This does not validate multiple simultaneous full-context requests or long-term
+serving reliability.
+The matched per-node telemetry spans about 116.29 GB transmitted and received
+per node over the two direct RoCE rails, with matching peer byte counts and
+zero receive errors/transmit discards. This interval covers all measured plain
+requests, including long-context prefill; it is path evidence, not peak bandwidth.
+
+### Native MTP comparison: promising speed, failed acceptance
+
+The matched MTP=2 recipe completed the explanation task with 1024 output tokens
+at **50.16 decode tokens/s**, versus **27.22** without speculation (1.84×).
+Total time fell from 37.83s to 20.65s. Counters recorded 595 accepted draft tokens
+out of 860 proposed across 430 drafting steps (69.2% draft acceptance).
+
+The following code-generation request stopped making progress and failed with
+`RPC call to sample_tokens timed out`, then `EngineDeadError`. Both workers
+reported high GPU utilization while sampled RDMA byte counters stopped changing;
+no RDMA receive errors or transmit discards were recorded in those samples.
+This does not establish the underlying cause. A successful health endpoint did
+not imply that generation was progressing. The three-task comparison and MTP
+near-full-context retrieval acceptance therefore did not complete. Do not present
+this single completed answer as a reliable MTP serving configuration or claim
+that the plain recipe's 260K retrieval result validates MTP at that length.
+
+The eager/synchronous plain variant is the best-supported configuration from
+this bounded experiment. Native speculation remains a reproducible, opt-in
+candidate needing a runtime fix and successful repeated-request acceptance.
+Receipts: `data/cluster/serving-20260910/decode-256k-eager-sync/mtp2/`.
+The controller removed both test workers, released their reservations, and
+restored native DeepSeek without cleanup errors. Both existing Context Guards
+then passed real text, streaming, synthetic tool protocol and authentication
+checks. The experimental Qwen endpoint is no longer running.
 
 The [upstream model](https://huggingface.co/Qwen/Qwen3-Next-80B-A3B-Instruct/blob/9c7f2fbe84465e40164a94cc16cd30b6999b0cc7/README.md)
 is public, Apache-2.0 licensed, and uses a non-thinking Instruct template.
