@@ -108,6 +108,41 @@ def test_explicit_model_template_defaults_are_typed_and_rendered(inputs):
     with pytest.raises(config.ConfigError,match='boolean'): config.validate_recipe(recipe)
 
 
+def test_native_mtp_is_optional_and_changes_deployment_identity(inputs):
+    inv, recipe, deployment = copy.deepcopy(inputs)
+    baseline = config.plan(inv, recipe, deployment)
+    recipe['speculative_config'] = {'method': 'mtp', 'num_speculative_tokens': 2}
+    config.validate_recipe(recipe)
+    enabled = config.plan(inv, recipe, deployment)
+    command = enabled['compose']['e8f1']['services']['worker']['command']
+    assert json.loads(command[command.index('--speculative-config') + 1]) == recipe['speculative_config']
+    assert enabled['digest'] != baseline['digest']
+    assert '--speculative-config' not in baseline['compose']['e8f1']['services']['worker']['command']
+    assert enabled['endpoint'] == baseline['endpoint']
+
+
+@pytest.mark.parametrize('speculative', [
+    {'method': 'mtp', 'num_speculative_tokens': True},
+    {'method': 'mtp', 'num_speculative_tokens': 0},
+    {'method': 'mtp', 'num_speculative_tokens': 9},
+    {'method': 'draft_model', 'num_speculative_tokens': 2},
+    {'method': 'mtp', 'num_speculative_tokens': 2, 'model': 'unversioned/remote'},
+])
+def test_invalid_speculation_rejected(inputs, speculative):
+    recipe = copy.deepcopy(inputs[1])
+    recipe['speculative_config'] = speculative
+    with pytest.raises(config.ConfigError): config.validate_recipe(recipe)
+
+
+def test_mtp_pipeline_parallelism_fails_before_launch(inputs):
+    inv, recipe, deployment = copy.deepcopy(inputs)
+    recipe['parallelism'] = ['pipeline']
+    recipe['speculative_config'] = {'method': 'mtp', 'num_speculative_tokens': 2}
+    deployment.update(mode='pipeline', pipeline_parallel=2)
+    with pytest.raises(config.ConfigError, match='pipeline parallelism'):
+        config.plan(inv, recipe, deployment)
+
+
 @pytest.mark.parametrize("coordinator", ["66f1", "e8f1"])
 def test_distributed_placement_uses_fabric_and_explicit_ranks(coordinator):
     inv, recipe, d = config.load(ROOT, ROOT / "cluster/inventory.json", ROOT / "cluster/deployments/fast-tp2.json")

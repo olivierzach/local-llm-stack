@@ -12,7 +12,7 @@ import uuid
 import requests
 
 
-def measure(base_url, key, model, prompt, max_tokens, request_timeout=180):
+def measure(base_url, key, model, prompt, max_tokens, request_timeout=180, capture_text=False):
     session = requests.Session()
     session.trust_env = False
     if key: session.headers['Authorization'] = 'Bearer ' + key
@@ -54,11 +54,13 @@ def measure(base_url, key, model, prompt, max_tokens, request_timeout=180):
     if (usage.get('completion_tokens_details') or {}).get('reasoning_tokens',0):
         raise RuntimeError('text benchmark cannot attribute hidden reasoning tokens to text decoding')
     generated = usage['completion_tokens']
-    return {'ttft_s':first-started,'elapsed_s':elapsed,'prompt_tokens':usage['prompt_tokens'],
+    result = {'ttft_s':first-started,'elapsed_s':elapsed,'prompt_tokens':usage['prompt_tokens'],
         'completion_tokens':generated,'decode_tokens_per_second':(generated-1)/(elapsed-(first-started)),
         'text_chars':len(text), 'deployment_digest':deployment,
         'started_at':started_at, 'finish_reason':finish_reason,
         'cached_prompt_tokens':(usage.get('prompt_tokens_details') or {}).get('cached_tokens')}
+    if capture_text: result['text'] = text
+    return result
 
 
 def summarize(records, elapsed):

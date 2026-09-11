@@ -8,6 +8,45 @@ coordinator. The 16K eager recipe is the first measured baseline. Larger-context
 compiled and 80B pipeline-parallel variants require their own acceptance; this
 recipe adds no gateway route automatically.
 
+The 128K eager capacity run subsequently completed single-request inputs near
+127K at about 26.6 decode tokens/s. Its two-request near-127K warmup hit a worker
+RPC timeout and EngineDeadError; owned workers were cleaned up and DeepSeek was
+restored. This is a failed concurrency case, not validated 128K multi-user
+capacity. The planned compiled sweep did not start after that failure.
+
+The next candidates prioritize single-request long-answer speed:
+`large-tp2-256k-plain-{66f1,e8f1}` and
+`large-tp2-256k-mtp2-{66f1,e8f1}`. Both use the native 262144-token context,
+one scheduled sequence, BF16 weights and the same pinned engine. These are
+**pending hardware acceptance**, not replacements for the working recipes.
+The MTP variant adds `speculative_config: {"method":"mtp","num_speculative_tokens":2}`;
+omitting that field disables speculation. It changes deployment ownership and
+requires a controlled restart. Existing recipes and endpoint aliases are unchanged.
+The cached checkpoint contains 1553 `mtp.*` tensors in shard 41, and the pinned
+vLLM build includes `Qwen3NextMTP`; no separate draft-model download is needed.
+MTP plus pipeline parallelism is rejected until independently supported and tested.
+This option does not claim support for an arbitrary remote drafter endpoint.
+
+For a controlled off/on comparison after starting either candidate, run:
+
+```bash
+.venv/bin/python scripts/profile-spark-decode.py \
+  --saved-plan /path/to/plan.json --max-tokens 1024 \
+  --output /path/to/new-decode-results.json
+.venv/bin/python scripts/probe-spark-long-context.py \
+  --saved-plan /path/to/plan.json --input-tokens 260032 \
+  --output /path/to/new-long-context-results.json
+```
+
+The decode profile compares three fixed long-answer tasks at concurrency one,
+records actual output lengths and speculative acceptance counters, and rejects
+streaming errors. The retrieval probe checks three synthetic codes spread through
+a near-full input, then repeats it to verify prefix-cache reuse. Neither is a
+comprehensive quality benchmark. The current Instruct model has no separate
+thinking stream; these measurements describe answer generation, not a validated
+thinking-model recipe. Upstream reference:
+[vLLM Qwen3-Next MTP recipe](https://github.com/vllm-project/recipes/blob/main/Qwen/Qwen3-Next.md).
+
 The [upstream model](https://huggingface.co/Qwen/Qwen3-Next-80B-A3B-Instruct/blob/9c7f2fbe84465e40164a94cc16cd30b6999b0cc7/README.md)
 is public, Apache-2.0 licensed, and uses a non-thinking Instruct template.
 The repository's download manifest pins revision
@@ -309,3 +348,20 @@ and a smaller `--concurrency 1 2` first. Client concurrency can exceed
 limit. Keep output length, input lengths and concurrency matched when comparing
 eager and compiled execution. Synthetic repeated text tests capacity and latency,
 not whether answers use information reliably from a long document.
+
+For hardware telemetry, run this read-only sampler locally on each participating
+Spark using its exact worker ID from `sparkctl status`:
+
+```bash
+python3 scripts/sample-spark-runtime.py \
+  --container FULL_WORKER_CONTAINER_ID --interval 5 --duration 7200 \
+  --output data/cluster/OWNER/runtime-NODE.jsonl
+```
+
+It stops when that container stops or the duration expires. Samples include
+GPU utilization, GPU-reported watts and temperature, available shared memory,
+swap headroom, RDMA byte/error counters and ordinary network counters. Match
+sample timestamps to profile levels before computing averages and deltas;
+exclude weight loading and warmup when describing warmed serving. GPU-reported
+power is not whole-system wall power. Counter totals span all traffic on those
+interfaces, so competing workloads invalidate attribution to this model alone.

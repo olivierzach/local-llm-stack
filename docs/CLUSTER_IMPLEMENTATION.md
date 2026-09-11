@@ -3,6 +3,27 @@
 This is the implementation checklist, not a claim that every item already works.
 Existing Compose services, aliases, `.env`, and Make targets remain the baseline.
 
+**Two-Spark serving acceptance (September 10):** the user released the research
+GPU window. Qwen3-Next-80B-A3B-Instruct BF16 now passed TP=2 loading, real text
+generation and SSE, including an isolated Context Guard, with 66f1 coordinating.
+NCCL used both direct RoCE rails; recorded counters match across peers, with
+about 3.79 GB transmitted/received per node and no recorded RDMA receive errors
+or transmit discards. Owned workers were removed and e8f1 DeepSeek restored at
+the end of the baseline test. With e8f1 coordinating, the 128K eager run completed
+single-request prompts through approximately 127K, plus smaller concurrent cases.
+Its near-127K two-request warmup failed with a worker RPC timeout/EngineDeadError;
+cleanup released both owned workers and restored DeepSeek without cleanup errors.
+The compiled sweep did not start. The user's revised priority is bounded
+single-request long-answer measurements, including optional native MTP speculation.
+The new 256K plain/MTP candidate recipes require hardware acceptance.
+
+Release `df70e10f6f6a074053404ce3db068c4d19756986` is installed on both nodes
+without changing running workers or existing checkouts; **298 Linux tests pass**
+with zero failures or skips. It adds tokenizer-sized serving profiles and
+additive 128K candidate manifests. The baseline receipts and full test report
+are under `data/cluster/serving-20260910/`. See
+[SPARK_LARGE_MODEL.md](SPARK_LARGE_MODEL.md) for measured timings and commands.
+
 **CPU routing follow-up (September 9):** controller release
 `ec0fc3f97e5562909749d8a95782591cc8d55739` and its streaming-recovery change are
 installed on both Sparks. The full Linux suite passed **292 tests**, including
@@ -101,8 +122,8 @@ same DeepSeek invocation and research container remain running. Final receipts
 are `state/admission-20260909/final-verification.json` on each node, with local
 copies under `data/cluster/continuation-20260909/`.
 
-Immediate remaining hardware work requires an idle 66f1: its full model/Vector/
-Loop acceptance and the larger 80B combined deployment. Root-managed packages
+Remaining hardware work includes 66f1's full model/Vector/Loop acceptance and
+the expanded 80B profiles described above. Root-managed packages
 also remain missing (e8f1: ripgrep, sox, iperf3, openmpi-bin, libopenmpi-dev).
 The other open items include multi-host failure testing, migrated virtual-key
 policy/accounting, and a separately validated remote-drafter engine. The pinned
