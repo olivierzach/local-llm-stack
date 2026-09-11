@@ -56,10 +56,15 @@ def main():
     p.add_argument("--plan", type=Path, action="append", default=[])
     p.add_argument("--replicas",action="store_true",help="group identical recipes under one alias with least-in-flight routing")
     p.add_argument("--registry", type=Path)
+    p.add_argument("--merge", action="store_true", help="Upsert routes while preserving other installed aliases")
+    p.add_argument("--alias", help="Expose one plan under a distinct client alias")
     p.add_argument("--port", type=int, default=4110)
     p.add_argument("--name", help="registry upstream_key_env name for credential-set/remove")
     p.add_argument("--key-file", type=Path, help="private file containing only the provider API key")
     args = p.parse_args()
+    if args.merge and args.action != 'routes': p.error('--merge applies only to routes')
+    if args.alias and (args.action not in ('render', 'up', 'routes') or len(args.plan) != 1 or args.registry or args.replicas):
+        p.error('--alias requires exactly one plan without a registry or replicas')
     inv = read(args.inventory)
     validate_inventory(inv)
     if args.node not in inv["nodes"]: p.error("unknown node")
@@ -78,9 +83,14 @@ def main():
         if args.registry and args.plan: p.error("choose --registry or --plan")
         if args.registry and args.replicas: p.error('--replicas applies to --plan inputs')
         registry = read(args.registry) if args.registry else from_plans([read(path) for path in args.plan],replicas=args.replicas)
+        if args.alias:
+            registry = {'version': 1, 'routes': {args.alias: next(iter(registry['routes'].values()))}}
         validate_registry(registry)
         request["registry"] = registry
-        save_json(output / "registry.json", registry)
+        if args.merge:
+            request['merge'] = True
+        else:
+            save_json(output / "registry.json", registry)
     if args.action == "render":
         print(json.dumps({"registry": str(output / "registry.json")}))
         return
@@ -96,6 +106,10 @@ def main():
                 "scripts/context-guard-proxy.py", "tools/spark_cluster/gateway.py",
                 "tools/spark_cluster/config.py", "tools/spark_cluster/__init__.py")})
     result = remote(node, request, ROOT / "tools/spark_cluster/gateway_node.py")
+    if args.merge:
+        merged = result.pop('registry')
+        validate_registry(merged)
+        save_json(output / 'registry.json', merged)
     if args.action == "attach":
         result = store_attachment(output, result)
     print(json.dumps(result))

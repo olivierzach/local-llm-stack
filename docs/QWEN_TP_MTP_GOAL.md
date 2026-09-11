@@ -214,3 +214,17 @@ each node, using that stack's `.env` and registry.
 The new alias is distinct from `local-large` and `local-deepseek-v4-flash`; existing
 clients are not silently assigned a different model. This does not yet certify
 Qwen tool calling: the current TP recipe advertises text and streaming only.
+
+For the independent port-4110 gateways used by `spark-client`, upsert the same
+plan without replacing other model routes:
+
+```bash
+scripts/spark-gateway routes --node 66f1 --plan /path/to/accepted-plan.json \
+  --merge --alias local-qwen3-next-80b
+scripts/spark-gateway routes --node e8f1 --plan /path/to/accepted-plan.json \
+  --merge --alias local-qwen3-next-80b
+```
+
+Each remote gateway merges under its existing registry lock. The issuing
+controller saves the complete resulting registry for generated client profiles.
+The alias remains stable when a later accepted plan changes coordinator.

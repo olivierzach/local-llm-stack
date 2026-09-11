@@ -133,8 +133,14 @@ def main(req):
             return {"stopped": True}
         if req["action"] == "routes":
             if not saved or not checked(saved): raise RuntimeError("gateway not installed")
-            write(ROOT / "config/registry.json", json.dumps(req["registry"], indent=2))
-            return {"routes_replaced": True, "aliases": sorted(req["registry"]["routes"])}
+            registry = req['registry']
+            if req.get('merge'):
+                previous = json.loads((ROOT / 'config/registry.json').read_text())
+                registry = {'version': 1, 'routes': {**previous['routes'], **registry['routes']}}
+            write(ROOT / "config/registry.json", json.dumps(registry, indent=2))
+            result = {"routes_replaced": True, "aliases": sorted(registry["routes"])}
+            if req.get('merge'): result['registry'] = registry
+            return result
         if req["action"] == "probe":
             if not saved or not checked(saved): raise RuntimeError("gateway not installed")
             key = (ROOT / "api-key").read_text().strip()
