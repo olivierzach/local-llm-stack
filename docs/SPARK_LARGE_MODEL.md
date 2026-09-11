@@ -1,5 +1,10 @@
 # Preparing a model that needs both Sparks
 
+The active TP + MTP reliability work, latest failed attempts and acceptance
+criteria are recorded in [QWEN_TP_MTP_GOAL.md](QWEN_TP_MTP_GOAL.md). DeepSeek is
+intentionally down during that work, as authorized. Historical restorations
+below describe the earlier tests, not the current serving state.
+
 The candidate `Qwen/Qwen3-Next-80B-A3B-Instruct` BF16 model has 162,659,161,528
 bytes of weight shards (151.49 GiB), exceeding either Spark's physical memory.
 On September 10, 2026, the pinned runtime passed actual two-node TP=2 loading,

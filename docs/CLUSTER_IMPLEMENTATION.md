@@ -3,6 +3,11 @@
 This is the implementation checklist, not a claim that every item already works.
 Existing Compose services, aliases, `.env`, and Make targets remain the baseline.
 
+**Current focus:** [Qwen TP + native MTP acceptance](QWEN_TP_MTP_GOAL.md).
+DeepSeek may remain down while that focused goal is pursued. Later ordered-MTP
+testing passed near-260K retrieval but failed the extended sampled conversation
+test; it is not an accepted serving deployment.
+
 **Two-Spark serving acceptance (September 10):** the user released the research
 GPU window. Qwen3-Next-80B-A3B-Instruct BF16 now passed TP=2 loading, real text
 generation and SSE, including an isolated Context Guard, with 66f1 coordinating.
