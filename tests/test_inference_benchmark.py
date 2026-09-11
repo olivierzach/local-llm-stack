@@ -53,3 +53,13 @@ def test_measure_records_gateway_selection_without_requiring_it_for_direct_serve
     result = benchmark.measure('http://test/v1', None, 'model', 'prompt', 32)
     assert result['deployment_digest'] == deployment
     assert result['completion_tokens'] == 4
+
+
+def test_measure_rejects_error_even_after_valid_text_and_usage(monkeypatch):
+    chunks = [{'choices': [{'delta': {'content': 'partial'}}]},
+              {'choices': [], 'usage': {'prompt_tokens': 20, 'completion_tokens': 4}},
+              {'error': {'type': 'upstream_stream_interrupted'}}]
+    session = Session(['data: ' + json.dumps(c) for c in chunks] + ['data: [DONE]'])
+    monkeypatch.setattr(benchmark.requests, 'Session', lambda: session)
+    with pytest.raises(RuntimeError, match='streaming error'):
+        benchmark.measure('http://test/v1', None, 'model', 'prompt', 32)

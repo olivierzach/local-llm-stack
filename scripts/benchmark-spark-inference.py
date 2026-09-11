@@ -12,7 +12,7 @@ import uuid
 import requests
 
 
-def measure(base_url, key, model, prompt, max_tokens):
+def measure(base_url, key, model, prompt, max_tokens, request_timeout=180):
     session = requests.Session()
     session.trust_env = False
     if key: session.headers['Authorization'] = 'Bearer ' + key
@@ -21,10 +21,12 @@ def measure(base_url, key, model, prompt, max_tokens):
     usage = None
     done = False
     text = ''
+    finish_reason = None
+    started_at = time.time()
     with session, session.post(base_url + '/chat/completions',json={
         'model':model,'messages':[{'role':'user','content':prompt}], 'temperature':0,
         'max_tokens':max_tokens,'stream':True,'stream_options':{'include_usage':True}},
-        stream=True,timeout=(10,180)) as response:
+        stream=True,timeout=(10,request_timeout)) as response:
         response.raise_for_status()
         deployment = response.headers.get('X-Spark-Deployment')
         for line in response.iter_lines(chunk_size=1,decode_unicode=True):
@@ -34,8 +36,11 @@ def measure(base_url, key, model, prompt, max_tokens):
                 done = True
                 break
             chunk = json.loads(body)
+            if chunk.get('error'):
+                raise RuntimeError('upstream returned a streaming error')
             if chunk.get('usage'): usage = chunk['usage']
             for choice in chunk.get('choices',[]):
+                if choice.get('finish_reason'): finish_reason = choice['finish_reason']
                 delta = choice.get('delta',{})
                 if delta.get('reasoning') or delta.get('reasoning_content'):
                     raise RuntimeError('text benchmark requires thinking disabled; reasoning tokens have different timing')
@@ -51,7 +56,9 @@ def measure(base_url, key, model, prompt, max_tokens):
     generated = usage['completion_tokens']
     return {'ttft_s':first-started,'elapsed_s':elapsed,'prompt_tokens':usage['prompt_tokens'],
         'completion_tokens':generated,'decode_tokens_per_second':(generated-1)/(elapsed-(first-started)),
-        'text_chars':len(text), 'deployment_digest':deployment}
+        'text_chars':len(text), 'deployment_digest':deployment,
+        'started_at':started_at, 'finish_reason':finish_reason,
+        'cached_prompt_tokens':(usage.get('prompt_tokens_details') or {}).get('cached_tokens')}
 
 
 def summarize(records, elapsed):

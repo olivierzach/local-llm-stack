@@ -2,10 +2,11 @@
 
 The candidate `Qwen/Qwen3-Next-80B-A3B-Instruct` BF16 model has 162,659,161,528
 bytes of weight shards (151.49 GiB), exceeding either Spark's physical memory.
-It is intended for combined-node acceptance. Its pinned runtime recognizes the
-architecture, but full loading, memory fit, GPU kernels, generation, streaming
-and performance are **not yet validated**. Existing single-node recipes remain
-the supported starting point; this candidate adds no gateway route automatically.
+On September 10, 2026, the pinned runtime passed actual two-node TP=2 loading,
+generation and streaming, including a temporary Context Guard, with 66f1 as
+coordinator. The 16K eager recipe is the first measured baseline. Larger-context,
+compiled and 80B pipeline-parallel variants require their own acceptance; this
+recipe adds no gateway route automatically.
 
 The [upstream model](https://huggingface.co/Qwen/Qwen3-Next-80B-A3B-Instruct/blob/9c7f2fbe84465e40164a94cc16cd30b6999b0cc7/README.md)
 is public, Apache-2.0 licensed, and uses a non-thinking Instruct template.
@@ -159,6 +160,37 @@ The copy lock alone is insufficient evidence that the current download succeeded
 
 ## Select the coordinator and parallelism
 
+### What tensor parallelism splits
+
+Both nodes retain a complete checkpoint on their local SSD. The checkpoint's
+41 safetensors shards are storage files, not assignments to individual GPUs.
+At startup, vLLM assigns each worker a tensor-parallel rank and loads the
+appropriate portions of the tensors into that worker's GPU memory. Full local
+copies also let either node become coordinator without moving the checkpoint.
+Other runtimes can use shared storage or pre-sharded checkpoints; neither is
+required by this recipe.
+
+The pinned vLLM implementation uses parallel layers, including
+`QKVParallelLinear` and `RowParallelLinear` in `Qwen3NextForCausalLM`. Its weight
+loaders select tensor slices using the rank and shard size (`Tensor.narrow`),
+rather than masking a complete GPU-resident weight tensor. Column-partitioned
+layers compute output slices; row-partitioned layers compute partial sums that
+are combined by an all-reduce. Some tensors are replicated, and attention,
+linear-attention and expert layers have architecture-specific partitioning.
+Do not expect exactly half of total process memory on each node.
+
+Both GPUs cooperate on the same requests and tokens. TP=2 does not mean running
+two independent replicas, nor putting the first half of the layers on one node
+and the second half on the other (pipeline parallelism). The coordinator hosts
+the API for this deployment; it is not a permanent master node.
+
+Bootstrap sockets and Gloo bind to the first direct fabric interface. NCCL is
+restricted to the two configured RoCE devices. Verify actual startup logs for
+`NET/IB` send/receive channels and the expected TP ranks, rather than assuming
+environment variables prove transport selection. RDMA port counters supplement
+the logs; ordinary `ip -s link` counters may omit hardware-offloaded RDMA
+traffic. These two logical interfaces share the physical cable's capacity.
+
 | Deployment | Coordinator | Tensor parallel | Pipeline parallel |
 | --- | --- | ---: | ---: |
 | `large-tp2-66f1.json` | 66f1 | 2 | 1 |
@@ -177,7 +209,7 @@ reserve the nodes at a time.
 scripts/sparkctl validate --deployment cluster/deployments/large-tp2-66f1.json
 scripts/sparkctl render --deployment cluster/deployments/large-tp2-66f1.json
 # Only after both cache checks pass and both GPUs are available:
-scripts/sparkctl up --deployment cluster/deployments/large-tp2-66f1.json
+scripts/sparkctl up --deployment cluster/deployments/large-tp2-66f1.json --timeout 3600
 scripts/sparkctl status --deployment cluster/deployments/large-tp2-66f1.json
 scripts/sparkctl down --deployment cluster/deployments/large-tp2-66f1.json
 ```
@@ -203,6 +235,77 @@ re-verifying its e8f1 source. Both caches pass the controller's structural check
 with 41 weight shards. The complete operation took 1,001.102 seconds; a separate
 30-second interface-counter sample during active SSH transfer measured 2.91 Gb/s.
 This is file-transfer evidence, not RDMA throughput or 80B inference acceptance.
-The research job on 66f1 was preserved, and distributed GPU loading remains
-pending an idle window. See [the implementation record](CLUSTER_IMPLEMENTATION.md)
+The research job on 66f1 was preserved during the copy. Distributed GPU loading
+subsequently passed in the September 10 idle window. See [the implementation record](CLUSTER_IMPLEMENTATION.md)
 for phase timings and the retained acceptance receipt.
+
+## First TP=2 hardware acceptance
+
+Evidence is retained under `data/cluster/serving-20260910/tp2-attempt-03/`.
+The saved plan digest is
+`a7d041507b6f97ead99161a3bb6c6c58e758b0ed2382c7db3fdfeed455791a99`.
+Workers reported TP ranks 0 and 1 and NCCL `NET/IB` over both configured RoCE
+devices, with bootstrap addresses `10.10.20.1` and `10.10.20.2`. The full
+checkpoint took about eleven minutes to load; use the explicit startup timeout
+above rather than the CLI's ten-minute default.
+Recorded RDMA counter deltas were about 3.79 GB transmitted and received per
+node, split across the two logical rails, with matching peer counts and no
+recorded receive errors or transmit discards. This interval includes startup and
+acceptance, so it is traffic-path evidence rather than a link bandwidth result.
+
+The coordinator reported 74.3 GiB for model loading. Cache profiling reported
+25.24/21.99 GiB available across the two ranks and a resulting 1,563,564-token
+cache capacity. This is a runtime estimate, not validated serving concurrency:
+the recipe admits at most four active sequences and 16,384 tokens per request.
+The first real completion returned `ready`; kernel compilation made that cold
+request take 35.7 seconds. Subsequent text and SSE requests through an isolated
+Context Guard passed, and an invalid gateway key returned 401. Existing client
+routes were preserved. Owned workers were removed and native DeepSeek restored
+successfully before the separately authorized profiling run.
+
+The initial warmed synthetic sample used roughly 500 input tokens and 128 output
+tokens, with two requests per concurrency level:
+
+| Concurrent requests | Median first token | Median per-request decode | Aggregate output |
+| ---: | ---: | ---: | ---: |
+| 1 | 0.392 s | 30.01 tokens/s | 27.60 tokens/s |
+| 2 | 0.525 s | 26.57 tokens/s | 47.92 tokens/s |
+
+These small samples are acceptance evidence, not a throughput SLA or quality
+benchmark. Use the dedicated profiling command below for matched context and
+concurrency comparisons.
+
+## Reproduce a context and concurrency profile
+
+The additive `large-tp2-128k-{eager,compiled}-{66f1,e8f1}.json` manifests keep the
+same model, weights and 80% GPU memory budget while raising context to 131,072
+tokens and the scheduler limit to 16 active sequences. They are profiling
+candidates until the corresponding hardware receipts pass. The compiled variant
+removes `--enforce-eager`; the pinned engine selects its compilation and CUDA
+graph defaults. Context length includes both input and generated tokens.
+
+Start one deployment with `sparkctl up --timeout 3600`, retain its exact saved
+plan, and run without competing inference requests:
+
+```bash
+.venv/bin/python scripts/profile-spark-serving.py \
+  --saved-plan data/cluster/OWNER/plan.json \
+  --prompt-tokens 1024 8192 \
+  --concurrency 1 2 4 --requests 4 --max-tokens 128 \
+  --output data/cluster/OWNER/profile-short.json
+```
+
+The command sizes unique prompts using the running model's chat tokenizer,
+warms each prompt length and concurrency before timing it, and verifies complete
+text streams with actual usage matching tokenization. It records time to first
+token, decode rate, aggregate output, cold-shape warmup cost, timestamps and the
+saved deployment contract. It refuses to overwrite evidence and marks partial
+or failed runs incomplete. It never starts, stops or changes a model. GPU
+admission and lifecycle remain the controller's responsibility.
+
+On a 128K deployment, test longer inputs with `--prompt-tokens 32768 65536 126976`
+and a smaller `--concurrency 1 2` first. Client concurrency can exceed
+`max_num_seqs` to measure queueing; it does not change the engine's active-request
+limit. Keep output length, input lengths and concurrency matched when comparing
+eager and compiled execution. Synthetic repeated text tests capacity and latency,
+not whether answers use information reliably from a long document.
