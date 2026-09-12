@@ -1,7 +1,20 @@
 # Higher-precision DeepSeek V4 across two Sparks
 
-This is a separate, staged two-node candidate. It has not passed GPU inference
-acceptance. Qwen remains the active deployment until an explicit test switch.
+This is a separate two-node deployment. DSpark2 with CUDA graphs passed scoped
+64K protocol/performance checks on September 12, 2026; the measurements are below.
+**Publication is withheld:** an additional repeated first-token diagnostic on
+the reversed coordinator produced materially different scores and occasional
+incorrect arithmetic at temperature zero. This also occurred with a fixed seed
+and one output token. The passing protocol/performance checks below do not yet
+establish correctness of this runtime combination.
+The same failure reproduced with eager execution and speculation disabled, so
+neither graph execution nor DSpark alone explains it. The permanent acceptance
+target now runs a 20-request fixed-seed first-token regression before other tests.
+Qwen was stopped using its exact saved plan for this authorized test.
+The DeepSeek test containers were stopped after the failed controls; client
+routes were never changed. Qwen recovery evidence is written under
+`deepseek-testing-20260912/qwen-restored-01/`, with restoration status summarized
+in the parent directory's `testing-summary.json`.
 The existing `deepseekv4-*` Make targets, native DS4 engine, GGUF weights, DSpark
 drafter, and single-node service definitions are unchanged on both machines.
 
@@ -21,7 +34,7 @@ drafter, and single-node service definitions are unchanged on both machines.
 | Initial context / output | 65,536 / 8,192 tokens |
 | Concurrency / GPU memory fraction | 1 / 0.8 |
 | KV cache | FP8, block size 256 |
-| Scheduling | Eager, synchronous; no initial graph-performance claim |
+| Scheduling | Synchronous; explicit eager baseline or CUDA graph variant |
 | Public model alias | `local-deepseek-v4-flash` |
 | Direct backend | Coordinator fabric IP, port 8122; rendezvous 29542 |
 
@@ -35,8 +48,20 @@ Execution can also be selected explicitly with `DEEPSEEK_TP_EXECUTION=eager|grap
 on the plan/up targets. The default remains eager. The separate `-graphs-`
 deployment manifests use the upstream `FULL_AND_PIECEWISE` mode with all custom
 ops, bounded to capture size 8 for the initial single-request configuration.
-Graph execution is a candidate until its own live checks pass; it does not imply
-the eager deployment's acceptance carries over. Existing model plans are unchanged.
+Acceptance is specific to the tested variant. DSpark2 with graphs has passed
+native serving checks; plain graph execution has only configuration/CLI checks.
+Existing model plans are unchanged.
+
+The measured configuration is selected explicitly (default flags still select
+the original eager, non-speculative baseline):
+
+```bash
+cd ~/projects/local-llm-stack-cluster/current
+make deepseek-tp-up COORDINATOR=e8f1 DEEPSEEK_TP_SPEC=dspark2 DEEPSEEK_TP_EXECUTION=graphs OUTPUT=data/cluster/deepseek-new-run
+```
+
+Run only after releasing the current deployment's GPUs. Either node can run the
+command; set `COORDINATOR=66f1` to place the API and rank zero there instead.
 
 The initial default is non-thinking so protocol and retrieval checks can finish
 within bounded output limits. Requests can opt into thinking with
@@ -115,7 +140,7 @@ Run the repeatable acceptance target from the managed controller checkout:
 make deepseek-tp-accept PLAN=data/cluster/deepseek-plain-test/plan.json OUTPUT=data/cluster/deepseek-plain-test/acceptance
 ```
 
-This checks tool calls/results and explicit thinking on/off with and without streaming, 1K/4K decode,
+This checks repeated first-token answers, tool calls/results and explicit thinking on/off with and without streaming, 1K/4K decode,
 approximately 63K-input retrieval/token accounting, repeated-prefix reuse and
 sequential-request stability. Also test a real OMP
 read/edit/bash workflow. The pinned runtime's finish-reason behavior must be
@@ -154,6 +179,67 @@ the switch. Keeping the old recipe files does not by itself move a published rou
 
 ## Evidence and remaining work
 
+Native GPU acceptance is recorded in `state/deepseek-testing-20260912/` on the
+controllers and `data/cluster/deepseek-testing-20260912/` on the Mac. The full
+suite used coordinator 66f1, plan digest
+`501a7ded09994cb731d3a7ec7f9b35acbdad0e0cc8386d98363c5a43edece252`.
+
+| Test | Observed result |
+| --- | --- |
+| Eager, speculation off; three 256-token samples | 4.59–4.60 tokens/sec |
+| Eager DSpark2; same prompts/limits | 9.48–11.34 tokens/sec |
+| CUDA graphs + DSpark2; same prompts/limits | 45.09–51.43 tokens/sec |
+| Three 1,024-token answers with graphs + DSpark2 | 49.93–55.25 tokens/sec |
+| Three complete 4,096-token answers | 50.20–55.05 tokens/sec |
+| Sequential completion test | 18 requests, 18,432 output tokens, median 49.37 tokens/sec |
+| Speculation during stability | 79.15% of proposed draft tokens accepted |
+| Tools | 36 automatic/named/required call/result checks, streaming and non-streaming |
+| Long input | 63,417 input tokens; exact retrieval and tokenizer accounting passed |
+| Prefix reuse | First text 45.94 seconds on new prefix, 0.54 seconds on repeat |
+| Thinking toggle | Four on/off and streaming/non-streaming checks passed |
+| Network | NCCL 2.30.7 `NET/IB`, both direct RoCE interfaces active; receive-error deltas zero |
+
+These are synthetic single-request measurements, not a model-quality evaluation
+or a concurrent-load guarantee. The first thinking fixture returned correct
+arithmetic as an equation and failed its bare-integer format requirement; an
+explicit system-format instruction passed the unchanged exact-answer criteria.
+Both the failed `thinking.json` and passed `thinking-v2.json` are retained.
+The runtime warned about unsupported `torch.compile`, but target and drafter CUDA
+graph capture completed successfully; graph memory was approximately 0.78 GiB.
+
+Coordinator reversal launched successfully on e8f1 and passed all 36 tool checks.
+The thinking fixture then answered `289` for `17 * 19`, which should be `323`.
+Ten identical one-token requests at temperature zero and seed zero produced two
+wrong answers and large changes in reported token scores. Removing speculation
+and graphs produced three wrong answers in ten trials; prefix-cache hit rate was
+zero. This is a serving-correctness concern, not proof of a particular kernel bug.
+The receipts are `reverse-e8f1-01/` and `control-plain-e8f1-01/`.
+The committed 20-request regression reproduced five wrong answers in the eager,
+non-speculative control. The `serial-experts` control, using
+`deepseek_v4.disable_shared_experts_stream=true`, also returned five wrong
+answers out of twenty. Disabling shared-expert overlap did not resolve it.
+Neither a successful health check nor the earlier long-context/performance suite
+is sufficient to approve this runtime.
+
+An explicit diagnostic recipe, `deepseek-v4-0731-flashinfer-control`, selects
+`FLASHINFER_MLA_SPARSE_DSV4` attention while preserving B12X linear/MoE kernels,
+the checkpoint, eager execution, and NCCL pin. It has manifests for either
+coordinator and is not a published serving configuration. Mixed-backend DSpark
+is rejected until separately supported and tested. The original recipes and
+their saved-plan digests remain unchanged.
+This control failed startup in `deep_gemm_fp8_o_proj` with a DeepGEMM
+`t.dim() == N` assertion; it never reached the repeated-answer test.
+`control-flashinfer-e8f1-01/coordinator-failure.log` preserves the traceback.
+
+The next correctness investigation must isolate target-model numerical kernels
+and collective execution against a reference or a separately pinned runtime.
+Speculation, CUDA graphs, and shared-expert overlap have each been disabled
+without eliminating the answer flips. The actual faulty component is unresolved;
+no hardware failure or specific NCCL defect has been established.
+
+Downstream client publication is withheld pending correctness. The initial
+artifact-staging record follows.
+
 Local staging evidence lives in `data/cluster/deepseek-tp-20260911/`; remote
 preparation evidence lives in the controller's `state/deepseek-tp-20260911/`.
 Artifact staging completed on September 12, 2026: all 74 files (48 weight shards,
@@ -163,9 +249,9 @@ Artifact staging completed on September 12, 2026: all 74 files (48 weight shards
 transfer and is not a raw cable-bandwidth benchmark. The original download and
 prepared copy manifests are identical.
 
-The final preflight passes model-cache, runtime-image, NCCL-library, fabric,
+The staging-time final preflight passed model-cache, runtime-image, NCCL-library, fabric,
 RDMA-device and service-port checks on both nodes. Its only failed checks are
-reservation, GPU-idle and shared-memory because Qwen still occupies both GPUs.
+reservation, GPU-idle and shared-memory because Qwen occupied both GPUs then.
 `final-preflight/preflight.json`, `prepared/preparation.json` and
 `staging-summary.json` distinguish this completed staging from GPU acceptance.
 The four current candidate plans are under `final-plans/`; older top-level
@@ -173,7 +259,6 @@ staging plans predate the final NCCL pin and should not be used to launch tests.
 
 The accepted Qwen plan digest remains
 `a83ebf27f1b5f0ecbc92288191c206660ac5b13b3815ed411dea90e1383e3d20`.
-GPU startup, distributed kernel compatibility, tool/OMP acceptance, speculative
-speedup, measured cable traffic, and reverse-coordinator inference remain to be
-tested. No DeepSeek TP endpoint should be described as ready until those relevant
-checks pass.
+Artifact staging alone does not establish serving readiness; use the later GPU
+and client acceptance receipts for that conclusion. Higher context sizes,
+concurrent load, and the plain graph variant need their own qualification.
