@@ -42,3 +42,13 @@ omp --model spark-context-guard/local-qwen3-next-80b
 
 Implementation reference: [vLLM's Qwen3-Next recipe](https://github.com/vllm-project/recipes/blob/main/Qwen/Qwen3-Next.md).
 Live deployment results are recorded below after verification.
+
+To verify the existing Mac provider with a real, bounded read-tool round trip:
+
+```bash
+.venv/bin/python scripts/probe-spark-omp.py --provider spark-context-guard --model local-qwen3-next-80b --output RUN/omp-mac.json
+```
+
+This creates a temporary file with an unpredictable value, requires OMP to read
+that exact file, and verifies the final answer uses the tool result. It does not
+change the provider, save a chat session, or load extensions.

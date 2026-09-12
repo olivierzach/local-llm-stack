@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Require a real read-only OMP tool call through an isolated Spark client profile."""
+"""Require a real read-only OMP call through a Spark profile or existing provider."""
 import argparse
 import json
 from pathlib import Path
@@ -30,24 +30,34 @@ def validate(events, fixture, value):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--node',required=True)
+    target=parser.add_mutually_exclusive_group(required=True)
+    target.add_argument('--node')
+    target.add_argument('--provider',help='Use an existing local OMP provider without changing its configuration')
     parser.add_argument('--model',default='local-coder')
     parser.add_argument('--port',type=int,default=4110)
     parser.add_argument('--key-file',type=Path)
     parser.add_argument('--registry',type=Path)
     parser.add_argument('--output',type=Path,required=True)
     args=parser.parse_args()
+    if args.provider and (args.key_file or args.registry):
+        parser.error('--key-file and --registry require --node')
     args.output=args.output.resolve()
     value='spark-tool-'+uuid.uuid4().hex
     with tempfile.TemporaryDirectory(prefix='spark-omp-probe-') as temporary:
         root=Path(temporary)
         fixture=root/'verification.txt'
         fixture.write_text('Verification value: '+value+'\n')
-        command=[sys.executable,str(ROOT/'scripts/spark-client'),'run','--node',args.node,
-            '--port',str(args.port),'--client','omp','--output',str(root/'profile')]
-        for flag,path in [('--key-file',args.key_file),('--registry',args.registry)]:
-            if path: command.extend([flag,str(path.resolve())])
-        command.extend(['--','--model','spark-'+args.node+'/'+args.model,'--tools','read',
+        if args.provider:
+            command=['omp']
+            provider=args.provider
+        else:
+            command=[sys.executable,str(ROOT/'scripts/spark-client'),'run','--node',args.node,
+                '--port',str(args.port),'--client','omp','--output',str(root/'profile')]
+            for flag,path in [('--key-file',args.key_file),('--registry',args.registry)]:
+                if path: command.extend([flag,str(path.resolve())])
+            command.append('--')
+            provider='spark-'+args.node
+        command.extend(['--model',provider+'/'+args.model,'--tools','read',
             '--no-lsp','--no-extensions','--no-session','--mode','json','--max-time','90','--print',
             'Use the read tool to read '+str(fixture)+'. Reply only with the verification value from the file. Do not guess.'])
         result=subprocess.run(command,cwd=root,text=True,capture_output=True,timeout=120)
@@ -60,7 +70,7 @@ def main():
             try: events.append(json.loads(line))
             except ValueError: continue
         calls=validate(events,fixture,value)
-        report={'passed':True,'node':args.node,'model':args.model,'tool':'read','tool_calls':calls,
+        report={'passed':True,'node':args.node,'provider':provider,'model':args.model,'tool':'read','tool_calls':calls,
                 'verification_value':value,'events':len(events),'scope':'Read-only synthetic fixture; not a coding-quality evaluation.'}
         args.output.write_text(json.dumps(report,indent=2)+'\n')
         print(json.dumps(report))
