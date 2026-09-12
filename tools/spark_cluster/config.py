@@ -120,8 +120,11 @@ def validate_recipe(r):
     if "deepseek_v4" in r:
         ds = r["deepseek_v4"]
         fields(ds, ("backend", "kv_cache_dtype", "block_size", "max_num_batched_tokens"),
-               ("cudagraph_capture_size",))
+               ("cudagraph_capture_size", "attention_backend"))
         require(ds["backend"] == "b12x", "unsupported DeepSeek V4 backend")
+        if "attention_backend" in ds:
+            require(ds["attention_backend"] in ("b12x", "flashinfer-sm120"), "unsupported DeepSeek V4 attention backend")
+            require("speculative_config" not in r, "alternate attention is a non-speculative diagnostic only")
         require(ds["kv_cache_dtype"] == "fp8", "unsupported DeepSeek V4 KV dtype")
         require(type(ds["block_size"]) is int and ds["block_size"] == 256, "DeepSeek V4 requires block size 256")
         integer(ds["max_num_batched_tokens"], 256, 32768)
@@ -265,7 +268,8 @@ def plan(inv, recipe, deployment):
                     "--reasoning-config", canonical({"reasoning_parser": "deepseek_v4", "reasoning_start_str": "", "reasoning_end_str": ""}),
                     "--kv-cache-dtype", ds["kv_cache_dtype"], "--block-size", str(ds["block_size"]),
                     "--max-num-batched-tokens", str(ds["max_num_batched_tokens"]),
-                    "--moe-backend", "b12x", "--linear-backend", "b12x", "--attention-backend", "B12X"]
+                    "--moe-backend", "b12x", "--linear-backend", "b12x", "--attention-backend",
+                    "FLASHINFER_MLA_SPARSE_DSV4" if ds.get("attention_backend") == "flashinfer-sm120" else "B12X"]
             if "cudagraph_capture_size" in ds:
                 cmd += ["--max-cudagraph-capture-size", str(ds["cudagraph_capture_size"]),
                         "--compilation-config", canonical({"cudagraph_mode": "FULL_AND_PIECEWISE", "custom_ops": ["all"]})]

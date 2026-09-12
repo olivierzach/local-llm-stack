@@ -24,6 +24,7 @@ deepseek-tp-status deepseek-tp-down:
 
 deepseek-tp-accept:
 	@test -n "$(PLAN)" -a -n "$(OUTPUT)" || { echo 'Use PLAN=/path/to/saved/plan.json OUTPUT=/path/to/new/acceptance' >&2; exit 2; }
+	.venv/bin/python scripts/probe-deepseek-repeatability.py --saved-plan "$(PLAN)" --output "$(OUTPUT)/repeatability.json"
 	.venv/bin/python scripts/probe-spark-tool-calling.py --saved-plan "$(PLAN)" --output "$(OUTPUT)/tools.json"
 	.venv/bin/python scripts/probe-deepseek-thinking.py --saved-plan "$(PLAN)" --output "$(OUTPUT)/thinking.json"
 	.venv/bin/python scripts/accept-spark-serving.py --profile deepseek-64k --saved-plan "$(PLAN)" --output "$(OUTPUT)/serving"

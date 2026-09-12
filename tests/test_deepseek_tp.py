@@ -117,3 +117,27 @@ def test_graphs_cannot_silently_override_eager(ds_inputs):
     r['deepseek_v4']['cudagraph_capture_size'] = 8
     with pytest.raises(config.ConfigError, match='conflict'):
         config.validate_recipe(r)
+
+
+@pytest.mark.parametrize('coordinator', ['66f1', 'e8f1'])
+def test_flashinfer_control_changes_attention_but_preserves_math_and_transport(coordinator):
+    p = config.plan(*config.load(ROOT, ROOT / 'cluster/inventory.json',
+        ROOT / f'cluster/deployments/deepseek-tp2-flashinfer-control-{coordinator}.json'))
+    config.validate_saved_plan(p)
+    for compose in p['compose'].values():
+        worker = compose['services']['worker']
+        argv = worker['command']
+        assert argv[argv.index('--attention-backend') + 1] == 'FLASHINFER_MLA_SPARSE_DSV4'
+        assert argv[argv.index('--moe-backend') + 1] == 'b12x'
+        assert argv[argv.index('--linear-backend') + 1] == 'b12x'
+        assert '--enforce-eager' in argv and '--speculative-config' not in argv
+        assert worker['environment']['NCCL_IB_DISABLE'] == '0'
+
+
+def test_alternate_attention_cannot_silently_change_drafter_backend(ds_inputs):
+    r = ds_inputs[1]
+    r['deepseek_v4']['attention_backend'] = 'flashinfer-sm120'
+    r['speculative_config'] = dict(method='dspark', num_speculative_tokens=2,
+        draft_sample_method='probabilistic', attention_backend='B12X')
+    with pytest.raises(config.ConfigError, match='non-speculative diagnostic'):
+        config.validate_recipe(r)
