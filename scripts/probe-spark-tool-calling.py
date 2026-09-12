@@ -74,7 +74,10 @@ def main():
                             'tools': tools, 'tool_choice': choice, 'stream': stream}
                     if stream:
                         body['stream_options'] = {'include_usage': True}
-                    assistant = exercise(label + '-call', body, 'tool_calls')
+                    # vLLM deliberately uses stop for named choices; automatic
+                    # and required calls use tool_calls. Validate the structured
+                    # call and arguments below regardless of the finish label.
+                    assistant = exercise(label + '-call', body, 'stop' if mode == 'named' else 'tool_calls')
                     calls = assistant.get('tool_calls', [])
                     if len(calls) != 1 or calls[0]['function']['name'] != 'lookup_value' or json.loads(calls[0]['function']['arguments']) != {'key': key}:
                         raise RuntimeError('incorrect function or arguments: ' + repr(assistant))

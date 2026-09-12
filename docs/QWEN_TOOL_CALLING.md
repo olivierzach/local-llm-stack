@@ -52,3 +52,10 @@ To verify the existing Mac provider with a real, bounded read-tool round trip:
 This creates a temporary file with an unpredictable value, requires OMP to read
 that exact file, and verifies the final answer uses the tool result. It does not
 change the provider, save a chat session, or load extensions.
+
+The pinned vLLM runtime deliberately returns `finish_reason: stop` for explicitly
+named tool choices, while automatic/required tool calls use `tool_calls`.
+Acceptance checks the complete function name, JSON arguments, call ID and result
+continuation in either case. The first candidate run passed automatic calls but
+triggered rollback because the initial probe incorrectly required `tool_calls`
+for named choices. Its failure receipt is retained under `qwen-tools-01`.

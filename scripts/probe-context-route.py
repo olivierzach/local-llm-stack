@@ -52,7 +52,8 @@ def main():
     def exercise(label, body, finish='stop'):
         record, message = chat(args.base_url, body, key)
         record.pop('memory', None)  # The API client's host memory is not backend GPU memory.
-        assert record['finish_reason'] == finish, record
+        expected = finish if isinstance(finish, tuple) else (finish,)
+        assert record['finish_reason'] in expected, record
         assert int(record['guard']['x-context-limit']) == route['context_tokens'], record
         token_payload = {k: v for k, v in body.items() if k not in ('max_tokens', 'temperature', 'stream', 'stream_options')}
         token_payload['model'] = route['upstream_model']
@@ -80,7 +81,9 @@ def main():
             body = {**payload, 'messages': [{'role': 'user', 'content': 'Call get_test_value with key alpha, then tell me its value.'}],
                     'tools': tools, 'tool_choice': {'type': 'function', 'function': {'name': 'get_test_value'}},
                     'max_tokens': 256, 'stream': True}
-            assistant = exercise('streamed-tool-call', body, 'tool_calls')
+            # vLLM uses stop for named calls; other backends use tool_calls.
+            # Both still must return the exact complete function call below.
+            assistant = exercise('streamed-tool-call', body, ('stop', 'tool_calls'))
             calls = assistant.get('tool_calls', [])
             assert len(calls) == 1 and calls[0]['function']['name'] == 'get_test_value', assistant
             assert json.loads(calls[0]['function']['arguments']) == {'key': 'alpha'}
