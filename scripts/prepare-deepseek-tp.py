@@ -91,6 +91,15 @@ def main():
             run([sys.executable, ROOT / 'scripts/sync-spark-images.py', '--lock', images_path,
                  '--peer', args.peer, '--fabric-inventory', ROOT / 'cluster/inventory.json',
                  '--restore-registry-digests', '--apply'])
+            phase('pinned-nccl-library')
+            run([sys.executable, ROOT / 'scripts/install-spark-nccl.py', '--manifest',
+                 ROOT / 'cluster/runtime-libraries/nccl-2.30.7-aarch64.json', '--cache', source['cache']])
+            # Both nodes use the managed controller; the installer only verifies
+            # an already-present pin, or stages it separately from host libraries.
+            peer_root = Path(peer['projects']) / 'local-llm-stack-cluster/current'
+            run(ssh + [alias, shlex.join(['python3', str(peer_root / 'scripts/install-spark-nccl.py'),
+                '--manifest', str(peer_root / 'cluster/runtime-libraries/nccl-2.30.7-aarch64.json'),
+                '--cache', peer['cache']])])
             phase('model-download-and-verification')
             run(['docker', 'pull', manifest['image']])
             directory = 'models--' + manifest['repo'].replace('/', '--')

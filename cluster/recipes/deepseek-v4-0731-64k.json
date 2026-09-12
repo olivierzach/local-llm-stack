@@ -41,5 +41,9 @@
     "kv_cache_dtype": "fp8",
     "block_size": 256,
     "max_num_batched_tokens": 2048
+  },
+  "nccl_library": {
+    "version": "2.30.7",
+    "sha256": "fc7ea66334edbc934aa25959b9907dbb2b91a1d2485beff18839afc45cbc08d0"
   }
 }

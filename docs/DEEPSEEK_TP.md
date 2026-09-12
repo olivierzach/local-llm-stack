@@ -16,6 +16,7 @@ drafter, and single-node service definitions are unchanged on both machines.
 | Runtime | `eugr/spark-vllm-b12x@sha256:693a1d778e998ccf9d9268d70f5af0f1f397e4a8c0d2ce6e54bb75e22bd1b36b` |
 | ARM64 image ID | `sha256:6d01fec064f7443a0d82360f918f6774212d4701f6bd08a2d338e10dafb696a2` |
 | Packages | vLLM `0.1.dev20610+g4b276a363.d20260910`, Torch `2.13.0+cu130`, FlashInfer `0.7.0` |
+| NCCL | Container-only `2.30.7` library pin, shared with the accepted Qwen setup |
 | Parallelism | TP2, one GPU per node, native multiprocessing |
 | Initial context / output | 65,536 / 8,192 tokens |
 | Concurrency / GPU memory fraction | 1 / 0.8 |
@@ -65,6 +66,13 @@ registry digest associations during `save/load`, so the helper subsequently
 resolves the pinned registry manifest and verifies the resulting image ID.
 Preparation neither reserves GPUs nor changes live routes. The final
 `preparation.json` says `staged-awaiting-gpu-testing`; it is not serving acceptance.
+
+NCCL uses the same checksum-verified, read-only `2.30.7` library already staged
+for Qwen. It replaces the new image's bundled `2.29.7` only inside the new DeepSeek
+containers, without `LD_PRELOAD` or any host library modification. The preparation
+command verifies it on both nodes and installs the pinned package if absent.
+This carries forward the known-good communication-library version; the new
+DeepSeek/runtime combination still requires its own live collective checks.
 
 ## Render and start an explicit test
 

@@ -47,5 +47,9 @@
     "num_speculative_tokens": 2,
     "draft_sample_method": "probabilistic",
     "attention_backend": "B12X"
+  },
+  "nccl_library": {
+    "version": "2.30.7",
+    "sha256": "fc7ea66334edbc934aa25959b9907dbb2b91a1d2485beff18839afc45cbc08d0"
   }
 }
