@@ -120,8 +120,11 @@ def validate_recipe(r):
     if "deepseek_v4" in r:
         ds = r["deepseek_v4"]
         fields(ds, ("backend", "kv_cache_dtype", "block_size", "max_num_batched_tokens"),
-               ("cudagraph_capture_size", "attention_backend", "disable_shared_experts_stream"))
+               ("cudagraph_capture_size", "attention_backend", "disable_shared_experts_stream", "cuda_launch_blocking"))
         require(ds["backend"] == "b12x", "unsupported DeepSeek V4 backend")
+        if "cuda_launch_blocking" in ds:
+            require(type(ds["cuda_launch_blocking"]) is bool, "CUDA launch blocking must be boolean")
+            require("--enforce-eager" in r["extra_args"], "CUDA launch blocking requires eager execution")
         if "disable_shared_experts_stream" in ds:
             require(type(ds["disable_shared_experts_stream"]) is bool, "shared expert stream switch must be boolean")
         if "attention_backend" in ds:
@@ -309,6 +312,9 @@ def plan(inv, recipe, deployment):
             if "disable_shared_experts_stream" in recipe["deepseek_v4"]:
                 service["environment"]["VLLM_DISABLE_SHARED_EXPERTS_STREAM"] = (
                     "1" if recipe["deepseek_v4"]["disable_shared_experts_stream"] else "0")
+            if "cuda_launch_blocking" in recipe["deepseek_v4"]:
+                service["environment"]["CUDA_LAUNCH_BLOCKING"] = (
+                    "1" if recipe["deepseek_v4"]["cuda_launch_blocking"] else "0")
         if "disable_pynccl" in recipe:
             service["environment"]["VLLM_DISABLE_PYNCCL"] = (
                 "1" if recipe["disable_pynccl"] else "0")

@@ -164,3 +164,18 @@ def test_shared_experts_overlap_switch_rejects_string_boolean(ds_inputs):
     r['deepseek_v4']['disable_shared_experts_stream'] = 'false'
     with pytest.raises(config.ConfigError, match='must be boolean'):
         config.validate_recipe(r)
+
+
+def test_cuda_blocking_is_explicit_eager_only_and_applied_to_both_ranks(ds_inputs):
+    inv, r, d = ds_inputs
+    r['extra_args'] = ['--enforce-eager']
+    before = config.plan(inv, r, d)
+    r['deepseek_v4']['cuda_launch_blocking'] = True
+    config.validate_recipe(r)
+    after = config.plan(inv, r, d)
+    for node in d['nodes']:
+        assert 'CUDA_LAUNCH_BLOCKING' not in before['compose'][node]['services']['worker']['environment']
+        assert after['compose'][node]['services']['worker']['environment']['CUDA_LAUNCH_BLOCKING'] == '1'
+    r['extra_args'] = []
+    with pytest.raises(config.ConfigError, match='requires eager'):
+        config.validate_recipe(r)
