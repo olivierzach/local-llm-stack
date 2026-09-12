@@ -1,8 +1,9 @@
 # Qwen BF16 tensor parallelism with native speculation
 
 The pinned NCCL 2.30.7 recipe passed the full bounded serving suite with **either
-Spark coordinating** on September 11, 2026. The **66f1-coordinated placement is
-left running**, with native MTP enabled and DeepSeek intentionally down. Both
+Spark coordinating** on September 11, 2026. The 66f1 placement subsequently
+passed a tool-enabled upgrade; [QWEN_TOOL_CALLING.md](QWEN_TOOL_CALLING.md) records
+the current service. Native MTP remains enabled and DeepSeek intentionally down. Both
 existing Context Guards and both independent client gateways passed real text
 and streaming checks. This completes the focused Qwen TP+MTP serving objective;
 it does not certify unrestricted concurrency, other parallelism recipes or
@@ -66,7 +67,7 @@ evidence for the workload, not a peak-bandwidth benchmark. Sampled minimum host
 available memory was 9.88 GiB (66f1) and 10.12 GiB (e8f1); peak GPU temperatures
 were 76°C and 77°C respectively.
 
-## 66f1 coordinator results and current service
+## 66f1 coordinator baseline results
 
 Controller source used by the unattended acceptance command:
 `c2b4e46f72cb74e103e175562650f7059b2d02f7`.
@@ -106,7 +107,7 @@ From either installed controller, inspect or stop the current deployment:
 
 ```bash
 cd ~/projects/local-llm-stack-cluster/current
-qwen_plan="$HOME/projects/local-llm-stack-cluster/state/serving-20260910/mtp-nccl2307-66f1-01/plan.json"
+qwen_plan="$HOME/projects/local-llm-stack-cluster/state/serving-20260911/qwen-tools-02/plan.json"
 scripts/sparkctl status --saved-plan "$qwen_plan"
 # When intentionally releasing both GPUs:
 scripts/sparkctl down --saved-plan "$qwen_plan"
@@ -145,8 +146,9 @@ local-qwen3-next-80b:
 Fam Chat's configured upstream remains Context Guard; its authenticated UI
 session was not separately exercised in this run.
 
-This Qwen recipe advertises text and streaming. Tool calling, image input and a
-separate thinking stream are not accepted capabilities of this recipe.
+The baseline recipe advertised text and streaming. The current successor also
+passed tool-calling acceptance; see [QWEN_TOOL_CALLING.md](QWEN_TOOL_CALLING.md).
+Image input and a separate thinking stream remain unsupported by this checkpoint.
 
 ## Reproduction and limits
 
