@@ -6,7 +6,7 @@ DOCKER_COMPOSE ?= docker compose
 DEEPSEEK_TP_SPEC ?= off
 DEEPSEEK_TP_EXECUTION ?= eager
 DEEPSEEK_TP_MANIFEST = cluster/deployments/deepseek-tp2$(if $(filter dspark2,$(DEEPSEEK_TP_SPEC)),-dspark2,)$(if $(filter graphs,$(DEEPSEEK_TP_EXECUTION)),-graphs,)-$(COORDINATOR).json
-.PHONY: deepseek-tp-prepare deepseek-tp-plan deepseek-tp-up deepseek-tp-status deepseek-tp-down
+.PHONY: deepseek-tp-prepare deepseek-tp-plan deepseek-tp-up deepseek-tp-status deepseek-tp-down deepseek-tp-accept
 deepseek-tp-prepare:
 	@test -n "$(PEER)" -a -n "$(OUTPUT)" || { echo 'Use PEER=66f1|e8f1 OUTPUT=/path/to/preparation-receipts' >&2; exit 2; }
 	python3 scripts/prepare-deepseek-tp.py --peer "$(PEER)" --output "$(OUTPUT)" --apply
@@ -21,6 +21,12 @@ deepseek-tp-plan deepseek-tp-up:
 deepseek-tp-status deepseek-tp-down:
 	@test -n "$(PLAN)" || { echo 'Use PLAN=/path/to/the/exact/saved/plan.json' >&2; exit 2; }
 	python3 scripts/sparkctl $(if $(filter deepseek-tp-status,$@),status,down) --saved-plan "$(PLAN)"
+
+deepseek-tp-accept:
+	@test -n "$(PLAN)" -a -n "$(OUTPUT)" || { echo 'Use PLAN=/path/to/saved/plan.json OUTPUT=/path/to/new/acceptance' >&2; exit 2; }
+	.venv/bin/python scripts/probe-spark-tool-calling.py --saved-plan "$(PLAN)" --output "$(OUTPUT)/tools.json"
+	.venv/bin/python scripts/probe-deepseek-thinking.py --saved-plan "$(PLAN)" --output "$(OUTPUT)/thinking.json"
+	.venv/bin/python scripts/accept-spark-serving.py --profile deepseek-64k --saved-plan "$(PLAN)" --output "$(OUTPUT)/serving"
 
 # Public GPU operations share admission with sparkctl and the research adapters.
 SPARK_GPU_TARGETS := up balanced-up large-up qwen30-up deepseek32-up mistral24-up gptoss120-up lagunas21-up vision-up lora-serve training-up lora-train qwen38-up deepseekv4-up qwen38-down deepseekv4-down down

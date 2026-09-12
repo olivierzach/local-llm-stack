@@ -109,16 +109,15 @@ during the live test; configuration alone is not a traffic measurement.
 
 ## Acceptance before publishing
 
-Run from the controller's Python environment:
+Run the repeatable acceptance target from the managed controller checkout:
 
 ```bash
-.venv/bin/python scripts/probe-spark-tool-calling.py --saved-plan data/cluster/deepseek-plain-test/plan.json --output data/cluster/deepseek-plain-test/tools.json
-.venv/bin/python scripts/accept-spark-serving.py --profile deepseek-64k --saved-plan data/cluster/deepseek-plain-test/plan.json --output data/cluster/deepseek-plain-test/serving
+make deepseek-tp-accept PLAN=data/cluster/deepseek-plain-test/plan.json OUTPUT=data/cluster/deepseek-plain-test/acceptance
 ```
 
-This checks tool calls/results with and without streaming, 1K/4K decode,
+This checks tool calls/results and explicit thinking on/off with and without streaming, 1K/4K decode,
 approximately 63K-input retrieval/token accounting, repeated-prefix reuse and
-sequential-request stability. Also test explicit thinking and a real OMP
+sequential-request stability. Also test a real OMP
 read/edit/bash workflow. The pinned runtime's finish-reason behavior must be
 validated; never weaken tool-name, argument or returned-result checks to pass it.
 
