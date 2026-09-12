@@ -6,6 +6,8 @@ Deep explainers live in [docs/README.md](docs/README.md). For a full reproducibl
 
 For optional interchangeable compute nodes, independent Context Guard gateways,
 and explicit multi-node deployments, see [the Spark cluster runbook](docs/CLUSTER.md).
+The separate [higher-precision DeepSeek TP recipe](docs/DEEPSEEK_TP.md) preserves
+the existing single-node DeepSeek setup and can be staged while Qwen is serving.
 Existing single-host Compose and Make workflows continue to work. The
 [implementation record](docs/CLUSTER_IMPLEMENTATION.md) distinguishes tested
 capabilities from pending hardware and client acceptance.

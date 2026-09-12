@@ -87,7 +87,7 @@ def validate_recipe(r):
     fields(r, ("version", "kind", "image", "model", "revision", "alias", "context_tokens",
                "max_output_tokens", "capabilities", "dtype", "gpu_memory_utilization",
                "min_available_mib", "max_num_seqs", "extra_args", "parallelism", "validation"),
-           ("tool_call_parser", "default_chat_template_kwargs", "image_processing", "runtime_cache", "load_strategy", "mamba_cache_mode", "speculative_config", "async_scheduling", "nccl_launch_order_implicit", "flashinfer_sampler", "disable_pynccl", "nccl_library"))
+           ("tool_call_parser", "default_chat_template_kwargs", "image_processing", "runtime_cache", "load_strategy", "mamba_cache_mode", "speculative_config", "async_scheduling", "nccl_launch_order_implicit", "flashinfer_sampler", "disable_pynccl", "nccl_library", "deepseek_v4"))
     require(r["version"] == 1 and r["kind"] == "vllm", "unsupported recipe version/kind")
     require(re.fullmatch(r"[a-zA-Z0-9./_-]+@sha256:[0-9a-f]{64}", r["image"]),
             "image must be an immutable registry digest")
@@ -103,13 +103,31 @@ def validate_recipe(r):
     require(r["dtype"] in ("auto", "bfloat16", "float16", "float32"), "invalid dtype")
     fields(r["capabilities"], ("text", "vision", "tools", "streaming"))
     require(all(type(v) is bool for v in r["capabilities"].values()), "capabilities must be booleans")
-    require(r.get("tool_call_parser") in (None, "hermes"), "unsupported tool parser")
+    require(r.get("tool_call_parser") in (None, "hermes", "deepseek_v4"), "unsupported tool parser")
     require(r["capabilities"]["tools"] == bool(r.get("tool_call_parser")),
             "tool capability requires an explicit supported parser")
     if "default_chat_template_kwargs" in r:
-        fields(r["default_chat_template_kwargs"], ("enable_thinking",))
-        require(type(r["default_chat_template_kwargs"]["enable_thinking"]) is bool,
-                "enable_thinking must be a boolean")
+        kwargs = r["default_chat_template_kwargs"]
+        if "deepseek_v4" in r:
+            fields(kwargs, ("thinking", "reasoning_effort"))
+            require(type(kwargs["thinking"]) is bool, "thinking must be a boolean")
+            require(kwargs["reasoning_effort"] in ("low", "high", "max"), "unsupported reasoning effort")
+            if kwargs["reasoning_effort"] == "max":
+                require(r["context_tokens"] >= 393216, "max reasoning requires at least 384K context")
+        else:
+            fields(kwargs, ("enable_thinking",))
+            require(type(kwargs["enable_thinking"]) is bool, "enable_thinking must be a boolean")
+    if "deepseek_v4" in r:
+        ds = r["deepseek_v4"]
+        fields(ds, ("backend", "kv_cache_dtype", "block_size", "max_num_batched_tokens"))
+        require(ds["backend"] == "b12x", "unsupported DeepSeek V4 backend")
+        require(ds["kv_cache_dtype"] == "fp8", "unsupported DeepSeek V4 KV dtype")
+        require(type(ds["block_size"]) is int and ds["block_size"] == 256, "DeepSeek V4 requires block size 256")
+        integer(ds["max_num_batched_tokens"], 256, 32768)
+        require(r["model"] == "deepseek-ai/DeepSeek-V4-Flash-0731", "DeepSeek V4 profile requires the 0731 checkpoint")
+        require(r.get("tool_call_parser") == "deepseek_v4", "DeepSeek V4 requires its tokenizer/tool parser")
+    elif r.get("tool_call_parser") == "deepseek_v4":
+        raise ConfigError("DeepSeek V4 parser requires its runtime profile")
     if "mamba_cache_mode" in r:
         require(r["mamba_cache_mode"] in ("none", "align"), "unsupported hybrid cache mode")
     if "async_scheduling" in r:
@@ -127,8 +145,16 @@ def validate_recipe(r):
         require(isinstance(r['nccl_library']['sha256'], str) and re.fullmatch(r'[a-f0-9]{64}', r['nccl_library']['sha256']), 'invalid NCCL SHA-256')
     if "speculative_config" in r:
         speculative = r["speculative_config"]
-        fields(speculative, ("method", "num_speculative_tokens"))
-        require(speculative["method"] == "mtp", "only native MTP is supported by this recipe schema")
+        require(isinstance(speculative, dict), "speculative_config must be an object")
+        if speculative.get("method") == "dspark":
+            fields(speculative, ("method", "num_speculative_tokens", "draft_sample_method", "attention_backend"))
+            require("deepseek_v4" in r, "DSpark requires the DeepSeek V4 runtime profile")
+            require(speculative["draft_sample_method"] == "probabilistic", "unsupported DSpark sampling")
+            require(speculative["attention_backend"] == "B12X", "DSpark requires B12X attention")
+        else:
+            fields(speculative, ("method", "num_speculative_tokens"))
+            require(speculative["method"] == "mtp", "unsupported speculative method")
+            require("deepseek_v4" not in r, "0731 carries DSpark, not an MTP head")
         integer(speculative["num_speculative_tokens"], 1, 8)
     if "load_strategy" in r:
         require(r["load_strategy"] in ("lazy", "eager", "prefetch"), "unsupported weight load strategy")
@@ -229,6 +255,13 @@ def plan(inv, recipe, deployment):
             cmd += ["--enable-auto-tool-choice", "--tool-call-parser", recipe["tool_call_parser"]]
         if "default_chat_template_kwargs" in recipe:
             cmd += ["--default-chat-template-kwargs", canonical(recipe["default_chat_template_kwargs"])]
+        if "deepseek_v4" in recipe:
+            ds = recipe["deepseek_v4"]
+            cmd += ["--tokenizer-mode", "deepseek_v4", "--reasoning-parser", "deepseek_v4",
+                    "--reasoning-config", canonical({"reasoning_parser": "deepseek_v4", "reasoning_start_str": "", "reasoning_end_str": ""}),
+                    "--kv-cache-dtype", ds["kv_cache_dtype"], "--block-size", str(ds["block_size"]),
+                    "--max-num-batched-tokens", str(ds["max_num_batched_tokens"]),
+                    "--moe-backend", "b12x", "--linear-backend", "b12x", "--attention-backend", "B12X"]
         if "image_processing" in recipe:
             image = recipe["image_processing"]
             cmd += ["--limit-mm-per-prompt", canonical({"image": image["max_images"], "video": 0}),
@@ -249,6 +282,17 @@ def plan(inv, recipe, deployment):
         if "flashinfer_sampler" in recipe:
             service["environment"]["VLLM_USE_FLASHINFER_SAMPLER"] = (
                 "1" if recipe["flashinfer_sampler"] else "0")
+        if "deepseek_v4" in recipe:
+            # Fixed, reviewed kernel switches; no arbitrary environment overrides
+            # can replace admission, offline loading or the direct fabric settings.
+            service["environment"].update({
+                "CUTE_DSL_ARCH": "sm_121a", "VLLM_USE_AOT_COMPILE": "1",
+                "VLLM_USE_BREAKABLE_CUDAGRAPH": "0", "VLLM_USE_MEGA_AOT_ARTIFACT": "1",
+                "VLLM_MEMORY_PROFILE_INCLUDE_ATTN": "1", "VLLM_USE_B12X_WO_PROJECTION": "1",
+                "VLLM_USE_B12X_MHC": "1", "VLLM_USE_B12X_FP8_GEMM": "1",
+                "VLLM_USE_B12X_MOE": "1", "VLLM_USE_B12X_SPARSE_INDEXER": "1",
+                "VLLM_USE_V2_MODEL_RUNNER": "1", "VLLM_MOE_SKIP_PADDING": "0",
+                "B12X_MLA_SM120_UNIFIED": "1", "B12X_MOE_FORCE_A8": "1"})
         if "disable_pynccl" in recipe:
             service["environment"]["VLLM_DISABLE_PYNCCL"] = (
                 "1" if recipe["disable_pynccl"] else "0")

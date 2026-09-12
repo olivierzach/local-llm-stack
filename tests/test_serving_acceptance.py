@@ -42,3 +42,25 @@ def test_fail_fast_retains_receipts(tmp_path, monkeypatch, failure):
     assert len(calls) == 2 and report['checks'] == ['decode']
     assert report['phase'] == 'failed' and not report['complete']
     assert json.loads((out / 'decode.json').read_text())['complete']
+
+
+def test_deepseek_profile_uses_64k_bound_without_changing_workers(tmp_path, monkeypatch):
+    from spark_cluster import config
+    plan = config.plan(*config.load(ROOT, ROOT / 'cluster/inventory.json',
+                                   ROOT / 'cluster/deployments/deepseek-tp2-66f1.json'))
+    saved = tmp_path / 'plan.json'
+    saved.write_text(json.dumps(plan))
+    out = tmp_path / 'acceptance'
+    monkeypatch.setattr('sys.argv', ['accept', '--saved-plan', str(saved), '--output', str(out),
+                                  '--profile', 'deepseek-64k'])
+    calls = []
+    def run(argv, **kwargs):
+        calls.append(argv)
+        Path(argv[argv.index('--output') + 1]).write_text(json.dumps(
+            {'complete': True, 'deployment_digest': plan['digest']}))
+    monkeypatch.setattr(accept.subprocess, 'run', run)
+    accept.main()
+    assert len(calls) == 4
+    assert calls[1][calls[1].index('--input-tokens') + 1] == '63424'
+    assert all('sparkctl' not in argv for argv in calls)
+    assert json.loads((out / 'acceptance.json').read_text())['complete']

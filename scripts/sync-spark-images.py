@@ -25,6 +25,9 @@ def main():
     p.add_argument("--identity", type=Path)
     p.add_argument("--known-hosts", type=Path)
     p.add_argument("--host-key-alias")
+    p.add_argument("--fabric-inventory", type=Path, help="require an inventoried direct Spark cable route")
+    p.add_argument("--restore-registry-digests", action="store_true",
+                   help="after copying layers, resolve registry manifests and verify the pinned image IDs")
     p.add_argument("--apply", action="store_true", help="default is a read-only audit")
     args = p.parse_args()
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.@-]*", args.peer): p.error("invalid SSH peer")
@@ -32,6 +35,12 @@ def main():
     if args.identity: ssh += ["-i", str(args.identity.expanduser()), "-o", "IdentitiesOnly=yes"]
     if args.known_hosts: ssh += ["-o", "UserKnownHostsFile=" + str(args.known_hosts.expanduser())]
     if args.host_key_alias: ssh += ["-o", "HostKeyAlias=" + args.host_key_alias]
+    if args.fabric_inventory:
+        if args.identity or args.known_hosts or args.host_key_alias:
+            p.error('fabric inventory uses the inventoried SSH alias; do not combine transport overrides')
+        from spark_transfer import transport
+        ssh, args.peer, fabric = transport(args.peer, json.loads(args.fabric_inventory.read_text()))
+        print(json.dumps({'fabric': fabric}), flush=True)
     ssh += [args.peer]
     manifest = json.loads(args.lock.read_text())
     if manifest["version"] != 1: p.error("unknown lock version")
@@ -41,6 +50,8 @@ def main():
     # Preflight every image/tag before any writes; refuse replacing another tag.
     for image in manifest["images"]:
         if not re.fullmatch(r"sha256:[a-f0-9]{64}", image["id"]): p.error("unlocked image")
+        if args.restore_registry_digests and not re.fullmatch(r'[A-Za-z0-9./_-]+@sha256:[a-f0-9]{64}', image.get('registry') or ''):
+            p.error('registry restoration requires immutable registry pins for every image')
         if image["id"] not in local_ids: raise RuntimeError(f"Source missing {image['tag']}")
         tag = image["tag"]
         if not re.fullmatch(r"[a-zA-Z0-9./_:-]+", tag): p.error("invalid tag")
@@ -80,6 +91,17 @@ def main():
             continue
         if current.returncode != 1: raise RuntimeError("destination image inspection failed")
         checked(ssh + [shlex.join(["docker", "image", "tag", image["id"], image["tag"]])])
+    if args.restore_registry_digests:
+        for image in manifest['images']:
+            # docker-save/load on the classic image store drops RepoDigests.
+            # All image layers have already crossed the direct cable above;
+            # pulling the pin restores the registry manifest association.
+            pull = subprocess.run(ssh + [shlex.join(['docker', 'pull', image['registry']])],
+                                  text=True, capture_output=True, check=True)
+            print(json.dumps({'registry_restore': image['registry'], 'output': pull.stdout}), flush=True)
+            actual = checked(ssh + [shlex.join(['docker', 'image', 'inspect', image['registry'], '--format', '{{.Id}}'])])
+            if actual != image['id']:
+                raise RuntimeError('restored registry image differs from the copied immutable ID')
     print(json.dumps({"verified_images": len(manifest["images"])}))
 
 

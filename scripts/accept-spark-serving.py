@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the bounded Qwen serving acceptance sequence against an existing deployment.
+"""Run a bounded serving acceptance sequence against an existing deployment.
 
 Leaves lifecycle and route changes to sparkctl and configure-context-routes.py.
 Stops on the first failed check and retains every completed receipt.
@@ -21,17 +21,22 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--saved-plan', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True, help='new receipt directory')
+    parser.add_argument('--profile', choices=('qwen-256k', 'deepseek-64k'), default='qwen-256k')
     args = parser.parse_args()
     saved = args.saved_plan.resolve()
     plan = read(saved)
     validate_saved_plan(plan)
-    if plan['recipe']['context_tokens'] < 262144 or plan['recipe']['max_output_tokens'] < 4096:
-        parser.error('this acceptance sequence requires the native 256K Qwen recipe')
+    minimum = 262144 if args.profile == 'qwen-256k' else 65536
+    if plan['recipe']['context_tokens'] < minimum or plan['recipe']['max_output_tokens'] < 4096:
+        parser.error('recipe context/output limits are too small for this acceptance profile')
+    if args.profile == 'deepseek-64k' and not plan['recipe'].get('deepseek_v4'):
+        parser.error('the DeepSeek profile requires a DeepSeek V4 recipe')
     args.output.mkdir(parents=True, exist_ok=False)
-    report = dict(complete=False, deployment_digest=plan['digest'], started_at=time.time(), checks=[])
+    report = dict(complete=False, deployment_digest=plan['digest'], profile=args.profile,
+                  started_at=time.time(), checks=[])
     checks = [
         ('decode', 'profile-spark-decode.py', ['--max-tokens', '1024'], 2100),
-        ('long-context', 'probe-spark-long-context.py', ['--input-tokens', '260032'], 2100),
+        ('long-context', 'probe-spark-long-context.py', ['--input-tokens', str(minimum - 2112)], 2100),
         ('soak', 'soak-spark-serving.py', ['--rounds', '3', '--max-tokens', '1024'], 2700),
         ('decode-4096', 'profile-spark-decode.py', ['--max-tokens', '4096'], 2100),
     ]
