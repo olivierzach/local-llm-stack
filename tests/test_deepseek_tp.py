@@ -141,3 +141,26 @@ def test_alternate_attention_cannot_silently_change_drafter_backend(ds_inputs):
         draft_sample_method='probabilistic', attention_backend='B12X')
     with pytest.raises(config.ConfigError, match='non-speculative diagnostic'):
         config.validate_recipe(r)
+
+
+@pytest.mark.parametrize('value,expected', [(True, '1'), (False, '0')])
+def test_shared_experts_overlap_switch_is_applied_to_both_ranks(ds_inputs, value, expected):
+    inv, r, d = ds_inputs
+    before = config.plan(inv, r, d)
+    r['deepseek_v4']['disable_shared_experts_stream'] = value
+    config.validate_recipe(r)
+    after = config.plan(inv, r, d)
+    for node in d['nodes']:
+        worker = after['compose'][node]['services']['worker']
+        old = before['compose'][node]['services']['worker']
+        assert worker['environment']['VLLM_DISABLE_SHARED_EXPERTS_STREAM'] == expected
+        assert 'VLLM_DISABLE_SHARED_EXPERTS_STREAM' not in old['environment']
+        assert worker['command'] == old['command']
+        assert worker['environment']['NCCL_IB_DISABLE'] == '0'
+
+
+def test_shared_experts_overlap_switch_rejects_string_boolean(ds_inputs):
+    r = ds_inputs[1]
+    r['deepseek_v4']['disable_shared_experts_stream'] = 'false'
+    with pytest.raises(config.ConfigError, match='must be boolean'):
+        config.validate_recipe(r)

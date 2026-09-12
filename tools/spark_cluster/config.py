@@ -120,8 +120,10 @@ def validate_recipe(r):
     if "deepseek_v4" in r:
         ds = r["deepseek_v4"]
         fields(ds, ("backend", "kv_cache_dtype", "block_size", "max_num_batched_tokens"),
-               ("cudagraph_capture_size", "attention_backend"))
+               ("cudagraph_capture_size", "attention_backend", "disable_shared_experts_stream"))
         require(ds["backend"] == "b12x", "unsupported DeepSeek V4 backend")
+        if "disable_shared_experts_stream" in ds:
+            require(type(ds["disable_shared_experts_stream"]) is bool, "shared expert stream switch must be boolean")
         if "attention_backend" in ds:
             require(ds["attention_backend"] in ("b12x", "flashinfer-sm120"), "unsupported DeepSeek V4 attention backend")
             require("speculative_config" not in r, "alternate attention is a non-speculative diagnostic only")
@@ -304,6 +306,9 @@ def plan(inv, recipe, deployment):
                 "VLLM_USE_B12X_MOE": "1", "VLLM_USE_B12X_SPARSE_INDEXER": "1",
                 "VLLM_USE_V2_MODEL_RUNNER": "1", "VLLM_MOE_SKIP_PADDING": "0",
                 "B12X_MLA_SM120_UNIFIED": "1", "B12X_MOE_FORCE_A8": "1"})
+            if "disable_shared_experts_stream" in recipe["deepseek_v4"]:
+                service["environment"]["VLLM_DISABLE_SHARED_EXPERTS_STREAM"] = (
+                    "1" if recipe["deepseek_v4"]["disable_shared_experts_stream"] else "0")
         if "disable_pynccl" in recipe:
             service["environment"]["VLLM_DISABLE_PYNCCL"] = (
                 "1" if recipe["disable_pynccl"] else "0")
