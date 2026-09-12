@@ -68,11 +68,14 @@ Preparation neither reserves GPUs nor changes live routes. The final
 `preparation.json` says `staged-awaiting-gpu-testing`; it is not serving acceptance.
 
 NCCL uses the same checksum-verified, read-only `2.30.7` library already staged
-for Qwen. It replaces the new image's bundled `2.29.7` only inside the new DeepSeek
+for Qwen. It overrides the image's library only inside the new DeepSeek
 containers, without `LD_PRELOAD` or any host library modification. The preparation
 command verifies it on both nodes and installs the pinned package if absent.
 This carries forward the known-good communication-library version; the new
 DeepSeek/runtime combination still requires its own live collective checks.
+An isolated process confirmed `ncclGetVersion() == 23007` with CUDA uninitialized.
+The image's PyTorch/package metadata reports `2.29.7`; this differs from the
+runtime library and must not be used as proof that the override was ignored.
 
 ## Render and start an explicit test
 
@@ -147,6 +150,21 @@ the switch. Keeping the old recipe files does not by itself move a published rou
 
 Local staging evidence lives in `data/cluster/deepseek-tp-20260911/`; remote
 preparation evidence lives in the controller's `state/deepseek-tp-20260911/`.
+Artifact staging completed on September 12, 2026: all 74 files (48 weight shards,
+166,898,661,074 bytes) passed source and destination checksum verification.
+`prepared/model-copy.json` records the direct transfer from `10.10.20.1` to
+`10.10.20.2` through `enp1s0f0np0`. Its `rsync_s` includes checksum work and SSH
+transfer and is not a raw cable-bandwidth benchmark. The original download and
+prepared copy manifests are identical.
+
+The final preflight passes model-cache, runtime-image, NCCL-library, fabric,
+RDMA-device and service-port checks on both nodes. Its only failed checks are
+reservation, GPU-idle and shared-memory because Qwen still occupies both GPUs.
+`final-preflight/preflight.json`, `prepared/preparation.json` and
+`staging-summary.json` distinguish this completed staging from GPU acceptance.
+The four current candidate plans are under `final-plans/`; older top-level
+staging plans predate the final NCCL pin and should not be used to launch tests.
+
 The accepted Qwen plan digest remains
 `a83ebf27f1b5f0ecbc92288191c206660ac5b13b3815ed411dea90e1383e3d20`.
 GPU startup, distributed kernel compatibility, tool/OMP acceptance, speculative
