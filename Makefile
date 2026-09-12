@@ -4,7 +4,8 @@ DOCKER_COMPOSE ?= docker compose
 
 # Separate two-node DeepSeek recipes. Existing deepseekv4-* remains single-node.
 DEEPSEEK_TP_SPEC ?= off
-DEEPSEEK_TP_MANIFEST = cluster/deployments/deepseek-tp2$(if $(filter dspark2,$(DEEPSEEK_TP_SPEC)),-dspark2,)-$(COORDINATOR).json
+DEEPSEEK_TP_EXECUTION ?= eager
+DEEPSEEK_TP_MANIFEST = cluster/deployments/deepseek-tp2$(if $(filter dspark2,$(DEEPSEEK_TP_SPEC)),-dspark2,)$(if $(filter graphs,$(DEEPSEEK_TP_EXECUTION)),-graphs,)-$(COORDINATOR).json
 .PHONY: deepseek-tp-prepare deepseek-tp-plan deepseek-tp-up deepseek-tp-status deepseek-tp-down
 deepseek-tp-prepare:
 	@test -n "$(PEER)" -a -n "$(OUTPUT)" || { echo 'Use PEER=66f1|e8f1 OUTPUT=/path/to/preparation-receipts' >&2; exit 2; }
@@ -13,6 +14,7 @@ deepseek-tp-prepare:
 deepseek-tp-plan deepseek-tp-up:
 	@case "$(COORDINATOR)" in 66f1|e8f1) ;; *) echo 'Choose COORDINATOR=66f1 or e8f1' >&2; exit 2 ;; esac
 	@case "$(DEEPSEEK_TP_SPEC)" in off|dspark2) ;; *) echo 'Use DEEPSEEK_TP_SPEC=off or dspark2' >&2; exit 2 ;; esac
+	@case "$(DEEPSEEK_TP_EXECUTION)" in eager|graphs) ;; *) echo 'Use DEEPSEEK_TP_EXECUTION=eager or graphs' >&2; exit 2 ;; esac
 	@test -n "$(OUTPUT)" || { echo 'Use OUTPUT=/path/to/a/new/deployment-receipt-directory' >&2; exit 2; }
 	python3 scripts/sparkctl $(if $(filter deepseek-tp-plan,$@),render,up) --deployment "$(DEEPSEEK_TP_MANIFEST)" --output "$(OUTPUT)" --timeout 3600
 

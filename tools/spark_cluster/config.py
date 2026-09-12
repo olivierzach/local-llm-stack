@@ -119,11 +119,15 @@ def validate_recipe(r):
             require(type(kwargs["enable_thinking"]) is bool, "enable_thinking must be a boolean")
     if "deepseek_v4" in r:
         ds = r["deepseek_v4"]
-        fields(ds, ("backend", "kv_cache_dtype", "block_size", "max_num_batched_tokens"))
+        fields(ds, ("backend", "kv_cache_dtype", "block_size", "max_num_batched_tokens"),
+               ("cudagraph_capture_size",))
         require(ds["backend"] == "b12x", "unsupported DeepSeek V4 backend")
         require(ds["kv_cache_dtype"] == "fp8", "unsupported DeepSeek V4 KV dtype")
         require(type(ds["block_size"]) is int and ds["block_size"] == 256, "DeepSeek V4 requires block size 256")
         integer(ds["max_num_batched_tokens"], 256, 32768)
+        if "cudagraph_capture_size" in ds:
+            integer(ds["cudagraph_capture_size"], 1, 128)
+            require("--enforce-eager" not in r["extra_args"], "CUDA graphs conflict with eager execution")
         require(r["model"] == "deepseek-ai/DeepSeek-V4-Flash-0731", "DeepSeek V4 profile requires the 0731 checkpoint")
         require(r.get("tool_call_parser") == "deepseek_v4", "DeepSeek V4 requires its tokenizer/tool parser")
     elif r.get("tool_call_parser") == "deepseek_v4":
@@ -262,6 +266,9 @@ def plan(inv, recipe, deployment):
                     "--kv-cache-dtype", ds["kv_cache_dtype"], "--block-size", str(ds["block_size"]),
                     "--max-num-batched-tokens", str(ds["max_num_batched_tokens"]),
                     "--moe-backend", "b12x", "--linear-backend", "b12x", "--attention-backend", "B12X"]
+            if "cudagraph_capture_size" in ds:
+                cmd += ["--max-cudagraph-capture-size", str(ds["cudagraph_capture_size"]),
+                        "--compilation-config", canonical({"cudagraph_mode": "FULL_AND_PIECEWISE", "custom_ops": ["all"]})]
         if "image_processing" in recipe:
             image = recipe["image_processing"]
             cmd += ["--limit-mm-per-prompt", canonical({"image": image["max_images"], "video": 0}),

@@ -83,3 +83,37 @@ def test_accepted_qwen_plan_is_unchanged():
         worker = compose['services']['worker']
         assert '--tokenizer-mode' not in worker['command']
         assert 'VLLM_USE_B12X_MOE' not in worker['environment']
+
+
+@pytest.mark.parametrize('coordinator', ['66f1', 'e8f1'])
+@pytest.mark.parametrize('speculation', ['', '-dspark2'])
+def test_graph_variants_are_explicit_and_keep_the_fabric(coordinator, speculation):
+    p = config.plan(*config.load(ROOT, ROOT / 'cluster/inventory.json',
+        ROOT / f'cluster/deployments/deepseek-tp2{speculation}-graphs-{coordinator}.json'))
+    config.validate_saved_plan(p)
+    for c in p['compose'].values():
+        worker = c['services']['worker']
+        argv = worker['command']
+        assert '--enforce-eager' not in argv
+        assert argv[argv.index('--max-cudagraph-capture-size') + 1] == '8'
+        assert json.loads(argv[argv.index('--compilation-config') + 1]) == {
+            'cudagraph_mode': 'FULL_AND_PIECEWISE', 'custom_ops': ['all']}
+        assert ('--speculative-config' in argv) == bool(speculation)
+        assert worker['environment']['NCCL_IB_DISABLE'] == '0'
+
+
+@pytest.mark.parametrize('size', [0, 129, True, '8'])
+def test_graph_capture_bounds(ds_inputs, size):
+    r = ds_inputs[1]
+    r['extra_args'] = [a for a in r['extra_args'] if a != '--enforce-eager']
+    r['deepseek_v4']['cudagraph_capture_size'] = size
+    with pytest.raises(config.ConfigError):
+        config.validate_recipe(r)
+
+
+def test_graphs_cannot_silently_override_eager(ds_inputs):
+    r = ds_inputs[1]
+    r['extra_args'].append('--enforce-eager')
+    r['deepseek_v4']['cudagraph_capture_size'] = 8
+    with pytest.raises(config.ConfigError, match='conflict'):
+        config.validate_recipe(r)

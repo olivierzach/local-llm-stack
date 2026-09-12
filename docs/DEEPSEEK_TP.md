@@ -31,6 +31,13 @@ Both plain decoding and optional DSpark2 have manifests for either coordinator:
 DSpark uses the draft module in the pinned checkpoint. It does not reuse the
 single-node GGUF drafter, and does not add a remote-drafter service.
 
+Execution can also be selected explicitly with `DEEPSEEK_TP_EXECUTION=eager|graphs`
+on the plan/up targets. The default remains eager. The separate `-graphs-`
+deployment manifests use the upstream `FULL_AND_PIECEWISE` mode with all custom
+ops, bounded to capture size 8 for the initial single-request configuration.
+Graph execution is a candidate until its own live checks pass; it does not imply
+the eager deployment's acceptance carries over. Existing model plans are unchanged.
+
 The initial default is non-thinking so protocol and retrieval checks can finish
 within bounded output limits. Requests can opt into thinking with
 `chat_template_kwargs: {"thinking": true, "reasoning_effort": "high"}`.
