@@ -31,6 +31,7 @@ deepseek-tp-accept:
 	.venv/bin/python scripts/probe-spark-tool-calling.py --saved-plan "$(PLAN)" --output "$(OUTPUT)/tools.json"
 	.venv/bin/python scripts/probe-deepseek-thinking.py --saved-plan "$(PLAN)" --output "$(OUTPUT)/thinking.json"
 	.venv/bin/python scripts/accept-spark-serving.py --profile deepseek-64k --saved-plan "$(PLAN)" --output "$(OUTPUT)/serving"
+	.venv/bin/python scripts/probe-deepseek-repeatability.py --saved-plan "$(PLAN)" --output "$(OUTPUT)/repeatability-after.json" --trials "$(DEEPSEEK_TP_REPEAT_TRIALS)"
 
 deepseek-tp-publish:
 	@test -n "$(PLAN)" -a -n "$(ACCEPTANCE)" -a -n "$(ALTERNATE_PLAN)" -a -n "$(ALTERNATE_ACCEPTANCE)" -a -n "$(OUTPUT)" || { echo 'Set PLAN ACCEPTANCE ALTERNATE_PLAN ALTERNATE_ACCEPTANCE OUTPUT; run on each Spark gateway' >&2; exit 2; }

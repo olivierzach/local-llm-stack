@@ -21,6 +21,7 @@ def accepted(tmp_path):
         common = dict(complete=True, deployment_digest=plan['digest'])
         receipts = {
             'repeatability.json': dict(common, passed=True, records=[dict(passed=True, answer='323') for _ in range(100)]),
+            'repeatability-after.json': dict(common, passed=True, records=[dict(passed=True, answer='323') for _ in range(100)]),
             'tools.json': dict(common, checks=[{} for _ in range(36)]),
             'thinking.json': dict(common, checks=[dict(passed=True) for _ in range(4)]),
             'serving/acceptance.json': dict(common, checks=['decode', 'long-context', 'soak', 'decode-4096']),
