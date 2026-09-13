@@ -24,7 +24,8 @@ def accepted(tmp_path):
             'repeatability-after.json': dict(common, passed=True, records=[dict(passed=True, answer='323') for _ in range(100)]),
             'tools.json': dict(common, checks=[{} for _ in range(36)]),
             'thinking.json': dict(common, checks=[dict(passed=True) for _ in range(4)]),
-            'serving/acceptance.json': dict(common, checks=['decode', 'long-context', 'soak', 'decode-4096']),
+            'serving/acceptance.json': dict(common, started_at=10, ended_at=100,
+                                           checks=['decode', 'long-context', 'soak', 'decode-4096']),
         }
         for name, value in receipts.items():
             (folder / name).write_text(json.dumps(value))
@@ -80,4 +81,14 @@ def test_extended_context_cannot_reuse_short_context_qualification(accepted):
     with pytest.raises(config.ConfigError, match='near-limit'):
         verify(plan, folder)
     long['actual_input_tokens'] = 1046464; target.write_text(json.dumps(long))
+    for node in plan['nodes']:
+        (folder.parent / f'memory-{node}.summary.json').write_text(json.dumps(dict(
+            started_at=0, ended_at=110, samples=12, min_available_gib=8,
+            max_pressure_full_avg10=0, swapout_pages=0, page_size_bytes=4096)))
     assert verify(plan, folder)['coordinator'] == '66f1'
+    memory_path = folder.parent / 'memory-e8f1.summary.json'
+    good = json.loads(memory_path.read_text())
+    for change in ({'min_available_gib': 3.9}, {'max_pressure_full_avg10': 5},
+                   {'swapout_pages': 65536}, {'started_at': 11}, {'ended_at': 99}, {'samples': 1}):
+        memory_path.write_text(json.dumps({**good, **change}))
+        with pytest.raises(config.ConfigError): verify(plan, folder)

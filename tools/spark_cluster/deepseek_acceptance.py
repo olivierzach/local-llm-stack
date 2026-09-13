@@ -41,6 +41,21 @@ def verify(plan, directory):
         decode = long.get('decode_run', {})
         require(decode.get('completion_tokens', 0) >= 256 and decode.get('tokenizer_usage_match') is True
                 and decode.get('finish_reason') in ('stop', 'length'), 'extended decode failed')
+        for node in plan['nodes']:
+            memory = read(directory.parent / f'memory-{node}.summary.json')
+            serving = receipts['serving']
+            require(memory.get('samples', 0) >= 2
+                    and memory.get('started_at', float('inf')) <= serving['started_at']
+                    and memory.get('ended_at', 0) >= serving['ended_at'],
+                    'extended context requires memory samples covering serving acceptance on both nodes')
+            require(memory.get('min_available_gib', 0) >= 4,
+                    'extended context requires at least 4 GiB measured OS headroom per node')
+            require(memory.get('max_pressure_full_avg10', 100) < 5,
+                    'extended context exceeded the full-memory-pressure acceptance bound')
+            require(memory.get('swapout_pages', -1) >= 0
+                    and memory.get('page_size_bytes', 0) > 0
+                    and memory['swapout_pages'] * memory['page_size_bytes'] < 256 * 1024**2,
+                    'extended context exceeded the paging acceptance bound')
     return {'deployment_digest': plan['digest'], 'coordinator': plan['deployment']['coordinator'],
             'acceptance': str(directory)}
 

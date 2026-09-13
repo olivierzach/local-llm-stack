@@ -66,6 +66,12 @@ answer. Full acceptance additionally tests near the actual launch limit,
 100 repeated answers before and after load, tool protocols, thinking, sequential
 soak, and answers with a 4,096-token cap. Host memory, paging, memory-pressure
 samples, runtime logs and direct-fabric counters are retained with the receipts.
+Publication of an extended context additionally requires both nodes' samples to
+cover the serving suite, at least 4 GiB minimum available host memory, less than
+5% full memory pressure over any sampled 10-second average, and less than 256 MiB
+of swap-out during the campaign. These are explicit operational margins, not
+claims that lower memory availability necessarily causes an OOM. Already occupied
+swap alone does not indicate active paging.
 
 After qualification, release that exact plan and repeat with `COORDINATOR=e8f1`.
 Both coordinator roles must pass the identical recipe before publication. Use
