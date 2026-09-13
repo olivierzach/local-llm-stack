@@ -26,6 +26,17 @@ def update(text, provider, model, context):
         node = matches[0]
     if not isinstance(node, yaml.ScalarNode): raise ValueError('contextWindow must be a scalar')
     changed = text[:node.start_mark.index] + str(context) + text[node.end_mark.index:]
+    if context > 65536:
+        override = wanted['providers'][provider]['modelOverrides'][model]
+        override.setdefault('compat', {})['streamIdleTimeoutMs'] = 3600000
+        node = yaml.compose(changed)
+        for key in ('providers', provider, 'modelOverrides', model):
+            node = next(value for field, value in node.value if field.value == key)
+        # Reformat only this one override when adding a nested field. JSON flow
+        # syntax is valid YAML and avoids changing any neighboring provider.
+        suffix = '' if node.flow_style else '\n' + ' ' * node.end_mark.column
+        changed = (changed[:node.start_mark.index] + json.dumps(override) + suffix
+                   + changed[node.end_mark.index:])
     if yaml.safe_load(changed) != wanted:
         raise ValueError('update would change unrelated OMP configuration')
     return changed
@@ -47,6 +58,7 @@ def main():
     report = {'provider': args.provider, 'model': alias, 'contextWindow': limit,
               'deployment_digest': plan['digest'], 'applied': False,
               'refresh_command': 'omp models refresh ' + args.provider}
+    if limit > 65536: report['streamIdleTimeoutMs'] = 3600000
     if args.apply:
         args.output.mkdir(parents=True, exist_ok=False, mode=0o700)
         write(args.output / 'models.yml.before', previous)

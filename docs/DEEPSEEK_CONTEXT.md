@@ -89,6 +89,11 @@ no second provider URL or model alias is required.
 `scripts/update-omp-context-limit.py --saved-plan PLAN --output BACKUP_DIR --apply`
 changes only that existing override and keeps a private backup. Run it after
 publishing the accepted plan, then refresh the OMP catalog.
+For extended contexts it also sets the model's `compat.streamIdleTimeoutMs` to
+3,600,000. Generated OMP profiles derive that watchdog from the route timeout.
+OMP has a separate stream watchdog, so extending the HTTP proxy timeout alone
+is insufficient. The field is documented in the
+[OMP 18.1.18 model configuration](https://github.com/can1357/oh-my-pi/blob/v18.1.18/docs/models.md).
 
 Registry routes generated for contexts above 64K carry a 3,600-second upstream
 read timeout and a 180-second tokenizer timeout. These are bounds for long

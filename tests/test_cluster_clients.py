@@ -44,6 +44,19 @@ def test_secret_only_in_process_environment(tmp_path):
     assert Path(env["OPENCLAW_STATE_DIR"]).is_relative_to(tmp_path)
 
 
+def test_long_context_omp_watchdog_tracks_route_without_leaking_client_specific_fields():
+    r = from_plans([plan(*load(ROOT, ROOT/'cluster/inventory.json',
+        ROOT/'cluster/deployments/deepseek-tp2-a16-dspark2-graphs-1m-e8f1.json'))])
+    p = profiles(r, 'e8f1', 4110)
+    omp = p['omp/models.yml']['providers']['spark-e8f1']['models'][0]
+    claw = p['openclaw/openclaw.json']['models']['providers']['spark-e8f1']['models'][0]
+    assert omp['contextWindow'] == 1048576
+    assert omp['compat']['streamIdleTimeoutMs'] == 3600000
+    assert 'streamIdleTimeoutMs' not in claw['compat']
+    short = profiles(registry(), 'e8f1', 4110)
+    assert 'streamIdleTimeoutMs' not in short['omp/models.yml']['providers']['spark-e8f1']['models'][0]['compat']
+
+
 def test_missing_routes_and_invalid_ports_fail():
     with pytest.raises(ConfigError): profiles({"version": 1, "routes": {}}, "e8f1", 4110)
     with pytest.raises(ConfigError): profiles(registry(), "e8f1", 80)

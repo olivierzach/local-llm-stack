@@ -25,7 +25,10 @@ def profiles(registry, context, port):
                   "contextWindow": route["context_tokens"], "maxTokens": route["max_output_tokens"]}
         compat = {"supportsStore": False, "supportsDeveloperRole": False,
                   "supportsReasoningEffort": False, "maxTokensField": "max_tokens"}
-        omp.append({**common, "api": "openai-completions", "supportsTools": caps["tools"], "compat": compat})
+        omp_compat = dict(compat)
+        if route.get('request_timeout_s'):
+            omp_compat['streamIdleTimeoutMs'] = route['request_timeout_s'] * 1000
+        omp.append({**common, "api": "openai-completions", "supportsTools": caps["tools"], "compat": omp_compat})
         claw.append({**common, "compat": {**compat, "supportsTools": caps["tools"]}})
         aichat.append({"name": alias, "max_input_tokens": route["context_tokens"],
                        "max_output_tokens": route["max_output_tokens"], "supports_vision": caps["vision"],
