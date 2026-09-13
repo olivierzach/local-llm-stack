@@ -51,7 +51,7 @@ variants remain diagnostic history, not the current qualified recipe.
 
 ## September 12 maintenance
 
-- Latest committed controller release: synchronization and no-restart verification
+- Controller release `1111496`: synchronization and no-restart verification
   recorded under `data/cluster/maintenance-20260912/` and the corresponding Spark state directory.
 - System package baseline: **awaiting the user's sudo install on each node**.
   Initial audit found seven missing packages on 66f1 (ninja-build, git-lfs,
@@ -73,8 +73,11 @@ variants remain diagnostic history, not the current qualified recipe.
    deployment data; the proposed enrollment workflow is in the plan above.
    DeepSeek TP3 is rejected by the pinned model's 64-head
    partition constraint; a third node can instead run an independent workload.
-5. Optional: qualify concurrency, larger output budgets and remote drafting as
-   separate changes with their own performance and correctness evidence.
+5. **Planned; no execution now:** qualify agent concurrency versus context using
+   [the DeepSeek concurrency test plan](DEEPSEEK_AGENT_CONCURRENCY_PLAN.md).
+   The user accepts a smaller context window for multiple simultaneous agents;
+   compare sequence limits 2/4/8 and context ceilings before choosing a profile.
+   Larger output budgets and remote drafting remain separate optional work.
 
 The broad interchangeable-node goal remains incomplete until its hardware and
 recovery gaps are closed. The accepted DeepSeek serving recipe is usable now.

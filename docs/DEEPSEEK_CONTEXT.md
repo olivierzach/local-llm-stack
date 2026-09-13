@@ -1,5 +1,9 @@
 # Qualifying larger DeepSeek TP2 contexts
 
+For the planned tradeoff between context and simultaneous agent requests, see
+[the concurrency test plan](DEEPSEEK_AGENT_CONCURRENCY_PLAN.md). It is deferred;
+the measurements below describe the accepted concurrency-one deployment.
+
 The 65,536-token launch limit was an initial qualification boundary. It was
 not the two-Spark memory limit. The pinned `DeepSeek-V4-Flash-0731` checkpoint
 declares `max_position_embeddings: 1048576` and its own YaRN scaling configuration.

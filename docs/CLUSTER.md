@@ -6,6 +6,9 @@ implementation and hardware acceptance status are tracked in
 [CLUSTER_IMPLEMENTATION.md](CLUSTER_IMPLEMENTATION.md). For adding nodes, TP-size
 constraints, traffic paths and the planned fault campaign, see
 [SPARK_SCALING_RECOVERY_PLAN.md](SPARK_SCALING_RECOVERY_PLAN.md).
+The planned context/concurrency experiments for multiple agents are recorded in
+[DEEPSEEK_AGENT_CONCURRENCY_PLAN.md](DEEPSEEK_AGENT_CONCURRENCY_PLAN.md);
+execution is deferred.
 
 There is no permanent main compute node. Each distributed deployment selects
 one coordinator for its API and worker rendezvous; changing that coordinator
