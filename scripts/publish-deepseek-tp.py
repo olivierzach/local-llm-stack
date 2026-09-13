@@ -63,10 +63,12 @@ def main():
             if new[alias]['deployment_digest'] != plan['digest']:
                 raise RuntimeError('published route does not match accepted deployment')
         run('probe-context-route.py', '--registry', registries[0], '--model', alias, '--tools',
+            '--expected-deployment', plan['digest'],
             '--output', args.output / 'context-tools.json')
         run('probe-spark-gateway.py', '--base-url', 'http://127.0.0.1:4110/v1',
             '--key-file', Path.home() / '.local/state/local-llm-cluster/gateway/api-key',
-            '--model', alias, '--output', args.output / 'gateway-tools.json')
+            '--model', alias, '--expected-deployment', plan['digest'],
+            '--output', args.output / 'gateway-tools.json')
         report.update(applied=True, passed=True, unrelated_routes_preserved=True)
     except BaseException as exc:
         for path, contents, mode in backups:

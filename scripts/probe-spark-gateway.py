@@ -14,6 +14,7 @@ def main():
     p.add_argument("--key-file", type=Path, required=True)
     p.add_argument("--model", required=True)
     p.add_argument("--output", type=Path, required=True)
+    p.add_argument("--expected-deployment", help="Require every response to identify this deployment")
     args = p.parse_args()
     session = requests.Session()
     session.trust_env = False
@@ -29,6 +30,8 @@ def main():
         r = session.post(args.base_url + "/chat/completions", json={"model": args.model, "temperature": 0,
             "max_tokens": 256, **payload}, timeout=120)
         r.raise_for_status()
+        if args.expected_deployment and r.headers.get('X-Spark-Deployment') != args.expected_deployment:
+            raise RuntimeError('response came from another deployment')
         if r.headers.get('X-Spark-Deployment'): deployments.add(r.headers['X-Spark-Deployment'])
         return r.json()
 
@@ -40,6 +43,8 @@ def main():
         with session.post(args.base_url + "/chat/completions", json={"model": args.model, "temperature": 0,
                 "max_tokens": 256, **payload, "stream": True}, stream=True, timeout=120) as response:
             response.raise_for_status()
+            if args.expected_deployment and response.headers.get('X-Spark-Deployment') != args.expected_deployment:
+                raise RuntimeError('stream came from another deployment')
             if response.headers.get('X-Spark-Deployment'): deployments.add(response.headers['X-Spark-Deployment'])
             for line in response.iter_lines(chunk_size=1, decode_unicode=True):
                 if not line.startswith("data:"): continue

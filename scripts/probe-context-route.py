@@ -24,6 +24,7 @@ def main():
     parser.add_argument('--registry', type=Path, default=ROOT / 'data/context-guard-routes/registry.json')
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--tools', action='store_true', help='Synthetic tool call and result; executes no external tool')
+    parser.add_argument('--expected-deployment', help='Require every response to identify this exact deployment digest')
     parser.add_argument('--thinking-disabled', action='store_true', help='DS4 thinking control for short acceptance replies')
     parser.add_argument('--preserve-alias', action='append', default=[])
     args = parser.parse_args()
@@ -54,6 +55,8 @@ def main():
         record.pop('memory', None)  # The API client's host memory is not backend GPU memory.
         expected = finish if isinstance(finish, tuple) else (finish,)
         assert record['finish_reason'] in expected, record
+        if args.expected_deployment:
+            assert record['guard'].get('x-spark-deployment') == args.expected_deployment, 'response came from another deployment'
         assert int(record['guard']['x-context-limit']) == route['context_tokens'], record
         token_payload = {k: v for k, v in body.items() if k not in ('max_tokens', 'temperature', 'stream', 'stream_options')}
         token_payload['model'] = route['upstream_model']
