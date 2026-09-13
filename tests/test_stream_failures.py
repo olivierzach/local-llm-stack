@@ -231,7 +231,9 @@ def test_keepalive_does_not_hide_upstream_timeout_or_invent_success(stack, monke
     await_released(stack)
 
 
-def test_client_reset_closes_upstream_and_releases_replica(stack):
+@pytest.mark.parametrize('keepalive', [False, True])
+def test_client_reset_closes_upstream_and_releases_replica(stack, monkeypatch, keepalive):
+    if keepalive: enable_heartbeats(stack, monkeypatch)
     stack.first.mode = 'cancel'
     address = ('127.0.0.1', stack.gateway.server_port)
     client = socket.create_connection(address, timeout=5)
