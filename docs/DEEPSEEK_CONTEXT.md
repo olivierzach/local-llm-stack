@@ -42,6 +42,30 @@ Changing the configured maximum length changes hybrid-cache allocation ratios.
 Consequently, extrapolating the earlier 64K allocator report linearly also gives
 the wrong answer. Measure the allocator and host pressure for the exact recipe.
 
+## Measured context sweep
+
+The `1m-66f1-02` sweep used the 1M launch limit, 0.80 memory fraction, DSpark2,
+BF16 expert activations, CUDA graphs and one scheduled request. Each row used
+a new varied synthetic archive, an identical-prefix repeat, and a 1,024-token
+analysis response. All six retrieval and token-accounting checks passed.
+
+| Actual input tokens | Fresh first text | Cached first text | Analysis decode tokens/sec |
+| ---: | ---: | ---: | ---: |
+| 57,307 | 45.3 s | 3.30 s | 46.4 |
+| 122,840 | 90.2 s | 0.78 s | 48.1 |
+| 253,901 | 202.4 s | 2.23 s | 43.1 |
+| 516,042 | 473.9 s | 1.78 s | 43.1 |
+| 778,205 | 814.3 s | 2.57 s | 38.6 |
+| 1,040,339 | 1,228.7 s | 3.33 s | 35.9 |
+
+These are individual synthetic measurements, not percentiles or a general
+quality benchmark. Some shapes compiled kernels on first use. The decode column
+uses the long analysis response, not the very short verification-code answer.
+The largest fresh prompt took 20.5 minutes; exact-prefix caching avoided almost
+all of that work on the repeat. Real conversations benefit only while their
+prefix remains reusable and cached. The sweep alone does not replace full
+acceptance on both coordinator roles or end-to-end gateway checks.
+
 ## Reproduce the qualification
 
 Run from `~/projects/local-llm-stack-cluster/current` on either Spark. Release the
