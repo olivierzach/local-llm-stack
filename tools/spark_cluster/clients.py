@@ -37,6 +37,8 @@ def profiles(registry, context, port):
                     "api_key_name": "openai", "can_stream": caps["streaming"],
                     "supports_tools": caps["tools"], "vision": caps["vision"]})
     default = sorted(registry["routes"])[0]
+    timeout = max((route.get('request_timeout_s', 0) for route in registry['routes'].values()), default=0)
+    extended_timeout = {'timeoutSeconds': timeout} if timeout else {}
     return {
         "omp/config.yml": {"modelRoles": {role: provider + "/" + default for role in
             ("default", "smol", "slow", "plan", "commit", "tiny", "task", "advisor")},
@@ -44,8 +46,9 @@ def profiles(registry, context, port):
         "omp/models.yml": {"providers": {provider: {"baseUrl": base, "apiKey": "SPARK_GATEWAY_KEY",
             "api": "openai-completions", "auth": "apiKey", "authHeader": True, "models": omp}}},
         "openclaw/openclaw.json": {"models": {"mode": "merge", "providers": {provider: {
-            "baseUrl": base, "apiKey": "${SPARK_GATEWAY_KEY}", "api": "openai-completions", "models": claw}}},
-            "agents": {"defaults": {"model": {"primary": provider + "/" + default}}}},
+            "baseUrl": base, "apiKey": "${SPARK_GATEWAY_KEY}", "api": "openai-completions", "models": claw,
+            **extended_timeout}}},
+            "agents": {"defaults": {"model": {"primary": provider + "/" + default}, **extended_timeout}}},
         "aichat/config.yaml": {"model": "spark:" + default, "stream": True, "save": False,
             "function_calling": registry["routes"][default]["capabilities"]["tools"],
             "clients": [{"type": "openai-compatible", "name": "spark", "api_base": base, "models": aichat}]},

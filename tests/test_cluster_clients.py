@@ -53,6 +53,9 @@ def test_long_context_omp_watchdog_tracks_route_without_leaking_client_specific_
     assert omp['contextWindow'] == 1048576
     assert omp['compat']['streamIdleTimeoutMs'] == 3600000
     assert 'streamIdleTimeoutMs' not in claw['compat']
+    config = p['openclaw/openclaw.json']
+    assert config['models']['providers']['spark-e8f1']['timeoutSeconds'] == 3600
+    assert config['agents']['defaults']['timeoutSeconds'] == 3600
     short = profiles(registry(), 'e8f1', 4110)
     assert 'streamIdleTimeoutMs' not in short['omp/models.yml']['providers']['spark-e8f1']['models'][0]['compat']
 

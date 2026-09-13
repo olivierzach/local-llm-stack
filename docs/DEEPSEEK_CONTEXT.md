@@ -101,6 +101,13 @@ prefill/tokenization, not a latency promise. Routes without those fields retain
 their existing defaults. `scripts/refresh-spark-gateway-policy.py` updates both
 CPU gateways with a source-hash precondition and rollback, retaining keys and
 routes; it does not restart model workers.
+Extended routes also send an SSE comment every 15 seconds during streamed
+responses. This keeps standard clients' socket-read timeouts from expiring
+during prefill; it adds no model tokens and does not reset the upstream timeout
+or turn a truncated stream into success. Non-streaming SDK callers must set
+their own request timeout high enough. Generated OpenClaw profiles set provider
+and agent deadlines to match the longest route timeout; existing global
+OpenClaw configuration is not rewritten.
 
 Verify a large prompt through the actual published gateway, rather than only
 the raw model server:

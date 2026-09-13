@@ -178,6 +178,44 @@ class ReplicaPool:
 
 
 class GatewayHandler(guard.ContextGuardHandler):
+    heartbeat_interval_s = 15
+
+    def relay_chat_events(self, response):
+        if not getattr(self, '_route', {}).get('request_timeout_s'):
+            return super().relay_chat_events(response)
+        # Keep socket-read timeouts alive during long prefill. Comments carry no
+        # model content and do not manufacture successful completion. The base
+        # relay still validates every event and requires the real [DONE].
+        original = self.wfile
+        lock = threading.Lock()
+        stopped = threading.Event()
+        class Writer:
+            def write(self, data):
+                with lock:
+                    if guard.sse_data(data).strip() == b'[DONE]': stopped.set()
+                    return original.write(data)
+            def flush(self):
+                with lock: return original.flush()
+        self.wfile = Writer()
+        def heartbeat():
+            while not stopped.wait(self.heartbeat_interval_s):
+                try:
+                    with lock:
+                        if stopped.is_set(): return
+                        original.write(b': context-guard keepalive\n\n')
+                        original.flush()
+                except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+                    stopped.set()
+                    return
+        worker = threading.Thread(target=heartbeat, daemon=True)
+        worker.start()
+        try:
+            return super().relay_chat_events(response)
+        finally:
+            stopped.set()
+            worker.join(timeout=1)
+            self.wfile = original
+
     @property
     def config(self):
         return getattr(self, "_request_config", self.server.config)

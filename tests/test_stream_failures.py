@@ -197,6 +197,40 @@ def test_events_arrive_before_upstream_closes_and_keep_replica_busy(stack):
     await_released(stack)
 
 
+def enable_heartbeats(stack, monkeypatch):
+    registry = json.loads(stack.gateway.registry_path.read_text())
+    registry['routes']['local-fast']['request_timeout_s'] = 1
+    stack.gateway.registry_path.write_text(json.dumps(registry))
+    monkeypatch.setattr(gateway.GatewayHandler, 'heartbeat_interval_s', 0.05)
+
+
+def test_long_prefill_keepalive_is_a_comment_and_preserves_real_completion(stack, monkeypatch):
+    enable_heartbeats(stack, monkeypatch)
+    stack.first.mode = 'gated'
+    with post(stack, streaming_client=True) as response:
+        lines = response.iter_lines(chunk_size=1)
+        assert next(lines) == DELTA.splitlines()[0]
+        assert next(lines) == b''
+        assert next(lines) == b': context-guard keepalive'
+        assert sum(stack.gateway.replica_pool.active.values()) == 1
+        stack.first.unblock.set()
+        rest = b'\n'.join(lines)
+        assert rest.count(b'[DONE]') == 1 and b'finish_reason' in rest
+        assert rest.rstrip().endswith(b'data: [DONE]')
+    await_released(stack)
+
+
+def test_keepalive_does_not_hide_upstream_timeout_or_invent_success(stack, monkeypatch):
+    enable_heartbeats(stack, monkeypatch)
+    stack.first.mode = 'stall'
+    response = post(stack)
+    assert ': context-guard keepalive' in response.text
+    assert 'upstream_stream_interrupted' in response.text
+    assert '[DONE]' not in response.text
+    assert len(stack.first.received) == 1 and not stack.second.received
+    await_released(stack)
+
+
 def test_client_reset_closes_upstream_and_releases_replica(stack):
     stack.first.mode = 'cancel'
     address = ('127.0.0.1', stack.gateway.server_port)
