@@ -3,7 +3,9 @@
 This optional controller extends the existing stack. The original Compose file,
 Make targets, `.env`, service aliases and ports continue to work. The current
 implementation and hardware acceptance status are tracked in
-[CLUSTER_IMPLEMENTATION.md](CLUSTER_IMPLEMENTATION.md).
+[CLUSTER_IMPLEMENTATION.md](CLUSTER_IMPLEMENTATION.md). For adding nodes, TP-size
+constraints, traffic paths and the planned fault campaign, see
+[SPARK_SCALING_RECOVERY_PLAN.md](SPARK_SCALING_RECOVERY_PLAN.md).
 
 There is no permanent main compute node. Each distributed deployment selects
 one coordinator for its API and worker rendezvous; changing that coordinator
@@ -669,7 +671,8 @@ required on the worker. Both nodes have the identical accepted source snapshot.
 The e8f1 CUDA probe passed 20 measured optimizer steps at about 10,755 synthetic
 tokens/second, with a 95 ms median step and 2.66 GB peak CUDA allocation. This is
 a training-shape smoke test, not corpus throughput or training-quality evidence.
-The 66f1 acceptance run awaits its existing research job finishing.
+The 66f1 managed-job acceptance remains pending. Schedule it after releasing
+the currently serving DeepSeek TP2 deployment; both GPUs are occupied.
 
 ## Vector Bucket placement
 
@@ -733,7 +736,8 @@ Fetched results are under `data/cluster/vector/NODE/JOB/artifacts/`. The accepta
 receipt records vector dimensions/normalization, artifact hash, source bundle,
 model revisions, runtime versions and elapsed time. CLAP track (2×512), CLAP clip
 (4×512) and MERT track (2×1024) GPU jobs passed on e8f1. The identical worker is
-staged on 66f1; its active research workload currently prevents GPU acceptance.
+staged on 66f1; its GPU acceptance remains pending and requires a scheduled
+window after the current DeepSeek TP2 deployment releases both GPUs.
 
 ## Launch preflight and recovery acceptance
 

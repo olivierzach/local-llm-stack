@@ -3,7 +3,8 @@
 The pinned NCCL 2.30.7 recipe passed the full bounded serving suite with **either
 Spark coordinating** on September 11, 2026. The 66f1 placement subsequently
 passed a tool-enabled upgrade; [QWEN_TOOL_CALLING.md](QWEN_TOOL_CALLING.md) records
-the current service. Native MTP remains enabled and DeepSeek intentionally down. Both
+that accepted recipe. Qwen is now stopped while the September 12
+[DeepSeek TP2 deployment](DEEPSEEK_TP.md) owns both GPUs. Both
 existing Context Guards and both independent client gateways passed real text
 and streaming checks. This completes the focused Qwen TP+MTP serving objective;
 it does not certify unrestricted concurrency, other parallelism recipes or
@@ -103,7 +104,8 @@ Stable client alias: **`local-qwen3-next-80b`**. The alias was first verified
 against e8f1, then kept unchanged while its route moved to the accepted 66f1
 coordinator. No permanent master node is required.
 
-From either installed controller, inspect or stop the current deployment:
+From either installed controller, inspect the saved Qwen deployment (currently
+stopped). The cleanup command applies only if that exact deployment is running:
 
 ```bash
 cd ~/projects/local-llm-stack-cluster/current
@@ -117,8 +119,8 @@ scripts/sparkctl down --saved-plan "$qwen_plan"
 
 Both existing port-4010 guards passed with each coordinator: text, SSE, exact token counting, the
 262144 context limit and invalid-key rejection for **`local-qwen3-next-80b`**.
-Their `local-deepseek-v4-flash` registry entries remained unchanged. DeepSeek is
-intentionally down and is therefore omitted from health-filtered model discovery;
+Their `local-deepseek-v4-flash` registry entries remained unchanged. During these
+Qwen tests DeepSeek was intentionally down and omitted from health-filtered model discovery;
 configuration preservation is separate from backend availability. The initial
 probe requiring that offline model to be discoverable failed as expected; the
 Qwen-specific probe then passed on both nodes. No guard restart was needed.

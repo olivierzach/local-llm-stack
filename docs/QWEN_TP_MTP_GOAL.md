@@ -8,8 +8,8 @@ model aliases and reversible single-node startup paths.
 
 The latest hardware results are in [QWEN_TP_MTP_ACCEPTANCE.md](QWEN_TP_MTP_ACCEPTANCE.md).
 The NCCL 2.30.7 recipe passed full serving with either coordinator, both existing
-Context Guards and both independent client gateways. The accepted 66f1
-placement remains running. Broader project work and other recipes are separate.
+Context Guards and both independent client gateways. The accepted Qwen placement has since been stopped for the current
+[DeepSeek TP2 deployment](DEEPSEEK_TP.md). Broader project work and other recipes are separate.
 
 ## Acceptance criteria
 
@@ -28,7 +28,7 @@ placement remains running. Broader project work and other recipes are separate.
 - Save diagnostics, failed attempts, tests and performance receipts. A single
   fast answer, healthy HTTP endpoint or automatic restart is not acceptance.
 
-## Known evidence and current diagnosis
+## Historical diagnosis before acceptance
 
 The plain eager/synchronous 256K candidate passed three 1024-token outputs at
 27–29 decode tokens/s and correct retrieval from 260026 input tokens. Native
