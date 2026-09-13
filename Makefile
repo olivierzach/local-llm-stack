@@ -5,7 +5,9 @@ DOCKER_COMPOSE ?= docker compose
 # Separate two-node DeepSeek recipes. Existing deepseekv4-* remains single-node.
 DEEPSEEK_TP_SPEC ?= off
 DEEPSEEK_TP_EXECUTION ?= eager
-DEEPSEEK_TP_MANIFEST = cluster/deployments/deepseek-tp2$(if $(filter dspark2,$(DEEPSEEK_TP_SPEC)),-dspark2,)$(if $(filter graphs,$(DEEPSEEK_TP_EXECUTION)),-graphs,)-$(COORDINATOR).json
+DEEPSEEK_TP_EXPERTS ?= bf16
+DEEPSEEK_TP_REPEAT_TRIALS ?= 100
+DEEPSEEK_TP_MANIFEST = cluster/deployments/deepseek-tp2$(if $(filter bf16,$(DEEPSEEK_TP_EXPERTS)),-a16,)$(if $(filter dspark2,$(DEEPSEEK_TP_SPEC)),-dspark2,)$(if $(filter graphs,$(DEEPSEEK_TP_EXECUTION)),-graphs,)-$(COORDINATOR).json
 .PHONY: deepseek-tp-prepare deepseek-tp-plan deepseek-tp-up deepseek-tp-status deepseek-tp-down deepseek-tp-accept
 deepseek-tp-prepare:
 	@test -n "$(PEER)" -a -n "$(OUTPUT)" || { echo 'Use PEER=66f1|e8f1 OUTPUT=/path/to/preparation-receipts' >&2; exit 2; }
@@ -15,6 +17,7 @@ deepseek-tp-plan deepseek-tp-up:
 	@case "$(COORDINATOR)" in 66f1|e8f1) ;; *) echo 'Choose COORDINATOR=66f1 or e8f1' >&2; exit 2 ;; esac
 	@case "$(DEEPSEEK_TP_SPEC)" in off|dspark2) ;; *) echo 'Use DEEPSEEK_TP_SPEC=off or dspark2' >&2; exit 2 ;; esac
 	@case "$(DEEPSEEK_TP_EXECUTION)" in eager|graphs) ;; *) echo 'Use DEEPSEEK_TP_EXECUTION=eager or graphs' >&2; exit 2 ;; esac
+	@case "$(DEEPSEEK_TP_EXPERTS)" in bf16|fp8) ;; *) echo 'Use DEEPSEEK_TP_EXPERTS=bf16 or fp8' >&2; exit 2 ;; esac
 	@test -n "$(OUTPUT)" || { echo 'Use OUTPUT=/path/to/a/new/deployment-receipt-directory' >&2; exit 2; }
 	python3 scripts/sparkctl $(if $(filter deepseek-tp-plan,$@),render,up) --deployment "$(DEEPSEEK_TP_MANIFEST)" --output "$(OUTPUT)" --timeout 3600
 
@@ -24,7 +27,7 @@ deepseek-tp-status deepseek-tp-down:
 
 deepseek-tp-accept:
 	@test -n "$(PLAN)" -a -n "$(OUTPUT)" || { echo 'Use PLAN=/path/to/saved/plan.json OUTPUT=/path/to/new/acceptance' >&2; exit 2; }
-	.venv/bin/python scripts/probe-deepseek-repeatability.py --saved-plan "$(PLAN)" --output "$(OUTPUT)/repeatability.json"
+	.venv/bin/python scripts/probe-deepseek-repeatability.py --saved-plan "$(PLAN)" --output "$(OUTPUT)/repeatability.json" --trials "$(DEEPSEEK_TP_REPEAT_TRIALS)"
 	.venv/bin/python scripts/probe-spark-tool-calling.py --saved-plan "$(PLAN)" --output "$(OUTPUT)/tools.json"
 	.venv/bin/python scripts/probe-deepseek-thinking.py --saved-plan "$(PLAN)" --output "$(OUTPUT)/thinking.json"
 	.venv/bin/python scripts/accept-spark-serving.py --profile deepseek-64k --saved-plan "$(PLAN)" --output "$(OUTPUT)/serving"
