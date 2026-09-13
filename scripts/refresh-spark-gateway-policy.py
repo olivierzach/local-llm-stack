@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Refresh route policy in both CPU gateways, preserving keys, routes and other source files.
+"""Refresh CPU gateway policy and its managed proxy dependency, preserving keys and routes.
 
 Run from the managed controller on either Spark. A source hash precondition
 protects changes in the user's base checkout; backups permit automatic rollback.
@@ -48,9 +48,15 @@ def main():
     if len(candidates) != 1: raise RuntimeError('could not identify the base checkout Context Guard container')
     base_id = candidates[0]['Id']
     replacement = (ROOT / 'tools/spark_cluster/gateway.py').read_text()
+    # The managed gateway imports ProxyConfig and the relay implementation from
+    # this file. Updating only gateway.py can leave a healthy /health endpoint
+    # whose first real request fails against an older dataclass/API.
+    managed_replacements = {name: (ROOT / name).read_text() for name in files}
     report = {'node': node_id, 'applied': False, 'base_container': base_id,
               'old_source_sha256': args.expected_source_sha256,
-              'new_source_sha256': hashlib.sha256(replacement.encode()).hexdigest()}
+              'new_source_sha256': hashlib.sha256(replacement.encode()).hexdigest(),
+              'managed_source_sha256': {name: hashlib.sha256(value.encode()).hexdigest()
+                                        for name, value in managed_replacements.items()}}
     if not args.apply:
         print(json.dumps(report)); return
     args.output.mkdir(parents=True, exist_ok=False)
@@ -64,7 +70,7 @@ def main():
         gateway_node.write(target, replacement, mode)
         gateway_node.run(['docker', 'restart', base_id])
         gateway_node.main({'node': node, 'action': 'down'})
-        gateway_node.main({**request, 'files': {**files, 'tools/spark_cluster/gateway.py': replacement}})
+        gateway_node.main({**request, 'files': {**files, **managed_replacements}})
         gateway_node.main({'node': node, 'action': 'probe'})
         # Check the base process using its published health endpoint.
         subprocess.run(['curl', '--fail', '--silent', '--show-error', '--retry', '10',

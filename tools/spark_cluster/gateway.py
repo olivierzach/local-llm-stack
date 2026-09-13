@@ -394,6 +394,9 @@ def serve(registry_path, host, port, key):
     validate_registry(read(registry_path))
     args = guard.parser().parse_args([])
     cfg = guard.build_config(args)
+    required = {'tokenizer_models', 'tokenizer_base_urls', 'model_timeouts'}
+    require(required <= set(cfg.__dataclass_fields__),
+            'Gateway requires a matching context-guard-proxy.py dependency; refresh both files')
     cfg.headroom_tokens = 512
     server = guard.ContextGuardServer((host, port), GatewayHandler, cfg)
     server.registry_path = Path(registry_path)

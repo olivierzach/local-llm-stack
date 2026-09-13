@@ -115,7 +115,7 @@ and output limits together with the selected backend. Generated OMP/OpenClaw/
 AIChat profiles inherit these limits. Existing OMP model overrides must also
 have `contextWindow` updated, followed by `omp models refresh spark-context-guard`;
 no second provider URL or model alias is required.
-`scripts/update-omp-context-limit.py --saved-plan PLAN --output BACKUP_DIR --apply`
+`.venv/bin/python scripts/update-omp-context-limit.py --saved-plan PLAN --output BACKUP_DIR --apply`
 changes only that existing override and keeps a private backup. Run it after
 publishing the accepted plan, then refresh the OMP catalog.
 For extended contexts it also sets the model's `compat.streamIdleTimeoutMs` to
@@ -129,7 +129,10 @@ read timeout and a 180-second tokenizer timeout. These are bounds for long
 prefill/tokenization, not a latency promise. Routes without those fields retain
 their existing defaults. `scripts/refresh-spark-gateway-policy.py` updates both
 CPU gateways with a source-hash precondition and rollback, retaining keys and
-routes; it does not restart model workers.
+routes; it does not restart model workers. The managed gateway installs its
+complete source bundle, including `gateway.py` and `context-guard-proxy.py`, from
+one controller revision. An incompatible
+proxy dataclass fails startup before the managed health endpoint can report success.
 Extended routes also send an SSE comment every 15 seconds during streamed
 responses. This keeps standard clients' socket-read timeouts from expiring
 during prefill; it adds no model tokens and does not reset the upstream timeout
@@ -137,7 +140,7 @@ or turn a truncated stream into success. Non-streaming SDK callers must set
 their own request timeout high enough. Generated OpenClaw profiles set provider
 and agent deadlines to match the longest route timeout.
 For an existing OpenClaw provider, run
-`scripts/update-openclaw-context-limit.py --saved-plan PLAN --provider spark-litellm --output BACKUP_DIR --apply`
+`.venv/bin/python scripts/update-openclaw-context-limit.py --saved-plan PLAN --provider spark-litellm --output BACKUP_DIR --apply`
 after publication. It updates only the selected model's context and raises the
 local provider's timeout to at least 3,600 seconds, retaining a private backup.
 OpenClaw shares this deadline across the provider's models. Other model limits,

@@ -17,6 +17,18 @@ from spark_cluster.cli import save_json
 KEY = "test-only-gateway-key-0000000000000000"
 
 
+def test_gateway_rejects_stale_proxy_dependency_before_serving_health(tmp_path, monkeypatch):
+    from dataclasses import make_dataclass
+    old = make_dataclass('OldProxyConfig', [('tokenizer_base_urls', dict), ('model_timeouts', dict)])({}, {})
+    monkeypatch.setattr(gateway.guard, 'build_config', lambda args: old)
+    monkeypatch.setattr(gateway.guard, 'ContextGuardServer',
+                        lambda *args: pytest.fail('incompatible gateway must not open a listener'))
+    path = tmp_path / 'registry.json'
+    save_json(path, {'version': 1, 'routes': {}})
+    with pytest.raises(ValueError, match='matching context-guard-proxy'):
+        gateway.serve(path, '127.0.0.1', 0, KEY)
+
+
 class Backend(BaseHTTPRequestHandler):
     def log_message(self, *args): pass
     def reply(self, body):
