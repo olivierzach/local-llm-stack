@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "name": "deepseek-tp2-a16-dspark2-graphs-768k-e8f1",
+  "recipe": "deepseek-v4-0731-768k-a16-dspark2-graphs",
+  "nodes": [
+    "e8f1",
+    "66f1"
+  ],
+  "coordinator": "e8f1",
+  "mode": "tensor",
+  "tensor_parallel": 2,
+  "pipeline_parallel": 1,
+  "port": 8123,
+  "master_port": 29543
+}

@@ -7,7 +7,8 @@ DEEPSEEK_TP_SPEC ?= off
 DEEPSEEK_TP_EXECUTION ?= eager
 DEEPSEEK_TP_EXPERTS ?= bf16
 DEEPSEEK_TP_REPEAT_TRIALS ?= 100
-DEEPSEEK_TP_MANIFEST = cluster/deployments/deepseek-tp2$(if $(filter bf16,$(DEEPSEEK_TP_EXPERTS)),-a16,)$(if $(filter dspark2,$(DEEPSEEK_TP_SPEC)),-dspark2,)$(if $(filter graphs,$(DEEPSEEK_TP_EXECUTION)),-graphs,)-$(COORDINATOR).json
+DEEPSEEK_TP_CONTEXT ?= 64k
+DEEPSEEK_TP_MANIFEST = cluster/deployments/deepseek-tp2$(if $(filter bf16,$(DEEPSEEK_TP_EXPERTS)),-a16,)$(if $(filter dspark2,$(DEEPSEEK_TP_SPEC)),-dspark2,)$(if $(filter graphs,$(DEEPSEEK_TP_EXECUTION)),-graphs,)$(if $(filter-out 64k,$(DEEPSEEK_TP_CONTEXT)),-$(DEEPSEEK_TP_CONTEXT),)-$(COORDINATOR).json
 .PHONY: deepseek-tp-prepare deepseek-tp-plan deepseek-tp-up deepseek-tp-status deepseek-tp-down deepseek-tp-accept deepseek-tp-publish
 deepseek-tp-prepare:
 	@test -n "$(PEER)" -a -n "$(OUTPUT)" || { echo 'Use PEER=66f1|e8f1 OUTPUT=/path/to/preparation-receipts' >&2; exit 2; }
@@ -18,6 +19,7 @@ deepseek-tp-plan deepseek-tp-up:
 	@case "$(DEEPSEEK_TP_SPEC)" in off|dspark2) ;; *) echo 'Use DEEPSEEK_TP_SPEC=off or dspark2' >&2; exit 2 ;; esac
 	@case "$(DEEPSEEK_TP_EXECUTION)" in eager|graphs) ;; *) echo 'Use DEEPSEEK_TP_EXECUTION=eager or graphs' >&2; exit 2 ;; esac
 	@case "$(DEEPSEEK_TP_EXPERTS)" in bf16|fp8) ;; *) echo 'Use DEEPSEEK_TP_EXPERTS=bf16 or fp8' >&2; exit 2 ;; esac
+	@case "$(DEEPSEEK_TP_CONTEXT)" in 64k) ;; 256k|512k|768k|1m) test "$(DEEPSEEK_TP_EXPERTS)/$(DEEPSEEK_TP_SPEC)/$(DEEPSEEK_TP_EXECUTION)" = bf16/dspark2/graphs || { echo 'Extended contexts require bf16/dspark2/graphs' >&2; exit 2; } ;; *) echo 'Use DEEPSEEK_TP_CONTEXT=64k|256k|512k|768k|1m' >&2; exit 2 ;; esac
 	@test -n "$(OUTPUT)" || { echo 'Use OUTPUT=/path/to/a/new/deployment-receipt-directory' >&2; exit 2; }
 	python3 scripts/sparkctl $(if $(filter deepseek-tp-plan,$@),render,up) --deployment "$(DEEPSEEK_TP_MANIFEST)" --output "$(OUTPUT)" --timeout 3600
 
@@ -30,7 +32,7 @@ deepseek-tp-accept:
 	.venv/bin/python scripts/probe-deepseek-repeatability.py --saved-plan "$(PLAN)" --output "$(OUTPUT)/repeatability.json" --trials "$(DEEPSEEK_TP_REPEAT_TRIALS)"
 	.venv/bin/python scripts/probe-spark-tool-calling.py --saved-plan "$(PLAN)" --output "$(OUTPUT)/tools.json"
 	.venv/bin/python scripts/probe-deepseek-thinking.py --saved-plan "$(PLAN)" --output "$(OUTPUT)/thinking.json"
-	.venv/bin/python scripts/accept-spark-serving.py --profile deepseek-64k --saved-plan "$(PLAN)" --output "$(OUTPUT)/serving"
+	.venv/bin/python scripts/accept-spark-serving.py --profile deepseek-context --saved-plan "$(PLAN)" --output "$(OUTPUT)/serving"
 	.venv/bin/python scripts/probe-deepseek-repeatability.py --saved-plan "$(PLAN)" --output "$(OUTPUT)/repeatability-after.json" --trials "$(DEEPSEEK_TP_REPEAT_TRIALS)"
 
 deepseek-tp-publish:

@@ -9,11 +9,12 @@ probe = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(probe)
 
 
-@pytest.mark.parametrize('target', [1024, 32768, 260032])
-def test_retrieval_prompt_is_sized_and_codes_are_separated(target):
+@pytest.mark.parametrize('target', [1024, 32768, 260032, 1040384])
+@pytest.mark.parametrize('corpus', ['repeated', 'varied'])
+def test_retrieval_prompt_is_sized_and_codes_are_separated(target, corpus):
     codes = {'alpha': 'a1b2c3d4', 'beta': 'e5f6a7b8', 'gamma': 'c9d0e1f2'}
     count = lambda text: len(text.split()) + 11
-    text, actual = probe.fit(count, target, codes, 'unique-prefix')
+    text, actual = probe.fit(count, target, codes, 'unique-prefix', corpus)
     assert actual == count(text) and target - 32 <= actual <= target
     assert text.startswith('unique-prefix')
     positions = [text.index(value) / len(text) for value in codes.values()]

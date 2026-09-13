@@ -63,3 +63,21 @@ def test_diagnostic_trace_cannot_be_published(accepted):
         ROOT / 'cluster/deployments/deepseek-tp2-a16-trace-e8f1.json'))
     with pytest.raises(config.ConfigError, match='untraced'):
         verify(plan, folder)
+
+
+def test_extended_context_cannot_reuse_short_context_qualification(accepted):
+    _, folder = accepted[0]
+    plan = config.plan(*config.load(ROOT, ROOT / 'cluster/inventory.json',
+        ROOT / 'cluster/deployments/deepseek-tp2-a16-dspark2-graphs-1m-66f1.json'))
+    for p in folder.rglob('*.json'):
+        data = json.loads(p.read_text()); data['deployment_digest'] = plan['digest']
+        p.write_text(json.dumps(data))
+    long = dict(complete=True, deployment_digest=plan['digest'], actual_input_tokens=63424,
+                corpus='varied', prefix_reuse_observed=True,
+                runs=[dict(retrieval_passed=True, tokenizer_usage_match=True)] * 2,
+                decode_run=dict(completion_tokens=1024, tokenizer_usage_match=True, finish_reason='length'))
+    target = folder / 'serving/long-context.json'; target.write_text(json.dumps(long))
+    with pytest.raises(config.ConfigError, match='near-limit'):
+        verify(plan, folder)
+    long['actual_input_tokens'] = 1046464; target.write_text(json.dumps(long))
+    assert verify(plan, folder)['coordinator'] == '66f1'

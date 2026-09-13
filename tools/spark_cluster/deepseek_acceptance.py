@@ -30,6 +30,17 @@ def verify(plan, directory):
             'incomplete thinking acceptance')
     require(set(receipts['serving'].get('checks', [])) == {'decode', 'long-context', 'soak', 'decode-4096'},
             'incomplete sustained serving acceptance')
+    if plan['recipe']['context_tokens'] > 65536:
+        long = read(directory / 'serving/long-context.json')
+        require(long.get('complete') is True and long.get('deployment_digest') == plan['digest']
+                and long.get('actual_input_tokens', 0) >= plan['recipe']['context_tokens'] - 8192
+                and long.get('corpus') == 'varied' and long.get('prefix_reuse_observed') is True,
+                'extended context requires near-limit varied-corpus acceptance')
+        require(len(long.get('runs', [])) == 2 and all(r.get('retrieval_passed') is True
+                and r.get('tokenizer_usage_match') is True for r in long['runs']), 'extended retrieval failed')
+        decode = long.get('decode_run', {})
+        require(decode.get('completion_tokens', 0) >= 256 and decode.get('tokenizer_usage_match') is True
+                and decode.get('finish_reason') in ('stop', 'length'), 'extended decode failed')
     return {'deployment_digest': plan['digest'], 'coordinator': plan['deployment']['coordinator'],
             'acceptance': str(directory)}
 
