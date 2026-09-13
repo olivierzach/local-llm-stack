@@ -25,6 +25,8 @@ monitors=[]
 def command(node,argv):
  return argv if node['hostname']==socket.gethostname() else ['ssh','-o','BatchMode=yes',node['ssh'],shlex.join(argv)]
 try:
+ subprocess.run([python,str(root/'scripts/snapshot-spark-serving.py'),'--saved-plan',str(out/'plan.json'),
+                 '--output',str(out/'runtime-before')],check=True,timeout=180)
  for name,node in plan['nodes'].items():
   sample=out/('memory-'+name+'.jsonl')
   log=(out/('monitor-'+name+'.log')).open('w')
@@ -52,3 +54,5 @@ finally:
     data=subprocess.check_output(command(node,['cat',str(path)]),timeout=30)
     path.write_bytes(data)
  report['ended_at']=time.time();save();print(json.dumps(report),flush=True)
+ subprocess.run([python,str(root/'scripts/snapshot-spark-serving.py'),'--saved-plan',str(out/'plan.json'),
+                 '--output',str(out/'runtime-after')],check=True,timeout=180)
