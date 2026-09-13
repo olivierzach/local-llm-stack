@@ -123,6 +123,42 @@ def test_route_and_policy_change_together(running):
     assert backend.received[-1]["payload"]["max_tokens"] <= 128
 
 
+def test_long_context_timeouts_follow_route_and_do_not_mutate_defaults(running, monkeypatch):
+    url, backend, registry, path = running
+    route = registry['routes']['local-fast']
+    route.update(upstream_model='different-model', request_timeout_s=3600, tokenizer_timeout_s=180)
+    save_json(path, registry)
+    original = requests.post
+    observed = []
+    def post(target, **kwargs):
+        if target.startswith(route['tokenizer_base_url']):
+            observed.append((target, kwargs.get('timeout')))
+        return original(target, **kwargs)
+    monkeypatch.setattr(requests, 'post', post)
+    assert chat(url).status_code == 200
+    assert any(target.endswith('/tokenize') and timeout == 180 for target, timeout in observed)
+    assert any(target.endswith('/chat/completions') and timeout == 3600 for target, timeout in observed)
+    assert 'different-model' not in backend.gateway.config.model_timeouts
+    assert backend.gateway.config.tokenizer_timeout_s == 3
+    del route['request_timeout_s'], route['tokenizer_timeout_s']
+    save_json(path, registry)
+    observed.clear()
+    assert chat(url).status_code == 200
+    assert any(target.endswith('/tokenize') and timeout == 3 for target, timeout in observed)
+    assert any(target.endswith('/chat/completions') and timeout == backend.gateway.config.timeout_s
+               for target, timeout in observed)
+
+
+@pytest.mark.parametrize('field,value', [('request_timeout_s', 3601), ('request_timeout_s', 0),
+    ('request_timeout_s', True), ('tokenizer_timeout_s', 181), ('tokenizer_timeout_s', '180')])
+def test_invalid_route_timeout_fails_closed(running, field, value):
+    url, backend, registry, path = running
+    registry['routes']['local-fast'][field] = value
+    save_json(path, registry)
+    assert chat(url).status_code == 503
+    assert not backend.received
+
+
 def test_unhealthy_route_fails_without_fallback(running, monkeypatch):
     monkeypatch.setattr(gateway, "live", lambda _: False)
     r = chat(running[0])

@@ -36,7 +36,8 @@ def validate_registry(registry):
     for alias, r in registry["routes"].items():
         name(alias)
         fields(r, ("base_url", "upstream_model", "context_tokens", "max_output_tokens", "capabilities"),
-               ("tokenizer_base_url", "health_url", "upstream_key_env", "deployment_digest", "model_root", "replicas"))
+               ("tokenizer_base_url", "health_url", "upstream_key_env", "deployment_digest", "model_root", "replicas",
+                "request_timeout_s", "tokenizer_timeout_s"))
         endpoints = [r]
         if 'replicas' in r:
             require(isinstance(r['replicas'],list) and 2 <= len(r['replicas']) <= 32,'replicas must contain 2..32 endpoints')
@@ -60,6 +61,8 @@ def validate_registry(registry):
         require(isinstance(r["upstream_model"], str) and r["upstream_model"], "upstream model required")
         integer(r["context_tokens"], 256, 2097152)
         integer(r["max_output_tokens"], 1, r["context_tokens"] - 1)
+        if 'request_timeout_s' in r: integer(r['request_timeout_s'], 1, 3600)
+        if 'tokenizer_timeout_s' in r: integer(r['tokenizer_timeout_s'], 1, 180)
         fields(r["capabilities"], ("text", "vision", "tools", "streaming"))
         require(all(type(v) is bool for v in r["capabilities"].values()), "capabilities must be booleans")
         if r.get("upstream_key_env"):
@@ -89,6 +92,10 @@ def from_plans(plans, replicas=False):
                 "context_tokens": e["context_tokens"], "max_output_tokens": e["max_output_tokens"],
                 "capabilities": e["capabilities"],
                 "model_root":"/cache/hub/models--"+p['recipe']['model'].replace('/','--')+'/snapshots/'+p['recipe']['revision']}
+            if e['context_tokens'] > 65536:
+                # Long prefill can exceed the legacy 180-second read timeout.
+                # Bind these bounds to the route snapshot, not every model.
+                routes[alias].update(request_timeout_s=3600, tokenizer_timeout_s=180)
     result = {"version": 1, "routes": routes}
     validate_registry(result)
     return result
@@ -283,6 +290,10 @@ class GatewayHandler(guard.ContextGuardHandler):
             upstream_base_url=route["base_url"], model_contexts={alias: route["context_tokens"]},
             fallback_model_contexts={}, context_cache={}, discover_model_context=False,
             default_output_tokens=route["max_output_tokens"], compact_model=alias,
+            model_timeouts={**self.server.config.model_timeouts,
+                guard.normalize_model_name(route['upstream_model']): route.get('request_timeout_s',
+                    self.server.config.request_timeout_for(route['upstream_model']))},
+            tokenizer_timeout_s=route.get('tokenizer_timeout_s', self.server.config.tokenizer_timeout_s),
             tokenizer_models={alias: route["upstream_model"]},
             tokenizer_base_urls={alias: route["tokenizer_base_url"]} if route.get("tokenizer_base_url") else {})
         try:

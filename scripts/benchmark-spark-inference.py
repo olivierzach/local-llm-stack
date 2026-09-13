@@ -31,6 +31,7 @@ def measure(base_url, key, model, prompt, max_tokens, request_timeout=180, captu
         stream=True,timeout=(10,request_timeout)) as response:
         response.raise_for_status()
         deployment = response.headers.get('X-Spark-Deployment')
+        context_headers = {k: v for k, v in response.headers.items() if k.lower().startswith('x-context-')}
         for line in response.iter_lines(chunk_size=1,decode_unicode=True):
             if not line.startswith('data:'): continue
             body = line[5:].strip()
@@ -59,6 +60,7 @@ def measure(base_url, key, model, prompt, max_tokens, request_timeout=180, captu
     result = {'ttft_s':first-started,'elapsed_s':elapsed,'prompt_tokens':usage['prompt_tokens'],
         'completion_tokens':generated,'decode_tokens_per_second':(generated-1)/(elapsed-(first-started)),
         'text_chars':len(text), 'deployment_digest':deployment,
+        'context_headers': context_headers,
         'started_at':started_at, 'finish_reason':finish_reason,
         'cached_prompt_tokens':(usage.get('prompt_tokens_details') or {}).get('cached_tokens')}
     if capture_text: result['text'] = text

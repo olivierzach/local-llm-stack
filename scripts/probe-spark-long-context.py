@@ -98,6 +98,8 @@ def main():
     p.add_argument('--output', type=Path, required=True)
     p.add_argument('--corpus', choices=('repeated', 'varied'), default='repeated')
     p.add_argument('--measure-decode', action='store_true', help='Also measure a 1024-token answer at this context length')
+    p.add_argument('--gateway-url', help='Send inference through this /v1 gateway; tokenizer and metrics still use the pinned backend')
+    p.add_argument('--key-file', type=Path, help='Private gateway API key file; never sent to the raw backend')
     args = p.parse_args()
     plan = read(args.saved_plan)
     validate_saved_plan(plan)
@@ -105,12 +107,16 @@ def main():
     if not 512 <= args.input_tokens <= min(1048576, plan['recipe']['context_tokens'] - reserve):
         p.error('input plus output exceeds context or probe bounds')
     if args.output.exists(): p.error('output already exists')
+    if bool(args.gateway_url) != bool(args.key_file): p.error('--gateway-url and --key-file must be provided together')
     codes = {label: uuid.uuid4().hex[:8] for label in ('alpha', 'beta', 'gamma')}
     base, model = plan['endpoint']['base_url'], plan['recipe']['alias']
+    inference_base = args.gateway_url.rstrip('/') if args.gateway_url else base
+    key = args.key_file.read_text().strip() if args.key_file else None
     session = requests.Session()
     session.trust_env = False
     result = {'deployment_digest': plan['digest'], 'input_token_target': args.input_tokens,
               'expected_codes': codes, 'corpus': args.corpus, 'runs': [], 'complete': False, 'started_at': time.time()}
+    if args.gateway_url: result['gateway_url'] = inference_base
     save_json(args.output, result)
 
     def count(text):
@@ -125,7 +131,14 @@ def main():
         result['actual_input_tokens'] = actual
         for label in ('unique-prefix', 'repeated-prefix'):
             before = prefix_metrics(session, base)
-            record = benchmark.measure(base, None, model, prompt, 128, 3600, capture_text=True)
+            record = benchmark.measure(inference_base, key, model, prompt, 128, 3600, capture_text=True)
+            if args.gateway_url:
+                headers = {k.lower(): v for k, v in record['context_headers'].items()}
+                if (record['deployment_digest'] != plan['digest'] or
+                    headers.get('x-context-limit') != str(plan['recipe']['context_tokens']) or
+                    headers.get('x-context-input-tokens') != str(actual) or
+                    headers.get('x-context-guard') == 'compacted'):
+                    raise RuntimeError('gateway changed deployment, context, input accounting, or compacted the probe')
             after = prefix_metrics(session, base)
             body = record['text'].strip()
             if body.startswith('```'):
@@ -148,7 +161,7 @@ def main():
                 'explain its structure, the reliability checks a production system needs, and how to validate '
                 'retrieval over long logs. Include concrete examples and edge cases. Aim for at least 1500 words.')
             expected_tokens = count(decode_prompt)
-            record = benchmark.measure(base, None, model, decode_prompt, 1024, 3600, capture_text=True)
+            record = benchmark.measure(inference_base, key, model, decode_prompt, 1024, 3600, capture_text=True)
             record['tokenizer_usage_match'] = record['prompt_tokens'] == expected_tokens
             result['decode_run'] = record
             save_json(args.output, result)
