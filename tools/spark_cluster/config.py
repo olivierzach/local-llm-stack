@@ -120,7 +120,7 @@ def validate_recipe(r):
     if "deepseek_v4" in r:
         ds = r["deepseek_v4"]
         fields(ds, ("backend", "kv_cache_dtype", "block_size", "max_num_batched_tokens"),
-               ("cudagraph_capture_size", "attention_backend", "disable_shared_experts_stream", "cuda_launch_blocking", "source_overlays"))
+               ("cudagraph_capture_size", "attention_backend", "disable_shared_experts_stream", "cuda_launch_blocking", "source_overlays", "moe_force_a16"))
         require(ds["backend"] == "b12x", "unsupported DeepSeek V4 backend")
         if "source_overlays" in ds:
             overlays = ds["source_overlays"]
@@ -137,6 +137,8 @@ def validate_recipe(r):
             require("--enforce-eager" in r["extra_args"], "CUDA launch blocking requires eager execution")
         if "disable_shared_experts_stream" in ds:
             require(type(ds["disable_shared_experts_stream"]) is bool, "shared expert stream switch must be boolean")
+        if "moe_force_a16" in ds:
+            require(type(ds["moe_force_a16"]) is bool, "MoE A16 switch must be boolean")
         if "attention_backend" in ds:
             require(ds["attention_backend"] in ("b12x", "flashinfer-sm120"), "unsupported DeepSeek V4 attention backend")
             require("speculative_config" not in r, "alternate attention is a non-speculative diagnostic only")
@@ -319,6 +321,11 @@ def plan(inv, recipe, deployment):
                 "VLLM_USE_B12X_MOE": "1", "VLLM_USE_B12X_SPARSE_INDEXER": "1",
                 "VLLM_USE_V2_MODEL_RUNNER": "1", "VLLM_MOE_SKIP_PADDING": "0",
                 "B12X_MLA_SM120_UNIFIED": "1", "B12X_MOE_FORCE_A8": "1"})
+            if "moe_force_a16" in recipe["deepseek_v4"]:
+                a16 = recipe["deepseek_v4"]["moe_force_a16"]
+                service["environment"]["VLLM_B12X_MOE_FP4_FORCE_A16"] = "1" if a16 else "0"
+                if a16:
+                    service["environment"].pop("B12X_MOE_FORCE_A8")
             if "disable_shared_experts_stream" in recipe["deepseek_v4"]:
                 service["environment"]["VLLM_DISABLE_SHARED_EXPERTS_STREAM"] = (
                     "1" if recipe["deepseek_v4"]["disable_shared_experts_stream"] else "0")

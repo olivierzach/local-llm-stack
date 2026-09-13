@@ -195,3 +195,19 @@ def test_source_overlay_pins_readonly_code_on_both_ranks(ds_inputs):
     overlay['path'] = '../../etc/passwd'
     with pytest.raises(config.ConfigError, match='unsupported or duplicate'):
         config.validate_recipe(r)
+
+
+def test_a16_experts_preserve_checkpoint_and_fabric(ds_inputs):
+    inv, r, d = ds_inputs
+    before = config.plan(inv, r, d)
+    r['deepseek_v4']['moe_force_a16'] = True
+    config.validate_recipe(r)
+    after = config.plan(inv, r, d)
+    for node in d['nodes']:
+        old = before['compose'][node]['services']['worker']
+        new = after['compose'][node]['services']['worker']
+        assert old['command'] == new['command']
+        assert 'VLLM_B12X_MOE_FP4_FORCE_A16' not in old['environment']
+        assert new['environment']['VLLM_B12X_MOE_FP4_FORCE_A16'] == '1'
+        assert 'B12X_MOE_FORCE_A8' not in new['environment']
+        assert new['environment']['NCCL_IB_HCA'] == old['environment']['NCCL_IB_HCA']
