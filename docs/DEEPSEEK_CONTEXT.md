@@ -118,11 +118,29 @@ no second provider URL or model alias is required.
 `.venv/bin/python scripts/update-omp-context-limit.py --saved-plan PLAN --output BACKUP_DIR --apply`
 changes only that existing override and keeps a private backup. Run it after
 publishing the accepted plan, then refresh the OMP catalog.
+
 For extended contexts it also sets the model's `compat.streamIdleTimeoutMs` to
 3,600,000. Generated OMP profiles derive that watchdog from the route timeout.
 OMP has a separate stream watchdog, so extending the HTTP proxy timeout alone
 is insufficient. The field is documented in the
 [OMP 18.1.18 model configuration](https://github.com/can1357/oh-my-pi/blob/v18.1.18/docs/models.md).
+
+For AIChat, use the route-derived profile on either Spark:
+
+```bash
+.venv/bin/python scripts/spark-client run --node e8f1 --client aichat -- \
+  --model spark:local-deepseek-v4-flash
+```
+
+Use `--node 66f1` when running on that node. Generated profiles disable AIChat's
+independent automatic session compression and let Context Guard enforce the
+selected route's budget. In pinned
+[AIChat 0.30](https://github.com/sigoden/aichat/blob/v0.30.0/src/config/session.rs),
+the compression threshold is a separate absolute token count, not a percentage
+of the selected model's limit; zero disables it. A saved session can override
+that threshold. The legacy `make aichat` static configuration retains its
+single-node 64K DeepSeek limit and 58K compression setting; use `spark-client`
+for the published TP2 context rather than assuming that file discovers limits.
 
 Registry routes generated for contexts above 64K carry a 3,600-second upstream
 read timeout and a 180-second tokenizer timeout. These are bounds for long

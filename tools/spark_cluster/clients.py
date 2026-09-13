@@ -49,7 +49,11 @@ def profiles(registry, context, port):
             "baseUrl": base, "apiKey": "${SPARK_GATEWAY_KEY}", "api": "openai-completions", "models": claw,
             **extended_timeout}}},
             "agents": {"defaults": {"model": {"primary": provider + "/" + default}, **extended_timeout}}},
+        # AIChat 0.30 otherwise summarizes sessions at 4K, independently of the
+        # selected model limit. Let Context Guard enforce the live route budget;
+        # a shared absolute compression threshold is wrong when models switch.
         "aichat/config.yaml": {"model": "spark:" + default, "stream": True, "save": False,
+            "compress_threshold": 0,
             "function_calling": registry["routes"][default]["capabilities"]["tools"],
             "clients": [{"type": "openai-compatible", "name": "spark", "api_base": base, "models": aichat}]},
         "llm/extra-openai-models.yaml": llm,

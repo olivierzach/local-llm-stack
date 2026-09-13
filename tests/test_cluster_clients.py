@@ -32,6 +32,7 @@ def test_clients_keep_alias_limits_and_capabilities(context, port):
     assert claw["models"][0]["compat"]["supportsTools"] is False
     assert p["llm/extra-openai-models.yaml"][0]["model_name"] == "local-fast"
     assert p["aichat/config.yaml"]["function_calling"] is False
+    assert p["aichat/config.yaml"]["compress_threshold"] == 0
     assert p["omp/config.yml"]["modelRoles"]["tiny"] == provider + "/local-fast"
 
 
