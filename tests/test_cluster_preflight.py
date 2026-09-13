@@ -41,6 +41,24 @@ def test_preflight_does_not_create_state_or_reserve_gpu(setup):
     assert next(c for c in result['checks'] if c['check']=='model-cache')['details']['weight_shards']==1
 
 
+def test_overlay_missing_and_modified_bytes_fail_closed(setup):
+    import hashlib
+    req, _, _ = setup
+    contents = b'# pinned source fixture\n'
+    digest = hashlib.sha256(contents).hexdigest()
+    overlay = dict(path='vllm/models/deepseek_v4/nvidia/model.py', sha256=digest)
+    req['recipe']['deepseek_v4'] = {'source_overlays': [overlay]}
+    with pytest.raises(RuntimeError, match='missing'):
+        node.verify_source_overlays(req)
+    path = Path(req['node']['cache']).parent / 'runtime-overlays' / digest / overlay['path']
+    path.parent.mkdir(parents=True)
+    path.write_bytes(contents)
+    assert node.verify_source_overlays(req) == [overlay]
+    path.write_bytes(contents + b'# changed\n')
+    with pytest.raises(RuntimeError, match='SHA-256 mismatch'):
+        node.verify_source_overlays(req)
+
+
 def test_preflight_reports_all_blockers_and_still_checks_cache(setup, monkeypatch):
     req, report, snapshot = setup
     report.update(reservation={'owner':'research'}, research_window='entered', gpu_processes=['123'])

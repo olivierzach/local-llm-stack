@@ -120,8 +120,18 @@ def validate_recipe(r):
     if "deepseek_v4" in r:
         ds = r["deepseek_v4"]
         fields(ds, ("backend", "kv_cache_dtype", "block_size", "max_num_batched_tokens"),
-               ("cudagraph_capture_size", "attention_backend", "disable_shared_experts_stream", "cuda_launch_blocking"))
+               ("cudagraph_capture_size", "attention_backend", "disable_shared_experts_stream", "cuda_launch_blocking", "source_overlays"))
         require(ds["backend"] == "b12x", "unsupported DeepSeek V4 backend")
+        if "source_overlays" in ds:
+            overlays = ds["source_overlays"]
+            allowed = {"vllm/models/deepseek_v4/nvidia/model.py", "vllm/models/deepseek_v4/nvidia/mtp.py", "b12x/_lib/dense_gemm.py"}
+            require(isinstance(overlays, list) and 1 <= len(overlays) <= len(allowed), "invalid DeepSeek source overlays")
+            seen = set()
+            for overlay in overlays:
+                fields(overlay, ("path", "sha256"))
+                require(overlay["path"] in allowed and overlay["path"] not in seen, "unsupported or duplicate source overlay")
+                seen.add(overlay["path"])
+                require(isinstance(overlay["sha256"], str) and re.fullmatch(r"[a-f0-9]{64}", overlay["sha256"]), "invalid source overlay SHA-256")
         if "cuda_launch_blocking" in ds:
             require(type(ds["cuda_launch_blocking"]) is bool, "CUDA launch blocking must be boolean")
             require("--enforce-eager" in r["extra_args"], "CUDA launch blocking requires eager execution")
@@ -315,6 +325,10 @@ def plan(inv, recipe, deployment):
             if "cuda_launch_blocking" in recipe["deepseek_v4"]:
                 service["environment"]["CUDA_LAUNCH_BLOCKING"] = (
                     "1" if recipe["deepseek_v4"]["cuda_launch_blocking"] else "0")
+            for overlay in recipe["deepseek_v4"].get("source_overlays", []):
+                source = str(Path(node['cache']).parent / 'runtime-overlays' / overlay['sha256'] / overlay['path'])
+                target = '/usr/local/lib/python3.12/dist-packages/' + overlay['path']
+                service['volumes'].append({'type': 'bind', 'source': source, 'target': target, 'read_only': True})
         if "disable_pynccl" in recipe:
             service["environment"]["VLLM_DISABLE_PYNCCL"] = (
                 "1" if recipe["disable_pynccl"] else "0")

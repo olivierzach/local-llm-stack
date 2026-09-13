@@ -179,3 +179,19 @@ def test_cuda_blocking_is_explicit_eager_only_and_applied_to_both_ranks(ds_input
     r['extra_args'] = []
     with pytest.raises(config.ConfigError, match='requires eager'):
         config.validate_recipe(r)
+
+
+def test_source_overlay_pins_readonly_code_on_both_ranks(ds_inputs):
+    inv, r, d = ds_inputs
+    overlay = dict(path='vllm/models/deepseek_v4/nvidia/model.py', sha256='a' * 64)
+    r['deepseek_v4']['source_overlays'] = [overlay]
+    config.validate_recipe(r)
+    plan = config.plan(inv, r, d)
+    for node in d['nodes']:
+        mounts = plan['compose'][node]['services']['worker']['volumes']
+        mount = next(m for m in mounts if isinstance(m, dict) and m.get('target', '').endswith(overlay['path']))
+        assert mount['read_only'] is True
+        assert '/runtime-overlays/' + overlay['sha256'] + '/' in mount['source']
+    overlay['path'] = '../../etc/passwd'
+    with pytest.raises(config.ConfigError, match='unsupported or duplicate'):
+        config.validate_recipe(r)
