@@ -34,6 +34,7 @@ def main():
     target.add_argument('--node')
     target.add_argument('--provider',help='Use an existing local OMP provider without changing its configuration')
     parser.add_argument('--model',default='local-coder')
+    parser.add_argument('--thinking',choices=('off','high'),help='Explicit thinking mode for toggle/tool integration checks')
     parser.add_argument('--port',type=int,default=4110)
     parser.add_argument('--key-file',type=Path)
     parser.add_argument('--registry',type=Path)
@@ -45,8 +46,14 @@ def main():
     value='spark-tool-'+uuid.uuid4().hex
     with tempfile.TemporaryDirectory(prefix='spark-omp-probe-') as temporary:
         root=Path(temporary)
-        fixture=root/'verification.txt'
+        fixture=root/('7846.txt' if args.thinking == 'high' else 'verification.txt')
         fixture.write_text('Verification value: '+value+'\n')
+        prompt = 'Use the read tool to read '+str(fixture)+'. Reply only with the verification value from the file. Do not guess.'
+        if args.thinking == 'high':
+            prompt = ('Carefully reason through (347 * 29) - (186 * 17) + 945 to determine the filename. '
+                'The file is in '+str(root)+' and is named <integer result>.txt. '
+                'Work out the arithmetic privately, then use the read tool to read that file. '
+                'Reply only with the verification value from the file. Do not guess the verification value.')
         if args.provider:
             command=['omp']
             provider=args.provider
@@ -59,7 +66,10 @@ def main():
             provider='spark-'+args.node
         command.extend(['--model',provider+'/'+args.model,'--tools','read',
             '--no-lsp','--no-extensions','--no-session','--mode','json','--max-time','90','--print',
-            'Use the read tool to read '+str(fixture)+'. Reply only with the verification value from the file. Do not guess.'])
+            prompt])
+        if args.thinking:
+            index = 1 if args.provider else command.index('--') + 1
+            command[index:index] = ['--thinking', args.thinking, '--print-thoughts']
         result=subprocess.run(command,cwd=root,text=True,capture_output=True,timeout=120)
         args.output.parent.mkdir(parents=True,exist_ok=True)
         args.output.with_suffix('.jsonl').write_text(result.stdout)
@@ -72,6 +82,13 @@ def main():
         calls=validate(events,fixture,value)
         report={'passed':True,'node':args.node,'provider':provider,'model':args.model,'tool':'read','tool_calls':calls,
                 'verification_value':value,'events':len(events),'scope':'Read-only synthetic fixture; not a coding-quality evaluation.'}
+        if args.thinking:
+            report['thinking'] = args.thinking
+            report['thinking_characters'] = sum(len(c.get('thinking', '')) for e in events
+                if e.get('type') == 'message_end' for c in e.get('message', {}).get('content', [])
+                if c.get('type') == 'thinking')
+            if (report['thinking_characters'] > 0) != (args.thinking == 'high'):
+                raise RuntimeError('OMP thinking blocks did not match the requested mode')
         args.output.write_text(json.dumps(report,indent=2)+'\n')
         print(json.dumps(report))
 

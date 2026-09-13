@@ -415,6 +415,44 @@ the event log. It is a noninteractive integration check, not a coding benchmark.
 An ordinary interactive session keeps the same model selection:
 `omp --model spark-context-guard/local-deepseek-v4-flash`.
 
+### Optional thinking in OMP
+
+The Mac's existing DeepSeek override now exposes `high` thinking and explicit
+`off`. Select the mode when starting a session:
+
+```bash
+omp --model spark-context-guard/local-deepseek-v4-flash --thinking high
+omp --model spark-context-guard/local-deepseek-v4-flash --thinking off
+```
+
+The model override's default effort is high; an explicit session setting takes
+precedence. Restart an already-open OMP process to load the changed model config.
+This client change does not alter the server's non-thinking default, Fam-Chat,
+the endpoint, or the output budget (the existing Mac OMP override remains 4,096).
+Thinking and final-answer tokens share that budget. Performance measurements
+above used the non-thinking recipe unless explicitly identified otherwise.
+
+Reproduce the existing-profile update with the saved DeepSeek vLLM plan:
+
+```bash
+.venv/bin/python scripts/update-omp-deepseek-thinking.py \
+  --saved-plan data/cluster/deepseek-context-20260912/1m-e8f1-01/plan.json \
+  --output data/cluster/omp-thinking-private-backup --apply
+omp models refresh spark-context-guard --no-extensions
+.venv/bin/python scripts/probe-omp-thinking.py --output data/cluster/omp-thinking-check.json
+.venv/bin/python scripts/probe-spark-omp.py --provider spark-context-guard \
+  --model local-deepseek-v4-flash --thinking high --output data/cluster/omp-thinking-tools.json
+```
+
+The updater saves a private backup and changes only that model's thinking
+metadata and compatibility fields. Installed OMP 18.1.18 uses conditional
+`compat.whenThinking.extraBody` to send `chat_template_kwargs.thinking` and the
+qualified `high` effort. Its response mapping must read `reasoning`, the field
+emitted by this pinned vLLM build. On tool turns, the reasoning is preserved for
+the follow-up request. Simple prompts may produce no reasoning text even when
+enabled, so the regression fixture uses a multi-step calculation. Think Max and
+other effort levels are not qualified here.
+
 From each Spark, `scripts/probe-spark-omp.py --node 66f1|e8f1 --model
 local-deepseek-v4-flash --output ...` checks its managed gateway using a temporary
 client profile. On the FamChat host, `scripts/probe-famchat-provider.py --output
