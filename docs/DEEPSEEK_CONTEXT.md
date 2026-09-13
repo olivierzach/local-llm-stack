@@ -135,8 +135,16 @@ responses. This keeps standard clients' socket-read timeouts from expiring
 during prefill; it adds no model tokens and does not reset the upstream timeout
 or turn a truncated stream into success. Non-streaming SDK callers must set
 their own request timeout high enough. Generated OpenClaw profiles set provider
-and agent deadlines to match the longest route timeout; existing global
-OpenClaw configuration is not rewritten.
+and agent deadlines to match the longest route timeout.
+For an existing OpenClaw provider, run
+`scripts/update-openclaw-context-limit.py --saved-plan PLAN --provider spark-litellm --output BACKUP_DIR --apply`
+after publication. It updates only the selected model's context and raises the
+local provider's timeout to at least 3,600 seconds, retaining a private backup.
+OpenClaw shares this deadline across the provider's models. Other model limits,
+URLs, keys, default model and agent settings are preserved. Validate the proposed
+configuration with the installed OpenClaw CLI and ensure any explicit agent or
+run deadline also accommodates long prefill. The installed 2026.9.1 runtime's
+unset agent deadline is 172,800 seconds; do not assume that for older versions.
 If the client disconnects during a silent prefill, a failed keepalive shuts down
 that request's upstream socket, allowing the backend to cancel it and the
 gateway to release its routing lease. It does not replay the request elsewhere.
