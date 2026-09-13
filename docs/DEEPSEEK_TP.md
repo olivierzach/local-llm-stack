@@ -11,13 +11,55 @@ correct answer and all recorded layer outputs matched across eight repeated
 requests on both ranks. This changes expert activations to BF16; the checkpoint
 remains the original mixed FP4/FP8 weights. No FP8 weight conversion is needed.
 
-The default Make selection now uses BF16 expert activations. **Publication is
-still pending the full untraced acceptance suite with DSpark2 and CUDA graphs
-in both coordinator roles.** Historical FP8 performance results below are not
-correctness qualification. Current receipts live in
-`data/cluster/deepseek-readiness-20260912/` (or the controller's `state/` directory).
-The previous Qwen restoration receipt describes an earlier recovery; Qwen was
-stopped again for the current authorized DeepSeek test window.
+**DeepSeek TP2 with BF16 expert activations, DSpark2, and CUDA graphs is running
+and published through both Sparks' Context Guards.** Both coordinator roles
+passed the full untraced acceptance suite on September 12, 2026. The live
+deployment uses 66f1 as coordinator; e8f1 was tested with the same recipe before
+switching roles. There is no permanent master. Qwen is stopped while DeepSeek
+uses both GPUs. The single-node recipes are unchanged.
+
+The existing `spark-context-guard/local-deepseek-v4-flash` Mac OMP selection,
+both Spark OMP profiles, and FamChat's configured provider passed client checks.
+Each gateway's text and streamed tool checks required the live deployment ID.
+The Mac needed `omp models refresh spark-context-guard` to refresh a catalog
+cached while DeepSeek was unavailable; its provider URL and credentials did not
+change. FamChat verification used its existing Open WebUI container's configured
+URL and credential, without creating a conversation or exercising the browser UI.
+
+Receipts live in `data/cluster/deepseek-readiness-20260912/` on the Mac and the
+managed controllers' persistent `state/deepseek-readiness-20260912/` directories.
+The run names are `a16-dspark2-graphs-{66f1,e8f1}-01`.
+
+| Acceptance | 66f1 coordinator | e8f1 coordinator |
+| --- | --- | --- |
+| Repeated-answer regression, before + after load | 200/200 correct | 200/200 correct |
+| Tool call/result protocol checks | 36 passed | 36 passed |
+| Thinking on/off, streaming/non-streaming | 4 passed | 4 passed |
+| Three 1,024-token answers | 50.79–56.69 tokens/sec | 50.18–57.13 tokens/sec |
+| Answers with a 4,096-token limit | 48.88–57.25 tokens/sec | 49.92–57.97 tokens/sec |
+| Actual lengths of those three answers | 3,370 / 4,096 / 4,096 | 3,520 / 4,096 / 4,096 |
+| Sequential soak | 18 requests, 18,432 output tokens | 18 requests, 18,432 output tokens |
+| Median soak decode speed | 51.59 tokens/sec | 51.79 tokens/sec |
+| Draft tokens accepted during soak | 78.16% | 79.23% |
+| Long-input retrieval and token accounting | 63,418 tokens, passed | 63,421 tokens, passed |
+| First text, fresh / reused long prefix | 48.60 / 0.54 seconds | 48.07 / 0.53 seconds |
+| Direct fabric | Both RoCE interfaces active; zero measured error/drop deltas | Same |
+
+These are bounded synthetic checks at concurrency one, not a general accuracy
+benchmark or an uptime guarantee. The explanation responses ended naturally
+before 4,096 tokens. Runtime, model, and recipe changes require new qualification.
+Historical FP8 expert results below are not qualified serving configurations.
+
+The accepted plan digests are:
+
+- 66f1: `8630942aa671253ba645f4ca53be7f8c02dd87cb8bdf88532f96c0108928404e`
+- e8f1: `673eeab14262e267148d39ccde867c1d5a21f5a14427e89e9665269cd300344e`
+
+Inspect the currently running deployment from either managed controller:
+
+```bash
+make deepseek-tp-status PLAN=data/cluster/deepseek-readiness-20260912/a16-dspark2-graphs-66f1-01/plan.json
+```
 
 ## Pinned artifacts and initial limits
 
@@ -55,7 +97,7 @@ Acceptance is specific to the exact recipe and coordinator. Do not infer
 acceptance of every variant from a passing check on one variant.
 Existing model plans are unchanged.
 
-Select the untraced BF16 expert candidate explicitly (the default execution
+Select the untraced BF16 expert recipe explicitly (the default execution
 mode remains eager, with speculation off):
 
 ```bash
@@ -149,10 +191,11 @@ sequential-request stability. Also test a real OMP
 read/edit/bash workflow. The pinned runtime's finish-reason behavior must be
 validated; never weaken tool-name, argument or returned-result checks to pass it.
 
-After plain decoding passes, stop its saved plan and launch the separate
-`DEEPSEEK_TP_SPEC=dspark2` variant into a fresh output directory. Repeat acceptance,
-check accepted speculative-token metrics, and compare decode latency. Increase
-context/concurrency only after measuring available shared memory and stability.
+The qualified serving recipe is the explicit BF16 + DSpark2 + graphs combination.
+Plain decoding is available as a diagnostic control; it is not necessary to
+restart through every variant before using an already qualified recipe.
+Acceptance checks native accepted-speculative-token counters. Increase context
+or concurrency only after separate memory and stability measurements.
 
 Publish only the accepted deployment through `configure-context-routes.py
 --plan ... --merge --alias local-deepseek-v4-flash` on each BASE stack root and
@@ -234,14 +277,13 @@ This control failed startup in `deep_gemm_fp8_o_proj` with a DeepGEMM
 `t.dim() == N` assertion; it never reached the repeated-answer test.
 `control-flashinfer-e8f1-01/coordinator-failure.log` preserves the traceback.
 
-The next correctness investigation must isolate target-model numerical kernels
-and collective execution against a reference or a separately pinned runtime.
-Speculation, CUDA graphs, and shared-expert overlap have each been disabled
-without eliminating the answer flips. The actual faulty component is unresolved;
-no hardware failure or specific NCCL defect has been established.
-
-Downstream client publication is withheld pending correctness. The initial
-artifact-staging record follows.
+Subsequent eager controls with Torch collectives and CUDA launch blocking also
+failed the regression. Bounded layer traces then located the first observed
+divergence in the routed expert output. Selecting BF16 expert activations removed
+that divergence in the traced control. This identifies a working alternative
+kernel path; it does not establish a specific hardware or NCCL defect. The
+current BF16 qualification and publication status is recorded at the top of
+this document. The initial artifact-staging record follows.
 
 Local staging evidence lives in `data/cluster/deepseek-tp-20260911/`; remote
 preparation evidence lives in the controller's `state/deepseek-tp-20260911/`.
@@ -270,7 +312,8 @@ concurrent load, and the plain graph variant need their own qualification.
 
 `make deepseek-tp-accept PLAN=... OUTPUT=...` now requires 100 repeated first-token
 answers, 36 tool protocol checks, all four thinking/streaming checks, 64K input,
-a sequential soak, and complete 4,096-token answers. It stops on a failure and
+a sequential soak, long answers with a 4,096-token limit, and another 100 regression
+requests after that workload. It stops on a failure and
 retains its receipts. Run it against the exact untraced recipe with each
 coordinator, keeping the receipts in separate directories.
 
@@ -292,6 +335,34 @@ the exact selected deployment is healthy. It upserts only the existing
 checks tool calls through both gateways, and restores the previous registries
 if those checks fail. Clients keep their existing alias and Context Guard URL.
 No permanent master node is created.
+
+Verify the existing Mac OMP provider after publication:
+
+```bash
+omp models refresh spark-context-guard
+.venv/bin/python scripts/probe-spark-omp.py --provider spark-context-guard --model local-deepseek-v4-flash --output data/cluster/client-check/omp-read.json
+python3 scripts/probe-omp-coding.py --output data/cluster/client-check/omp-coding.json
+```
+
+The coding probe allows only OMP's read/edit/bash tools for a disposable local
+fixture, verifies the resulting program and final tool result, and preserves
+the event log. It is a noninteractive integration check, not a coding benchmark.
+An ordinary interactive session keeps the same model selection:
+`omp --model spark-context-guard/local-deepseek-v4-flash`.
+
+From each Spark, `scripts/probe-spark-omp.py --node 66f1|e8f1 --model
+local-deepseek-v4-flash --output ...` checks its managed gateway using a temporary
+client profile. On the FamChat host, `scripts/probe-famchat-provider.py --output
+...` tests the provider URL and credential configured in the existing Open WebUI
+container; it does not create a stored conversation or test the browser UI.
+
+Use `make deepseek-tp-status PLAN=/path/to/saved/plan.json` to inspect both workers.
+TP2 needs both nodes: this does not provide automatic failover after a worker or
+host failure. Workers deliberately have Docker restart disabled so a lone rank
+cannot reclaim a GPU independently of the cluster reservation. Recover by stopping
+the exact saved plan and starting the qualified recipe into a fresh receipt
+directory, then publish the healthy deployment. Never delete reservations to
+bypass another workload.
 
 For a read-only preview, run `scripts/publish-deepseek-tp.py` with the same path
 arguments and omit `--apply`. A traced diagnostic cannot be published by this
