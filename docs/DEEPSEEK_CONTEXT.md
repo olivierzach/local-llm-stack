@@ -7,6 +7,11 @@ Use that native ceiling; do not invent a larger RoPE override from free RAM.
 
 ## What the memory buys
 
+The existing single-Spark recipe uses an IQ2-based GGUF and a different engine.
+The two-Spark recipe uses a larger, higher-precision checkpoint, so the second
+node's memory is not all additional KV space. The single-node 64K setting cannot
+be carried over as a physical limit or doubled as a capacity calculation.
+
 Both Sparks load their tensor-parallel portions of the official mixed FP4/FP8
 checkpoint. The accepted correctness fix uses BF16 expert **activations**, not
 BF16 copies of all weights. Target plus DSpark draft loading reports about
