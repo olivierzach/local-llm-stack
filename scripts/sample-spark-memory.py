@@ -2,6 +2,7 @@
 """Sample Linux shared-memory pressure during a bounded serving test; never mutate workloads."""
 import argparse
 import json
+import os
 from pathlib import Path
 import time
 
@@ -28,10 +29,11 @@ def main():
     args.output.parent.mkdir(parents=True, exist_ok=True)
     stop = args.output.with_suffix('.stop')
     if stop.exists(): p.error('remove the previous stop marker or choose a new output')
-    first = snapshot(); last = first; minimum = first['available_kib']; samples = 0
+    first = snapshot(); last = first; minimum = first['available_kib']; samples = 0; max_pressure = 0.0
     with args.output.open('x') as f:
         while True:
             last = snapshot(); minimum = min(minimum, last['available_kib']); samples += 1
+            max_pressure = max(max_pressure, float(last['pressure']['full']['avg10']))
             f.write(json.dumps(last) + '\n'); f.flush()
             if stop.exists() or time.time() - first['time'] >= args.seconds:
                 break
@@ -40,6 +42,7 @@ def main():
                'min_available_gib': minimum / 1024**2, 'initial_swap_gib': first['swap_used_kib'] / 1024**2,
                'final_swap_gib': last['swap_used_kib'] / 1024**2,
                'swapin_pages': last['pswpin'] - first['pswpin'], 'swapout_pages': last['pswpout'] - first['pswpout'],
+               'page_size_bytes': os.sysconf('SC_PAGE_SIZE'), 'max_pressure_full_avg10': max_pressure,
                'pressure_full_us': int(last['pressure']['full']['total']) - int(first['pressure']['full']['total'])}
     args.output.with_suffix('.summary.json').write_text(json.dumps(summary, indent=2) + '\n')
     print(json.dumps(summary))

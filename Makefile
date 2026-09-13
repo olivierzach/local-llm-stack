@@ -9,7 +9,7 @@ DEEPSEEK_TP_EXPERTS ?= bf16
 DEEPSEEK_TP_REPEAT_TRIALS ?= 100
 DEEPSEEK_TP_CONTEXT ?= 64k
 DEEPSEEK_TP_MANIFEST = cluster/deployments/deepseek-tp2$(if $(filter bf16,$(DEEPSEEK_TP_EXPERTS)),-a16,)$(if $(filter dspark2,$(DEEPSEEK_TP_SPEC)),-dspark2,)$(if $(filter graphs,$(DEEPSEEK_TP_EXECUTION)),-graphs,)$(if $(filter-out 64k,$(DEEPSEEK_TP_CONTEXT)),-$(DEEPSEEK_TP_CONTEXT),)-$(COORDINATOR).json
-.PHONY: deepseek-tp-prepare deepseek-tp-plan deepseek-tp-up deepseek-tp-status deepseek-tp-down deepseek-tp-accept deepseek-tp-publish
+.PHONY: deepseek-tp-prepare deepseek-tp-plan deepseek-tp-up deepseek-tp-status deepseek-tp-down deepseek-tp-accept deepseek-tp-publish deepseek-tp-context-accept
 deepseek-tp-prepare:
 	@test -n "$(PEER)" -a -n "$(OUTPUT)" || { echo 'Use PEER=66f1|e8f1 OUTPUT=/path/to/preparation-receipts' >&2; exit 2; }
 	python3 scripts/prepare-deepseek-tp.py --peer "$(PEER)" --output "$(OUTPUT)" --apply
@@ -34,6 +34,10 @@ deepseek-tp-accept:
 	.venv/bin/python scripts/probe-deepseek-thinking.py --saved-plan "$(PLAN)" --output "$(OUTPUT)/thinking.json"
 	.venv/bin/python scripts/accept-spark-serving.py --profile deepseek-context --saved-plan "$(PLAN)" --output "$(OUTPUT)/serving"
 	.venv/bin/python scripts/probe-deepseek-repeatability.py --saved-plan "$(PLAN)" --output "$(OUTPUT)/repeatability-after.json" --trials "$(DEEPSEEK_TP_REPEAT_TRIALS)"
+
+deepseek-tp-context-accept:
+	@test -n "$(PLAN)" -a -n "$(OUTPUT)" || { echo 'Use PLAN=/path/to/saved/plan.json OUTPUT=/path/to/new/qualification SWEEP=1 (optional)' >&2; exit 2; }
+	.venv/bin/python scripts/accept-deepseek-context.py --saved-plan "$(PLAN)" --output "$(OUTPUT)" $(if $(filter 1,$(SWEEP)),--sweep,)
 
 deepseek-tp-publish:
 	@test -n "$(PLAN)" -a -n "$(ACCEPTANCE)" -a -n "$(ALTERNATE_PLAN)" -a -n "$(ALTERNATE_ACCEPTANCE)" -a -n "$(OUTPUT)" || { echo 'Set PLAN ACCEPTANCE ALTERNATE_PLAN ALTERNATE_ACCEPTANCE OUTPUT; run on each Spark gateway' >&2; exit 2; }

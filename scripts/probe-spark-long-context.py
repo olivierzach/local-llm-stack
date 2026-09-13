@@ -47,6 +47,29 @@ def fit(count, target, codes, nonce, corpus='repeated'):
     fixed = count(build(0, codes, nonce, corpus))
     step = (count(build(4, codes, nonce, corpus)) - fixed) / 4
     if step <= 0 or fixed >= target: raise RuntimeError('tokenizer cannot size retrieval input')
+    if corpus == 'varied':
+        # Numeric identifiers change BPE length as the corpus grows. Bracket
+        # the actual tokenizer count instead of assuming a constant row size.
+        low, low_count = 0, fixed
+        high = max(1, int((target - fixed) / step) + 1)
+        high_count = count(build(high, codes, nonce, corpus))
+        while high_count <= target:
+            low, low_count = high, high_count
+            high *= 2
+            high_count = count(build(high, codes, nonce, corpus))
+        for _ in range(32):
+            if target - low_count <= 128:
+                return build(low, codes, nonce, corpus), low_count
+            if high - low <= 1:
+                raise RuntimeError('one archive row exceeds the sizing tolerance')
+            guess = low + int((target - low_count) * (high - low) / (high_count - low_count))
+            guess = min(high - 1, max(low + 1, guess))
+            actual = count(build(guess, codes, nonce, corpus))
+            if actual <= target:
+                low, low_count = guess, actual
+            else:
+                high, high_count = guess, actual
+        raise RuntimeError('varied retrieval input sizing did not converge')
     repeats = max(0, int((target - fixed) / step))
     for _ in range(16):
         text = build(repeats, codes, nonce, corpus)
