@@ -156,6 +156,9 @@ the raw model server:
 This checks the deployment digest, advertised context, exact input accounting,
 absence of compaction, retrieval and prefix reuse. The ordinary 2,048-token guard
 margin still applies, and input plus requested output must fit the total context.
+The gateway probe uses a 180-second socket-read timeout. A successful fresh
+million-token prefill therefore also checks that streaming keepalives bridge
+the long wait; the raw-backend probe allows 3,600 seconds of silence.
 
 Long fresh inputs take minutes to read. Cached continuations can be much quicker,
 but cache eviction or a changed prefix requires that work again. Increasing the

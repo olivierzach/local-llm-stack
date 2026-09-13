@@ -111,11 +111,15 @@ def main():
     codes = {label: uuid.uuid4().hex[:8] for label in ('alpha', 'beta', 'gamma')}
     base, model = plan['endpoint']['base_url'], plan['recipe']['alias']
     inference_base = args.gateway_url.rstrip('/') if args.gateway_url else base
+    # A long gateway prefill must survive an ordinary client read deadline via
+    # SSE keepalives, not just because this probe tolerates an hour of silence.
+    read_timeout = 180 if args.gateway_url else 3600
     key = args.key_file.read_text().strip() if args.key_file else None
     session = requests.Session()
     session.trust_env = False
     result = {'deployment_digest': plan['digest'], 'input_token_target': args.input_tokens,
-              'expected_codes': codes, 'corpus': args.corpus, 'runs': [], 'complete': False, 'started_at': time.time()}
+              'expected_codes': codes, 'corpus': args.corpus, 'sse_read_timeout_s': read_timeout,
+              'runs': [], 'complete': False, 'started_at': time.time()}
     if args.gateway_url: result['gateway_url'] = inference_base
     save_json(args.output, result)
 
@@ -131,7 +135,7 @@ def main():
         result['actual_input_tokens'] = actual
         for label in ('unique-prefix', 'repeated-prefix'):
             before = prefix_metrics(session, base)
-            record = benchmark.measure(inference_base, key, model, prompt, 128, 3600, capture_text=True)
+            record = benchmark.measure(inference_base, key, model, prompt, 128, read_timeout, capture_text=True)
             if args.gateway_url:
                 headers = {k.lower(): v for k, v in record['context_headers'].items()}
                 if (record['deployment_digest'] != plan['digest'] or
@@ -161,7 +165,7 @@ def main():
                 'explain its structure, the reliability checks a production system needs, and how to validate '
                 'retrieval over long logs. Include concrete examples and edge cases. Aim for at least 1500 words.')
             expected_tokens = count(decode_prompt)
-            record = benchmark.measure(inference_base, key, model, decode_prompt, 1024, 3600, capture_text=True)
+            record = benchmark.measure(inference_base, key, model, decode_prompt, 1024, read_timeout, capture_text=True)
             record['tokenizer_usage_match'] = record['prompt_tokens'] == expected_tokens
             result['decode_run'] = record
             save_json(args.output, result)
