@@ -11,24 +11,86 @@ correct answer and all recorded layer outputs matched across eight repeated
 requests on both ranks. This changes expert activations to BF16; the checkpoint
 remains the original mixed FP4/FP8 weights. No FP8 weight conversion is needed.
 
-**DeepSeek TP2 with BF16 expert activations, DSpark2, and CUDA graphs is running
-and published through both Sparks' Context Guards.** Both coordinator roles
-passed the full untraced acceptance suite on September 12, 2026. The live
-deployment uses 66f1 as coordinator; e8f1 was tested with the same recipe before
-switching roles. There is no permanent master. Qwen is stopped while DeepSeek
-uses both GPUs. The single-node recipes are unchanged.
+**DeepSeek TP2 with BF16 expert activations, DSpark2, CUDA graphs and a
+1,048,576-token total context is published through both Sparks' Context Guards.**
+Both coordinator roles passed full acceptance on September 12, 2026. The live
+coordinator is e8f1; 66f1 passed the same recipe. There is no permanent master.
+Qwen is stopped while DeepSeek uses both GPUs. The single-node recipes and the
+original 64K TP2 variants remain available.
 
-The existing `spark-context-guard/local-deepseek-v4-flash` Mac OMP selection,
-both Spark OMP profiles, and FamChat's configured provider passed client checks.
-Each gateway's text and streamed tool checks required the live deployment ID.
-The Mac needed `omp models refresh spark-context-guard` to refresh a catalog
-cached while DeepSeek was unavailable; its provider URL and credentials did not
-change. FamChat verification used its existing Open WebUI container's configured
-URL and credential, without creating a conversation or exercising the browser UI.
+The alias remains `local-deepseek-v4-flash`. Both gateways on both nodes passed
+text and tool checks requiring the exact live deployment digest. The
+[first-principles context analysis and measured sweep](DEEPSEEK_CONTEXT.md)
+explain the memory budget, long-prefill cost, client deadlines and reproducible
+qualification commands. The larger limit covers input plus output; it does not
+qualify concurrent full-length requests or improve answer quality by itself.
 
-Receipts live in `data/cluster/deepseek-readiness-20260912/` on the Mac and the
-managed controllers' persistent `state/deepseek-readiness-20260912/` directories.
-The run names are `a16-dspark2-graphs-{66f1,e8f1}-01`.
+| 1M acceptance | 66f1 coordinator | e8f1 coordinator |
+| --- | --- | --- |
+| Repeated-answer regression, before + after load | 200/200 correct | 200/200 correct |
+| Tool call/result protocol checks | 36 passed | 36 passed |
+| Thinking on/off, streaming/non-streaming | 4 passed | 4 passed |
+| Three 1,024-token answers | 49.02–55.38 tokens/sec | 50.75–55.92 tokens/sec |
+| Answers with a 4,096-token limit | 51.89–57.58 tokens/sec | 51.10–58.07 tokens/sec |
+| Actual lengths of those three answers | 4,096 / 4,096 / 4,096 | 4,061 / 4,096 / 4,096 |
+| Sequential soak | 18 requests, 18,432 output tokens | 18 requests, 18,432 output tokens |
+| Median soak decode speed | 52.52 tokens/sec | 52.61 tokens/sec |
+| Draft tokens accepted during soak | 78.99% | 79.10% |
+| Long-input retrieval and token accounting | 1,046,414 tokens, passed | 1,046,422 tokens, passed |
+| First text, fresh / reused long prefix | 1,240.23 / 3.16 seconds | 1,241.62 / 3.17 seconds |
+| 1,024-token decode near the context limit | 35.07 tokens/sec | 35.79 tokens/sec |
+| Minimum available host memory, 66f1 / e8f1 | 8.36 / 12.14 GiB | 11.82 / 12.31 GiB |
+| Direct fabric | Both RoCE interfaces active; zero measured error/drop deltas | Same |
+
+These are bounded synthetic checks at concurrency one, not a general accuracy
+benchmark or an uptime guarantee. Full input retrieval, token accounting,
+stream completion and host-memory acceptance are separate checks; the generated
+analysis text is used for timing, not as a scored reasoning benchmark.
+
+The final public-path check sent 1,040,337 input tokens through 66f1's existing
+port-4010 Context Guard to the e8f1 coordinator over the direct fabric. Retrieval,
+exact tokenizer accounting, unchanged input, deployment identity and stream
+completion passed. Fresh first text took 1,226.35 seconds, the cached repeat
+5.12 seconds, and a 1,024-token continuation decoded at 35.01 tokens/sec.
+The client allowed only 180 seconds of socket silence, so this also exercised
+the gateway's 15-second SSE keepalives across the full prefill.
+
+Final integration checks passed for OMP read-tool execution through each node's
+managed gateway, the existing Mac OMP provider's read/edit/bash fixture, FamChat's
+configured provider, the existing Mac `llm` alias and the generated AIChat profile.
+Existing Mac OMP and OpenClaw model catalogs both report 1,048,576 tokens after
+their configuration updates; provider URLs, credentials and unrelated model
+limits were preserved. OpenClaw was configuration/catalog validated; FamChat was
+tested from its container, not its browser UI. Those short client checks do not
+claim every application's full million-token workflow was exercised.
+
+Keep using `spark-context-guard/local-deepseek-v4-flash` in OMP. Start a new session
+or refresh/reselect the model if an already-open session still shows the old
+context. The supported route-derived AIChat command and the legacy static
+configuration's smaller limit are described in [the context runbook](DEEPSEEK_CONTEXT.md).
+
+Receipts are in `data/cluster/deepseek-context-20260912/` on the Mac and in
+`~/projects/local-llm-stack-cluster/state/deepseek-context-20260912/` on both Sparks.
+The runs are `1m-66f1-02` and `1m-e8f1-01`; the latter's acceptance is under
+`qualification/acceptance`.
+
+The accepted 1M plan digests are:
+
+- 66f1: `0973eb73655b4a72e227435328732ca2c92baa489d73cae7282fbefc15f41c17`
+- e8f1: `57e2f8f870062a204f757f1f6373f20d185a10fe39f8c8bd219e53d82af0fe18`
+
+Inspect the current deployment from either managed controller:
+
+```bash
+make deepseek-tp-status PLAN=data/cluster/deepseek-context-20260912/1m-e8f1-01/plan.json
+```
+
+## Initial 64K qualification
+
+The original 65,536-token recipe also passed both coordinator roles. Its receipts
+remain in `data/cluster/deepseek-readiness-20260912/`, runs
+`a16-dspark2-graphs-{66f1,e8f1}-01`. These results establish the smaller rollback
+recipe, not the currently published context limit.
 
 | Acceptance | 66f1 coordinator | e8f1 coordinator |
 | --- | --- | --- |
@@ -55,13 +117,7 @@ The accepted plan digests are:
 - 66f1: `8630942aa671253ba645f4ca53be7f8c02dd87cb8bdf88532f96c0108928404e`
 - e8f1: `673eeab14262e267148d39ccde867c1d5a21f5a14427e89e9665269cd300344e`
 
-Inspect the currently running deployment from either managed controller:
-
-```bash
-make deepseek-tp-status PLAN=data/cluster/deepseek-readiness-20260912/a16-dspark2-graphs-66f1-01/plan.json
-```
-
-## Pinned artifacts and initial limits
+## Pinned artifacts and serving limits
 
 | Setting | Value |
 | --- | --- |
@@ -74,12 +130,12 @@ make deepseek-tp-status PLAN=data/cluster/deepseek-readiness-20260912/a16-dspark
 | Packages | vLLM `0.1.dev20610+g4b276a363.d20260910`, Torch `2.13.0+cu130`, FlashInfer `0.7.0` |
 | NCCL | Container-only `2.30.7` library pin, shared with the accepted Qwen setup |
 | Parallelism | TP2, one GPU per node, native multiprocessing |
-| Initial context / output | 65,536 / 8,192 tokens |
+| Published context / output | 1,048,576 / 8,192 tokens; original 65,536-token variant retained |
 | Concurrency / GPU memory fraction | 1 / 0.8 |
 | KV cache | FP8, block size 256 |
 | Scheduling | Synchronous; explicit eager baseline or CUDA graph variant |
 | Public model alias | `local-deepseek-v4-flash` |
-| Direct backend | Coordinator fabric IP, port 8122; rendezvous 29542 |
+| Direct backend | Coordinator fabric IP, port 8123; rendezvous 29543 (64K variant: 8122 / 29542) |
 
 Both plain decoding and optional DSpark2 have manifests for either coordinator:
 `cluster/deployments/deepseek-tp2-a16-{66f1,e8f1}.json` and
@@ -102,7 +158,7 @@ mode remains eager, with speculation off):
 
 ```bash
 cd ~/projects/local-llm-stack-cluster/current
-make deepseek-tp-up COORDINATOR=e8f1 DEEPSEEK_TP_SPEC=dspark2 DEEPSEEK_TP_EXECUTION=graphs OUTPUT=data/cluster/deepseek-new-run
+make deepseek-tp-up COORDINATOR=e8f1 DEEPSEEK_TP_CONTEXT=1m DEEPSEEK_TP_SPEC=dspark2 DEEPSEEK_TP_EXECUTION=graphs OUTPUT=data/cluster/deepseek-new-run
 ```
 
 Run only after releasing the current deployment's GPUs. Either node can run the
@@ -111,14 +167,13 @@ command; set `COORDINATOR=66f1` to place the API and rank zero there instead.
 The initial default is non-thinking so protocol and retrieval checks can finish
 within bounded output limits. Requests can opt into thinking with
 `chat_template_kwargs: {"thinking": true, "reasoning_effort": "high"}`.
-Think Max is excluded at this context size. Vision is not advertised.
+Think Max is not qualified by this recipe. Vision is not advertised.
 
 The upstream [vLLM recipe](https://recipes.vllm.ai/deepseek-ai/DeepSeek-V4-Flash)
 requires a Spark-specific build for GB10. The
 [Spark runtime recipe](https://github.com/eugr/spark-vllm-docker/blob/main/recipes/deepseek-v4-flash-0731.yaml)
-provides the B12X kernel switches and DeepSeek parsers. Our pinned variant starts
-with smaller context/concurrency and eager execution; upstream performance
-numbers do not establish acceptance of this local configuration.
+provides the B12X kernel switches and DeepSeek parsers. The accepted variant uses the native 1M context, concurrency one and CUDA graphs;
+upstream performance numbers do not establish acceptance of this local configuration.
 
 ## Prepare without interrupting inference
 
@@ -186,7 +241,7 @@ make deepseek-tp-accept PLAN=data/cluster/deepseek-plain-test/plan.json OUTPUT=d
 ```
 
 This checks repeated first-token answers, tool calls/results and explicit thinking on/off with and without streaming, 1K/4K decode,
-approximately 63K-input retrieval/token accounting, repeated-prefix reuse and
+near-limit input retrieval/token accounting (about 63K for the original recipe), repeated-prefix reuse and
 sequential-request stability. Also test a real OMP
 read/edit/bash workflow. The pinned runtime's finish-reason behavior must be
 validated; never weaken tool-name, argument or returned-result checks to pass it.
@@ -197,10 +252,12 @@ restart through every variant before using an already qualified recipe.
 Acceptance checks native accepted-speculative-token counters. Increase context
 or concurrency only after separate memory and stability measurements.
 
-Publish only the accepted deployment through `configure-context-routes.py
---plan ... --merge --alias local-deepseek-v4-flash` on each BASE stack root and
-`spark-gateway routes --node ... --plan ... --merge --alias local-deepseek-v4-flash`
-on each managed gateway. Preserve unrelated routes and validate both gateways
+For extended contexts, use `make deepseek-tp-context-accept PLAN=... OUTPUT=...`
+to collect the host-memory samples required for publication as well as the full
+serving suite. See [the context runbook](DEEPSEEK_CONTEXT.md).
+
+Publish with `make deepseek-tp-publish` as shown below. It preserves unrelated
+routes and validates both gateways
 and the Mac OMP provider. No client needs a different endpoint name for the same
 DeepSeek alias. Route publication is deliberately separate from preparation/up.
 
@@ -222,6 +279,8 @@ Or use the existing `make deepseekv4-up` in the selected node's BASE stack after
 releasing both distributed reservations. If the public DeepSeek alias was moved
 to the two-node backend during testing, restore its single-node route as part of
 the switch. Keeping the old recipe files does not by itself move a published route.
+Refresh client context metadata for the newly selected plan too; the OMP and
+OpenClaw update scripts in the context runbook also accept a lower context limit.
 
 ## Historical FP8 expert results (not qualified)
 
@@ -299,23 +358,26 @@ RDMA-device and service-port checks on both nodes. Its only failed checks are
 reservation, GPU-idle and shared-memory because Qwen occupied both GPUs then.
 `final-preflight/preflight.json`, `prepared/preparation.json` and
 `staging-summary.json` distinguish this completed staging from GPU acceptance.
-The four current candidate plans are under `final-plans/`; older top-level
+The four staging-time candidate plans are under `final-plans/`; older top-level
 staging plans predate the final NCCL pin and should not be used to launch tests.
 
 The accepted Qwen plan digest remains
 `a83ebf27f1b5f0ecbc92288191c206660ac5b13b3815ed411dea90e1383e3d20`.
 Artifact staging alone does not establish serving readiness; use the later GPU
-and client acceptance receipts for that conclusion. Higher context sizes,
-concurrent load, and the plain graph variant need their own qualification.
+and client acceptance receipts for that conclusion. The later 1M qualification
+is recorded above; concurrent load and the plain graph variant remain separate
+qualification tasks.
 
 ## Publish only an accepted BF16 recipe
 
 `make deepseek-tp-accept PLAN=... OUTPUT=...` now requires 100 repeated first-token
-answers, 36 tool protocol checks, all four thinking/streaming checks, 64K input,
+answers, 36 tool protocol checks, all four thinking/streaming checks, near-limit input,
 a sequential soak, long answers with a 4,096-token limit, and another 100 regression
 requests after that workload. It stops on a failure and
 retains its receipts. Run it against the exact untraced recipe with each
 coordinator, keeping the receipts in separate directories.
+For a context above 64K, run it through `make deepseek-tp-context-accept` so the
+publication gate also has memory and paging samples covering the serving suite.
 
 After both roles pass and the desired deployment is running, copy both saved
 plans and acceptance directories to each gateway host. Run this from the managed
@@ -337,6 +399,9 @@ if those checks fail. Clients keep their existing alias and Context Guard URL.
 No permanent master node is created.
 
 Verify the existing Mac OMP provider after publication:
+
+When the context limit changes, first apply the existing-client metadata updates
+from [the context runbook](DEEPSEEK_CONTEXT.md), then refresh and test the catalog.
 
 ```bash
 omp models refresh spark-context-guard
