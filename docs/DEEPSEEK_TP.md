@@ -1,22 +1,23 @@
 # Higher-precision DeepSeek V4 across two Sparks
 
-This is a separate two-node deployment. DSpark2 with CUDA graphs passed scoped
-64K protocol/performance checks on September 12, 2026; the measurements are below.
-**Publication is withheld:** an additional repeated first-token diagnostic on
-the reversed coordinator produced materially different scores and occasional
-incorrect arithmetic at temperature zero. This also occurred with a fixed seed
-and one output token. The passing protocol/performance checks below do not yet
-establish correctness of this runtime combination.
-The same failure reproduced with eager execution and speculation disabled, so
-neither graph execution nor DSpark alone explains it. The permanent acceptance
-target now runs a 20-request fixed-seed first-token regression before other tests.
-Qwen was stopped using its exact saved plan for this authorized test.
-The DeepSeek test containers were stopped after the failed controls; client
-routes were never changed. Qwen recovery evidence is written under
-`deepseek-testing-20260912/qwen-restored-01/`, with restoration status summarized
-in the parent directory's `testing-summary.json`.
-The existing `deepseekv4-*` Make targets, native DS4 engine, GGUF weights, DSpark
-drafter, and single-node service definitions are unchanged on both machines.
+This is a separate two-node deployment; the existing single-node `deepseekv4-*`
+recipes and weights remain available on either Spark.
+
+The original FP8-activation expert path failed a repeated-answer regression.
+Layer traces isolated the first visible divergence to layer 0's routed experts;
+embeddings, attention, router scores, and the shared expert were unchanged.
+With `VLLM_B12X_MOE_FP4_FORCE_A16=1`, all 20 diagnostic requests returned the
+correct answer and all recorded layer outputs matched across eight repeated
+requests on both ranks. This changes expert activations to BF16; the checkpoint
+remains the original mixed FP4/FP8 weights. No FP8 weight conversion is needed.
+
+The default Make selection now uses BF16 expert activations. **Publication is
+still pending the full untraced acceptance suite with DSpark2 and CUDA graphs
+in both coordinator roles.** Historical FP8 performance results below are not
+correctness qualification. Current receipts live in
+`data/cluster/deepseek-readiness-20260912/` (or the controller's `state/` directory).
+The previous Qwen restoration receipt describes an earlier recovery; Qwen was
+stopped again for the current authorized DeepSeek test window.
 
 ## Pinned artifacts and initial limits
 
@@ -25,7 +26,7 @@ drafter, and single-node service definitions are unchanged on both machines.
 | Checkpoint | `deepseek-ai/DeepSeek-V4-Flash-0731` |
 | Revision | `7872f01b1d1fe23eabc4c98b48bffcef5a386062` |
 | Download | 166,898,661,074 bytes, 74 files including 48 weight shards |
-| Precision | Official mixed FP4 expert / FP8 weights, versus the existing low-bit GGUF |
+| Precision | Official mixed FP4 expert / FP8 weights; BF16 expert activations |
 | Runtime | `eugr/spark-vllm-b12x@sha256:693a1d778e998ccf9d9268d70f5af0f1f397e4a8c0d2ce6e54bb75e22bd1b36b` |
 | ARM64 image ID | `sha256:6d01fec064f7443a0d82360f918f6774212d4701f6bd08a2d338e10dafb696a2` |
 | Packages | vLLM `0.1.dev20610+g4b276a363.d20260910`, Torch `2.13.0+cu130`, FlashInfer `0.7.0` |
@@ -39,8 +40,10 @@ drafter, and single-node service definitions are unchanged on both machines.
 | Direct backend | Coordinator fabric IP, port 8122; rendezvous 29542 |
 
 Both plain decoding and optional DSpark2 have manifests for either coordinator:
-`cluster/deployments/deepseek-tp2-{66f1,e8f1}.json` and
-`cluster/deployments/deepseek-tp2-dspark2-{66f1,e8f1}.json`.
+`cluster/deployments/deepseek-tp2-a16-{66f1,e8f1}.json` and
+`cluster/deployments/deepseek-tp2-a16-dspark2-{66f1,e8f1}.json`.
+Use `DEEPSEEK_TP_EXPERTS=bf16` (default). `fp8` selects the historical recipes
+for diagnosis; that activation path failed repeatability and is not qualified.
 DSpark uses the draft module in the pinned checkpoint. It does not reuse the
 single-node GGUF drafter, and does not add a remote-drafter service.
 
@@ -48,12 +51,12 @@ Execution can also be selected explicitly with `DEEPSEEK_TP_EXECUTION=eager|grap
 on the plan/up targets. The default remains eager. The separate `-graphs-`
 deployment manifests use the upstream `FULL_AND_PIECEWISE` mode with all custom
 ops, bounded to capture size 8 for the initial single-request configuration.
-Acceptance is specific to the tested variant. DSpark2 with graphs has passed
-native serving checks; plain graph execution has only configuration/CLI checks.
+Acceptance is specific to the exact recipe and coordinator. Do not infer
+acceptance of every variant from a passing check on one variant.
 Existing model plans are unchanged.
 
-The measured configuration is selected explicitly (default flags still select
-the original eager, non-speculative baseline):
+Select the untraced BF16 expert candidate explicitly (the default execution
+mode remains eager, with speculation off):
 
 ```bash
 cd ~/projects/local-llm-stack-cluster/current
@@ -177,7 +180,7 @@ releasing both distributed reservations. If the public DeepSeek alias was moved
 to the two-node backend during testing, restore its single-node route as part of
 the switch. Keeping the old recipe files does not by itself move a published route.
 
-## Evidence and remaining work
+## Historical FP8 expert results (not qualified)
 
 Native GPU acceptance is recorded in `state/deepseek-testing-20260912/` on the
 controllers and `data/cluster/deepseek-testing-20260912/` on the Mac. The full
@@ -262,3 +265,36 @@ The accepted Qwen plan digest remains
 Artifact staging alone does not establish serving readiness; use the later GPU
 and client acceptance receipts for that conclusion. Higher context sizes,
 concurrent load, and the plain graph variant need their own qualification.
+
+## Publish only an accepted BF16 recipe
+
+`make deepseek-tp-accept PLAN=... OUTPUT=...` now requires 100 repeated first-token
+answers, 36 tool protocol checks, all four thinking/streaming checks, 64K input,
+a sequential soak, and complete 4,096-token answers. It stops on a failure and
+retains its receipts. Run it against the exact untraced recipe with each
+coordinator, keeping the receipts in separate directories.
+
+After both roles pass and the desired deployment is running, copy both saved
+plans and acceptance directories to each gateway host. Run this from the managed
+controller on **each Spark**, with paths to those receipts:
+
+```bash
+make deepseek-tp-publish \
+  PLAN=/path/to/running/plan.json ACCEPTANCE=/path/to/running/acceptance \
+  ALTERNATE_PLAN=/path/to/other-coordinator/plan.json \
+  ALTERNATE_ACCEPTANCE=/path/to/other-coordinator/acceptance \
+  OUTPUT=/path/to/new/publication-receipt
+```
+
+The command verifies the same recipe passed in both coordinator roles and that
+the exact selected deployment is healthy. It upserts only the existing
+`local-deepseek-v4-flash` route in that host's BASE and managed Context Guards,
+checks tool calls through both gateways, and restores the previous registries
+if those checks fail. Clients keep their existing alias and Context Guard URL.
+No permanent master node is created.
+
+For a read-only preview, run `scripts/publish-deepseek-tp.py` with the same path
+arguments and omit `--apply`. A traced diagnostic cannot be published by this
+command. The trace overlay can be reproduced for diagnosis using
+`scripts/prepare-deepseek-overlay.py --manifest runtime/deepseek-overlays/trace-layers.json`;
+its base source and result are checksum-verified before any GPU launch.

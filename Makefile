@@ -8,7 +8,7 @@ DEEPSEEK_TP_EXECUTION ?= eager
 DEEPSEEK_TP_EXPERTS ?= bf16
 DEEPSEEK_TP_REPEAT_TRIALS ?= 100
 DEEPSEEK_TP_MANIFEST = cluster/deployments/deepseek-tp2$(if $(filter bf16,$(DEEPSEEK_TP_EXPERTS)),-a16,)$(if $(filter dspark2,$(DEEPSEEK_TP_SPEC)),-dspark2,)$(if $(filter graphs,$(DEEPSEEK_TP_EXECUTION)),-graphs,)-$(COORDINATOR).json
-.PHONY: deepseek-tp-prepare deepseek-tp-plan deepseek-tp-up deepseek-tp-status deepseek-tp-down deepseek-tp-accept
+.PHONY: deepseek-tp-prepare deepseek-tp-plan deepseek-tp-up deepseek-tp-status deepseek-tp-down deepseek-tp-accept deepseek-tp-publish
 deepseek-tp-prepare:
 	@test -n "$(PEER)" -a -n "$(OUTPUT)" || { echo 'Use PEER=66f1|e8f1 OUTPUT=/path/to/preparation-receipts' >&2; exit 2; }
 	python3 scripts/prepare-deepseek-tp.py --peer "$(PEER)" --output "$(OUTPUT)" --apply
@@ -31,6 +31,10 @@ deepseek-tp-accept:
 	.venv/bin/python scripts/probe-spark-tool-calling.py --saved-plan "$(PLAN)" --output "$(OUTPUT)/tools.json"
 	.venv/bin/python scripts/probe-deepseek-thinking.py --saved-plan "$(PLAN)" --output "$(OUTPUT)/thinking.json"
 	.venv/bin/python scripts/accept-spark-serving.py --profile deepseek-64k --saved-plan "$(PLAN)" --output "$(OUTPUT)/serving"
+
+deepseek-tp-publish:
+	@test -n "$(PLAN)" -a -n "$(ACCEPTANCE)" -a -n "$(ALTERNATE_PLAN)" -a -n "$(ALTERNATE_ACCEPTANCE)" -a -n "$(OUTPUT)" || { echo 'Set PLAN ACCEPTANCE ALTERNATE_PLAN ALTERNATE_ACCEPTANCE OUTPUT; run on each Spark gateway' >&2; exit 2; }
+	.venv/bin/python scripts/publish-deepseek-tp.py --plan "$(PLAN)" --acceptance "$(ACCEPTANCE)" --alternate-plan "$(ALTERNATE_PLAN)" --alternate-acceptance "$(ALTERNATE_ACCEPTANCE)" --output "$(OUTPUT)" --apply
 
 # Public GPU operations share admission with sparkctl and the research adapters.
 SPARK_GPU_TARGETS := up balanced-up large-up qwen30-up deepseek32-up mistral24-up gptoss120-up lagunas21-up vision-up lora-serve training-up lora-train qwen38-up deepseekv4-up qwen38-down deepseekv4-down down
