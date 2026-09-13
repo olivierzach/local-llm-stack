@@ -77,7 +77,13 @@ variants remain diagnostic history, not the current qualified recipe.
    [the DeepSeek concurrency test plan](DEEPSEEK_AGENT_CONCURRENCY_PLAN.md).
    The user accepts a smaller context window for multiple simultaneous agents;
    compare sequence limits 2/4/8 and context ceilings before choosing a profile.
+   Include OMP/gateway compaction latency, cold/cached prefill, retained facts,
+   incremental summaries and interference with other agents. The current 1M
+   no-compaction acceptance does not qualify compaction quality or efficiency.
    Larger output budgets and remote drafting remain separate optional work.
+
+Kubernetes migration is deferred; the [scaling plan](SPARK_SCALING_RECOVERY_PLAN.md)
+records the recommendation, integration costs and conditions for revisiting it.
 
 The broad interchangeable-node goal remains incomplete until its hardware and
 recovery gaps are closed. The accepted DeepSeek serving recipe is usable now.

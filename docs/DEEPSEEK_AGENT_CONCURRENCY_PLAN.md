@@ -102,6 +102,66 @@ workload class across repeated rounds before describing p95 as anything beyond
 exploratory; retain sample counts and variability. A large sample does not itself
 establish a production SLA.
 
+## Compaction cost, retention and agent interference
+
+Added at the user's request after inspecting the current guard. This campaign
+is also deferred. The successful million-token gateway test explicitly avoided
+compaction; it did not qualify summarization quality, cost or recovery.
+
+Keep OMP session compaction separate from Context Guard's emergency request
+compaction. On the inspected DeepSeek route, the gateway override summarizes
+with the selected DeepSeek backend even though the legacy environment names
+`local-fast`. The configured older-history input budget is 6,000 characters
+(beginning/end plus an omission marker), with a 512-token summary and recent
+messages retained separately. This bounds the summary call by omitting most of
+the older transcript; it is not full-history summarization. The fallback on a
+summary failure is a transcript excerpt. Verify these settings/code again before
+testing, including OMP's resolved compaction strategy and actual selected model.
+The inspected Mac default/smol/slow roles all select DeepSeek; do not infer a
+dedicated cheap summarizer from a role's name.
+
+A fresh full-million-token summary request could incur prefill comparable to the
+measured roughly 20-minute full-context request, plus generation. This is a
+hypothesis, not a compaction measurement: prompt format, prefix reuse, cache
+residency, summary size and queueing all change elapsed time. A fast 6K-character
+sample and a faithful full-history summary must not be scored as equivalent work.
+
+| Experiment | Required evidence |
+| --- | --- |
+| Current gateway emergency behavior at 64K/128K/256K and near 1M | Actual retained/dropped source ranges, summary and final request token counts, latency, fallback path and downstream continuation correctness |
+| Actual OMP manual and automatic compaction | Resolved strategy/model, trigger, actual summarization input/output, resulting persisted session state and next-turn behavior; use synthetic sessions only |
+| Full-history summarization reference | Correctly sized input plus output within the model ceiling; fresh, resident-prefix and evicted-prefix runs; observed cache hits rather than assumed reuse |
+| Incremental summaries with recoverable history | Periodic smaller updates, raw history references and retrieval; cumulative cost over an equal complete session, not only the final summary call |
+| Compaction during one and several active agents | Parent/child completion time, queued work, first-response delay and streaming pauses of unrelated requests; exercise baseline sequence-1 and finalist concurrency settings |
+| First requests after compaction | New-prefix prefill cost, surviving cache reuse, ordinary-answer latency and repeated reconstruction/compaction on later turns |
+| Timeout, cancellation and summary failure | No silent successful-looking fallback with missing critical facts, no repeated summary storm, no orphan request or deadlock; verify actual pre-summary timeout/keepalive coverage |
+| Client compaction followed by gateway enforcement | No avoidable double summarization; test oversized summaries and client/server limit disagreement with visible outcomes |
+
+Seed required facts throughout the beginning, middle and end of each synthetic
+history: current goal, changed decisions (including superseded ones), constraints,
+file identifiers, pending work and tool-call/result relationships. Score exact
+fact retention, unsupported additions, preservation of the newest authoritative
+decision, ability to retrieve omitted details and correct continuation after
+compaction. Store the original fixture and expected facts so loss is measurable.
+Include facts specifically in the region the current gateway omits. Do not
+present that lossy fallback as an accepted long-session memory strategy simply
+because it fits and returns quickly.
+
+Screen small histories first; run expensive near-1M cases only for plausible
+strategies in the reserved test window. Create cache-cold fixtures with unique
+prefixes, and controlled eviction only within the owned experiment. Do not clear
+production caches or private session history. Where a summarization prompt changes
+the prefix, record the loss of reuse. Keep output budget, thinking policy and
+retained recent history explicit and comparable.
+
+The scorecard must include end-to-end **compaction plus first resumed answer**,
+total session GPU time/tokens, other agents' delays and retained-fact accuracy.
+Define minimum retention and acceptable wait bounds before choosing finalists.
+Prefer a measured incremental strategy if it avoids late large stalls without
+losing necessary information. A separate summarizer is an optional candidate
+only after accounting for its own memory/compute, context capacity and quality;
+the TP2 pair has no dedicated idle GPU. No cloud summarizer is implied or enabled.
+
 ## Selection, safety gates and optional tuning
 
 First reject candidates with hangs, worker restarts, OOM, correctness/tool
@@ -144,7 +204,8 @@ silently change the recipe or claim those candidates preserve accepted speedups.
    Its existing 262K input ceiling, 1,800-second request timeout and short synthetic
    workload do not cover this whole plan. Extend or add a harness for shared
    prefixes, multi-turn agents, reasoning, mixed arrivals, gateway traffic and
-   partial-result retention; do not claim the current profiler implements them.
+   partial-result retention and the compaction experiments above; do not claim
+   the current profiler implements them.
 4. Run adaptive screening and qualify the best two candidates with a mixed soak
    of at least one hour, repeated tool/thinking checks and both coordinator roles.
    Confirm real OMP behavior through Context Guard. Exercise simultaneous traffic

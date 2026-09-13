@@ -159,6 +159,50 @@ changes deployment data. New model architectures, engines or unsupported network
 topologies still need engineering and qualification. This is not a proposal to
 adopt Kubernetes or a new scheduler just to run three Sparks.
 
+## Kubernetes decision — defer migration
+
+Recommendation for this two-Spark setup: keep Compose/systemd and the existing
+declarative controller while qualifying concurrency, compaction and recovery.
+Kubernetes is a possible future orchestration backend, not a prerequisite for
+repeatable node enrollment or stable client model aliases. No migration is
+authorized or performed by this plan.
+
+Kubernetes provides standard deployment reconciliation and resource scheduling;
+GPU scheduling requires vendor device integration. Those are useful capabilities,
+but do not validate DeepSeek tensor shapes, resize a running TP group, preserve
+an in-flight generation, improve prefill speed or create a second model replica
+when both GPUs already belong to one TP2 engine.
+See [Kubernetes Deployments](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/)
+and [GPU scheduling](https://kubernetes.io/docs/tasks/manage-gpus/scheduling-gpus/).
+
+A migration would also need a supported ARM64/Spark GPU integration, explicit
+RDMA access and fabric routing, model-cache/storage placement, all-rank admission
+and coordinated restart semantics for distributed jobs, secrets, persistence and
+cluster upgrades. NVIDIA documents RDMA device/network integration separately in
+its [Network Operator deployment guide](https://docs.nvidia.com/networking/display/kubernetes2612/deployment-guide-kubernetes.html).
+This reference is not proof that our exact Spark/runtime configuration has been
+qualified under those operators; avoid automatic driver replacement.
+
+Distinguish compute coordinator choice from Kubernetes control-plane ownership.
+A small cluster can use a single control plane, but that adds a management
+availability dependency. kubeadm's documented HA design uses at least three
+control-plane machines; two Sparks alone are not that topology. Existing workers
+may keep running during a control-plane outage while scheduling/recovery is
+impaired. [Kubernetes HA guide](https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/high-availability/)
+
+Revisit Kubernetes when there are multiple independently schedulable GPU groups,
+frequent placement changes, several users needing quotas/queues, or enough service
+churn that maintaining reconciliation and admission ourselves becomes substantial.
+This is a workload/operations threshold, not a fixed node-count rule. Do not grow
+the custom controller into a general-purpose scheduler merely to avoid Kubernetes.
+
+Keep inventory, model recipes, stable gateway contracts and acceptance evidence
+independent of the launcher. A future backend can translate a recipe/placement
+into Kubernetes resources while preserving the same tests and aliases. Prove it
+on a spare capacity/test deployment before migrating the serving pair. Stateless
+gateways are a simpler first experiment than the TP engine; OpenWebUI/database
+availability still needs an explicit data and storage plan under either system.
+
 ## Recovery and availability plan (item 4)
 
 **Phase 1 — define failure semantics and preserve recovery state (no GPU disruption).**
