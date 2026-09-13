@@ -252,6 +252,30 @@ def test_client_reset_closes_upstream_and_releases_replica(stack, monkeypatch, k
     assert not stack.second.received and not stack.original.received
 
 
+def test_keepalive_cancels_silent_prefill_before_upstream_timeout(stack, monkeypatch):
+    enable_heartbeats(stack, monkeypatch)
+    registry = json.loads(stack.gateway.registry_path.read_text())
+    registry['routes']['local-fast']['request_timeout_s'] = 30
+    stack.gateway.registry_path.write_text(json.dumps(registry))
+    stack.first.mode = 'gated'
+    client = socket.create_connection(('127.0.0.1', stack.gateway.server_port), timeout=5)
+    payload = json.dumps({'model': 'local-fast', 'messages': [{'role': 'user', 'content': 'synthetic'}], 'stream': True}).encode()
+    client.sendall((f'POST /v1/chat/completions HTTP/1.0\r\nHost: localhost\r\nAuthorization: Bearer {KEY}\r\nContent-Type: application/json\r\nContent-Length: {len(payload)}\r\n\r\n').encode() + payload)
+    received = b''
+    while DELTA not in received:
+        chunk = client.recv(4096)
+        assert chunk
+        received += chunk
+    client.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack('ii', 1, 0))
+    client.close()
+    deadline = time.monotonic() + 1
+    while stack.gateway.replica_pool.active and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert stack.gateway.replica_pool.active == {}
+    assert not stack.first.unblock.is_set()  # The backend has not resumed its stream.
+    assert not stack.second.received
+
+
 @pytest.mark.parametrize('separator', [b'\n', b'\r\n', b'\r'])
 def test_sse_delimiters_and_utf8_survive_every_byte_boundary(separator):
     message = 'data: {"text":"hello 🌍"}'.encode() + separator * 2

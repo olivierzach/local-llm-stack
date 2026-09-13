@@ -14,6 +14,7 @@ import json
 import os
 from pathlib import Path
 import re
+import socket
 import sys
 import threading
 from urllib.parse import urlparse
@@ -189,6 +190,13 @@ class GatewayHandler(guard.ContextGuardHandler):
         original = self.wfile
         lock = threading.Lock()
         stopped = threading.Event()
+        # Own a duplicate of this response's socket so a disconnected client
+        # can interrupt a blocking upstream read without racing descriptor reuse.
+        cancel_socket = None
+        try:
+            cancel_socket = socket.fromfd(response.raw.fileno(), socket.AF_INET, socket.SOCK_STREAM)
+        except (AttributeError, OSError, ValueError):
+            pass
         class Writer:
             def write(self, data):
                 with lock:
@@ -206,6 +214,9 @@ class GatewayHandler(guard.ContextGuardHandler):
                         original.flush()
                 except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
                     stopped.set()
+                    if cancel_socket is not None:
+                        try: cancel_socket.shutdown(socket.SHUT_RDWR)
+                        except OSError: pass
                     return
         worker = threading.Thread(target=heartbeat, daemon=True)
         worker.start()
@@ -214,6 +225,7 @@ class GatewayHandler(guard.ContextGuardHandler):
         finally:
             stopped.set()
             worker.join(timeout=1)
+            if cancel_socket is not None: cancel_socket.close()
             self.wfile = original
 
     @property

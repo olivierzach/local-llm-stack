@@ -108,6 +108,9 @@ or turn a truncated stream into success. Non-streaming SDK callers must set
 their own request timeout high enough. Generated OpenClaw profiles set provider
 and agent deadlines to match the longest route timeout; existing global
 OpenClaw configuration is not rewritten.
+If the client disconnects during a silent prefill, a failed keepalive shuts down
+that request's upstream socket, allowing the backend to cancel it and the
+gateway to release its routing lease. It does not replay the request elsewhere.
 
 Verify a large prompt through the actual published gateway, rather than only
 the raw model server:
