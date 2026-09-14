@@ -103,7 +103,17 @@ omp --model spark-context-guard/local-glm53-flash --thinking high
 Use `--thinking off` for direct answers. The helper preserves provider endpoints,
 credentials, other model overrides and the default model selection. The generated
 `spark-client` profiles also expose the GLM alias's text/image/tool capabilities
-through either node's managed gateway.
+and the same OMP thinking controls through either node's managed gateway. For
+example, from either Spark (or the Mac):
+
+```bash
+.venv/bin/python scripts/spark-client run --node e8f1 --client omp \
+  --output data/cluster/glm53-client-session -- \
+  --model spark-e8f1/local-glm53-flash --thinking high
+```
+
+Use `--node 66f1` and the `spark-66f1/` provider prefix to enter through the other
+gateway; this does not require moving the backend or creating another model alias.
 
 The backend binds to the coordinator's `10.10.20.x` fabric IP. NCCL is restricted
 to IB/RoCE and the two inventoried interfaces; Gloo/bootstrap uses the first

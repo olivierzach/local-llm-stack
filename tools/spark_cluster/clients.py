@@ -9,6 +9,21 @@ from .config import integer, name, require
 from .gateway import validate_registry
 
 
+def glm53_omp_override(contract):
+    """Pinned GLM parser/template compatibility, shared by installed and temporary OMP profiles."""
+    return {
+        'contextWindow': contract['context_tokens'], 'maxTokens': contract['max_output_tokens'],
+        'input': ['text', 'image'], 'supportsTools': True, 'reasoning': True,
+        'thinking': {'mode': 'effort', 'efforts': ['high'], 'defaultLevel': 'high', 'requiresEffort': False},
+        'compat': {'supportsStore': False, 'supportsDeveloperRole': False, 'supportsReasoningEffort': False,
+            'maxTokensField': 'max_tokens', 'streamIdleTimeoutMs': contract.get('request_timeout_s', 3600) * 1000,
+            'reasoningContentField': 'reasoning', 'disableReasoningOnToolChoice': False,
+            'extraBody': {'chat_template_kwargs': {'enable_thinking': False}},
+            'whenThinking': {'requiresReasoningContentForToolCalls': True,
+                'extraBody': {'chat_template_kwargs': {'enable_thinking': True, 'reasoning_effort': 'high'}}}},
+    }
+
+
 def profiles(registry, context, port):
     validate_registry(registry)
     name(context)
@@ -28,7 +43,10 @@ def profiles(registry, context, port):
         omp_compat = dict(compat)
         if route.get('request_timeout_s'):
             omp_compat['streamIdleTimeoutMs'] = route['request_timeout_s'] * 1000
-        omp.append({**common, "api": "openai-completions", "supportsTools": caps["tools"], "compat": omp_compat})
+        omp_model = {**common, "api": "openai-completions", "supportsTools": caps["tools"], "compat": omp_compat}
+        if alias == 'local-glm53-flash':
+            omp_model.update(glm53_omp_override(route))
+        omp.append(omp_model)
         claw.append({**common, "compat": {**compat, "supportsTools": caps["tools"]}})
         aichat.append({"name": alias, "max_input_tokens": route["context_tokens"],
                        "max_output_tokens": route["max_output_tokens"], "supports_vision": caps["vision"],

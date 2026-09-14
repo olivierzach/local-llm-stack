@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
 from spark_cluster.config import read, validate_saved_plan
 from spark_cluster.gateway_node import write
+from spark_cluster.clients import glm53_omp_override
 
 
 def update(text, provider, recipe):
@@ -20,17 +21,7 @@ def update(text, provider, recipe):
     wanted = copy.deepcopy(previous)
     overrides = wanted['providers'][provider]['modelOverrides']
     alias = recipe['alias']
-    overrides[alias] = {
-        'contextWindow': recipe['context_tokens'], 'maxTokens': recipe['max_output_tokens'],
-        'input': ['text', 'image'], 'supportsTools': True, 'reasoning': True,
-        'thinking': {'mode': 'effort', 'efforts': ['high'], 'defaultLevel': 'high', 'requiresEffort': False},
-        'compat': {'supportsStore': False, 'supportsDeveloperRole': False, 'supportsReasoningEffort': False,
-            'maxTokensField': 'max_tokens', 'streamIdleTimeoutMs': 3600000,
-            'reasoningContentField': 'reasoning', 'disableReasoningOnToolChoice': False,
-            'extraBody': {'chat_template_kwargs': {'enable_thinking': False}},
-            'whenThinking': {'requiresReasoningContentForToolCalls': True,
-                'extraBody': {'chat_template_kwargs': {'enable_thinking': True, 'reasoning_effort': 'high'}}}},
-    }
+    overrides[alias] = glm53_omp_override(recipe)
     node = yaml.compose(text)
     for key in ('providers', provider, 'modelOverrides'):
         matches = [value for field, value in node.value if field.value == key]

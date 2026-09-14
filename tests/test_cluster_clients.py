@@ -96,3 +96,17 @@ def test_aichat_attachments_mount_only_selected_directory_read_only(tmp_path):
     comma = tmp_path/'unsafe,mount-option'
     comma.mkdir()
     with pytest.raises(ConfigError): attachment_mount(comma)
+
+
+@pytest.mark.parametrize('coordinator', ['66f1', 'e8f1'])
+def test_glm_generated_omp_profile_supports_thinking_tools_and_images(coordinator):
+    r = from_plans([plan(*load(ROOT, ROOT/'cluster/inventory.json',
+        ROOT/f'cluster/deployments/glm53-tp2-256k-dflash2-{coordinator}.json'))])
+    p = profiles(r, coordinator, 4110)
+    model = p['omp/models.yml']['providers']['spark-' + coordinator]['models'][0]
+    assert model['reasoning'] and model['supportsTools']
+    assert model['input'] == ['text', 'image']
+    assert model['compat']['reasoningContentField'] == 'reasoning'
+    assert model['compat']['extraBody']['chat_template_kwargs']['enable_thinking'] is False
+    assert model['compat']['whenThinking']['extraBody']['chat_template_kwargs']['enable_thinking'] is True
+    assert profiles(registry(), coordinator, 4110)['omp/models.yml']['providers']['spark-' + coordinator]['models'][0]['reasoning'] is False
