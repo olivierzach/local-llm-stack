@@ -87,6 +87,22 @@ alias, and tests each node's existing and managed Context Guards. Other model
 routes and client defaults are preserved. Follow with an actual OMP read-tool
 probe and gateway image probe before declaring downstream integration complete.
 
+For the existing Mac OMP provider, copy the saved plan and completed feature
+receipt to the Mac, then add only this model's override:
+
+```bash
+.venv/bin/python scripts/configure-omp-glm53.py --saved-plan PATH/plan.json \
+  --features PATH/qualification/serving/features.json \
+  --output data/cluster/glm53-omp-install --apply
+omp models refresh spark-context-guard
+omp --model spark-context-guard/local-glm53-flash --thinking high
+```
+
+Use `--thinking off` for direct answers. The helper preserves provider endpoints,
+credentials, other model overrides and the default model selection. The generated
+`spark-client` profiles also expose the GLM alias's text/image/tool capabilities
+through either node's managed gateway.
+
 The backend binds to the coordinator's `10.10.20.x` fabric IP. NCCL is restricted
 to IB/RoCE and the two inventoried interfaces; Gloo/bootstrap uses the first
 cable subnet. Confirm `NET/IB` in logs and increasing RDMA counters during tests.

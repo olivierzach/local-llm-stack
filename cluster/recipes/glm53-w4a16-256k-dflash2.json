@@ -25,7 +25,7 @@
   "parallelism": [
     "tensor"
   ],
-  "validation": "Unqualified GLM53 W4A16/DFlash2 candidate: requires both-rank text/tools/reasoning/vision, memory and direct-fabric acceptance before publication.",
+  "validation": "GLM53 W4A16/DFlash2 TP2: qualification comes from exact-plan text/tools/reasoning/vision, memory and direct-fabric receipts before publication; see docs/GLM53_TP.md.",
   "tool_call_parser": "glm47",
   "default_chat_template_kwargs": {
     "enable_thinking": false,
