@@ -8,6 +8,7 @@ import argparse
 import json
 from pathlib import Path
 import shlex
+import signal
 import socket
 import subprocess
 import sys
@@ -21,6 +22,10 @@ from spark_cluster.glm53_acceptance import verify
 
 
 def main():
+    def interrupted(signum, frame):
+        # A stopped systemd campaign must still close remote memory samplers.
+        raise KeyboardInterrupt(f'qualification interrupted by signal {signum}')
+    signal.signal(signal.SIGTERM, interrupted)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--saved-plan', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
