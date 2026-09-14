@@ -15,3 +15,12 @@ covers the recipe's contributed patch code, not all upstream vLLM source.
 overlays; changed anchors fail closed. These are candidate fixes pending hardware
 correctness acceptance. Upstream launcher, network and clock scripts are not
 executed. Model weights retain their upstream licenses.
+
+The local GLM5Next model override corrects its inherited GLM4V packed-module
+mapping: the checkpoint stores `gate_proj` and `up_proj` separately. Without
+this correction, compressed-tensors fails to honor the BF16 ignore entries for
+dense/shared MLPs, creates quantized parameters, and loading fails with
+`KeyError: layers.0.mlp.gate_up_proj.weight`. The override preserves other
+inherited mappings and does not change or skip checkpoint weights.
+`scripts/probe-glm53-quantization.py` checks the actual image's matcher and model
+classes against the pinned checkpoint configuration without allocating a GPU.

@@ -51,6 +51,10 @@
       {
         "path": "vllm/model_executor/layers/sparse_attn_indexer_kpool.py",
         "sha256": "e4305933dec1f2f19e050494f9ad89ad97d94e80a33b477ca3a0739b1ced72c2"
+      },
+      {
+        "path": "vllm/models/glm5next/nvidia/model.py",
+        "sha256": "874396a0971a7091540d8122db3ace3b038989f6917d8350e1155845bcb82610"
       }
     ]
   },

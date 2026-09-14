@@ -168,7 +168,8 @@ def validate_recipe(r):
         integer(glm['max_images'], 1, 4)
         require('--enforce-eager' in r['extra_args'], 'GLM candidate requires eager execution')
         require('image_processing' not in r, 'GLM uses its native image processor')
-        allowed = {'chat_template_mm.jinja', 'vllm/v1/core/kv_cache_coordinator.py', 'vllm/model_executor/layers/sparse_attn_indexer_kpool.py'}
+        allowed = {'chat_template_mm.jinja', 'vllm/v1/core/kv_cache_coordinator.py',
+                   'vllm/model_executor/layers/sparse_attn_indexer_kpool.py', 'vllm/models/glm5next/nvidia/model.py'}
         require(isinstance(glm['source_overlays'], list), 'GLM source overlays must be a list')
         seen = set()
         for overlay in glm['source_overlays']:

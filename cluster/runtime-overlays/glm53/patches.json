@@ -16,6 +16,15 @@
         "old": "        if current_platform.is_cuda() and select_k in (512, 1024, 2048):",
         "new": "        # GB10 cannot use the large-SM persistent top-k path at long context.\n        if (current_platform.is_cuda() and select_k in (512, 1024, 2048)\n                and torch.cuda.get_device_properties(0).multi_processor_count >= 78):"
       }
+    },
+    {
+      "path": "vllm/models/glm5next/nvidia/model.py",
+      "base_sha256": "a13ebce1807328004c96146882f7c599d58d20fbb25819316ce90c2aa3e6cff1",
+      "sha256": "874396a0971a7091540d8122db3ace3b038989f6917d8350e1155845bcb82610",
+      "replace": {
+        "old": "    has_inner_state: ClassVar[Literal[True]] = True\n    is_hybrid: ClassVar[Literal[True]] = True",
+        "new": "    # GLM5Next stores dense/shared MLP gate and up projections separately.\n    # Inheriting the GLM4V self-mapping quantizes BF16-kept merged projections.\n    packed_modules_mapping = {\n        **Glm4vForConditionalGeneration.packed_modules_mapping,\n        \"gate_up_proj\": [\"gate_proj\", \"up_proj\"],\n    }\n\n    has_inner_state: ClassVar[Literal[True]] = True\n    is_hybrid: ClassVar[Literal[True]] = True"
+      }
     }
   ]
 }
