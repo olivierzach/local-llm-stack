@@ -44,8 +44,10 @@ def main():
     ssh += [args.peer]
     manifest = json.loads(args.lock.read_text())
     if manifest["version"] != 1: p.error("unknown lock version")
-    local_ids = set(checked(["docker", "image", "ls", "-q", "--no-trunc"]).splitlines())
-    peer_ids = set(checked(ssh + ["docker image ls -q --no-trunc"]).splitlines())
+    # Digest-only pulls can be hidden by Docker's default listing. Include all
+    # images so a successfully verified immutable pull is not called missing.
+    local_ids = set(checked(["docker", "image", "ls", "-aq", "--no-trunc"]).splitlines())
+    peer_ids = set(checked(ssh + ["docker image ls -aq --no-trunc"]).splitlines())
     missing = []
     # Preflight every image/tag before any writes; refuse replacing another tag.
     for image in manifest["images"]:

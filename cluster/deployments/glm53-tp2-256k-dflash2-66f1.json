@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "name": "glm53-tp2-256k-dflash2-66f1",
+  "recipe": "glm53-w4a16-256k-dflash2",
+  "mode": "tensor",
+  "nodes": [
+    "e8f1",
+    "66f1"
+  ],
+  "coordinator": "66f1",
+  "tensor_parallel": 2,
+  "pipeline_parallel": 1,
+  "port": 8125,
+  "master_port": 29545
+}

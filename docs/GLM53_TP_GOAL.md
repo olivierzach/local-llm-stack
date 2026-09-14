@@ -9,7 +9,7 @@ records the current focused objective without declaring that broader work comple
 
 Prepare, qualify and serve GLM-5.3-Flash across the direct two-Spark fabric with a
 pinned runtime, speculative decoding, measured practical context/concurrency,
-interchangeable coordinators and a distinct `local-glm-5.3-flash` Context Guard
+interchangeable coordinators and a distinct `local-glm53-flash` Context Guard
 alias. Verify text, tool continuation, reasoning and image understanding before
 advertising those capabilities. Provide deterministic setup/start/stop/acceptance
 commands and preserve existing DeepSeek and single-node recipes and client aliases.

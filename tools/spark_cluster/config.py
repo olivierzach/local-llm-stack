@@ -87,7 +87,7 @@ def validate_recipe(r):
     fields(r, ("version", "kind", "image", "model", "revision", "alias", "context_tokens",
                "max_output_tokens", "capabilities", "dtype", "gpu_memory_utilization",
                "min_available_mib", "max_num_seqs", "extra_args", "parallelism", "validation"),
-           ("tool_call_parser", "default_chat_template_kwargs", "image_processing", "runtime_cache", "load_strategy", "mamba_cache_mode", "speculative_config", "async_scheduling", "nccl_launch_order_implicit", "flashinfer_sampler", "disable_pynccl", "nccl_library", "deepseek_v4"))
+           ("tool_call_parser", "default_chat_template_kwargs", "image_processing", "runtime_cache", "load_strategy", "mamba_cache_mode", "speculative_config", "async_scheduling", "nccl_launch_order_implicit", "flashinfer_sampler", "disable_pynccl", "nccl_library", "deepseek_v4", "glm53"))
     require(r["version"] == 1 and r["kind"] == "vllm", "unsupported recipe version/kind")
     require(re.fullmatch(r"[a-zA-Z0-9./_-]+@sha256:[0-9a-f]{64}", r["image"]),
             "image must be an immutable registry digest")
@@ -103,7 +103,7 @@ def validate_recipe(r):
     require(r["dtype"] in ("auto", "bfloat16", "float16", "float32"), "invalid dtype")
     fields(r["capabilities"], ("text", "vision", "tools", "streaming"))
     require(all(type(v) is bool for v in r["capabilities"].values()), "capabilities must be booleans")
-    require(r.get("tool_call_parser") in (None, "hermes", "deepseek_v4"), "unsupported tool parser")
+    require(r.get("tool_call_parser") in (None, "hermes", "deepseek_v4", "glm47"), "unsupported tool parser")
     require(r["capabilities"]["tools"] == bool(r.get("tool_call_parser")),
             "tool capability requires an explicit supported parser")
     if "default_chat_template_kwargs" in r:
@@ -114,6 +114,10 @@ def validate_recipe(r):
             require(kwargs["reasoning_effort"] in ("low", "high", "max"), "unsupported reasoning effort")
             if kwargs["reasoning_effort"] == "max":
                 require(r["context_tokens"] >= 393216, "max reasoning requires at least 384K context")
+        elif "glm53" in r:
+            fields(kwargs, ("enable_thinking", "reasoning_effort"))
+            require(type(kwargs['enable_thinking']) is bool, 'enable_thinking must be boolean')
+            require(kwargs['reasoning_effort'] in ('low', 'high', 'max'), 'invalid GLM reasoning effort')
         else:
             fields(kwargs, ("enable_thinking",))
             require(type(kwargs["enable_thinking"]) is bool, "enable_thinking must be a boolean")
@@ -152,6 +156,29 @@ def validate_recipe(r):
         require(r.get("tool_call_parser") == "deepseek_v4", "DeepSeek V4 requires its tokenizer/tool parser")
     elif r.get("tool_call_parser") == "deepseek_v4":
         raise ConfigError("DeepSeek V4 parser requires its runtime profile")
+    if 'glm53' in r:
+        require('deepseek_v4' not in r, 'runtime profiles are mutually exclusive')
+        glm = r['glm53']
+        fields(glm, ('backend', 'block_size', 'kv_cache_dtype', 'max_num_batched_tokens', 'max_images', 'source_overlays'))
+        require(glm['backend'] == 'w4a16-marlin', 'unsupported GLM backend')
+        require(r['model'] == 'canada-quant/glm-5.3-w4a16-mtp' and r.get('tool_call_parser') == 'glm47', 'GLM profile requires its model and parser')
+        require(type(glm['block_size']) is int and glm['block_size'] == 2304, 'unsupported GLM block size')
+        require(glm['kv_cache_dtype'] == 'fp8_e4m3', 'unsupported GLM KV dtype')
+        integer(glm['max_num_batched_tokens'], 2048, 16384)
+        integer(glm['max_images'], 1, 4)
+        require('--enforce-eager' in r['extra_args'], 'GLM candidate requires eager execution')
+        require('image_processing' not in r, 'GLM uses its native image processor')
+        allowed = {'chat_template_mm.jinja', 'vllm/v1/core/kv_cache_coordinator.py', 'vllm/model_executor/layers/sparse_attn_indexer_kpool.py'}
+        require(isinstance(glm['source_overlays'], list), 'GLM source overlays must be a list')
+        seen = set()
+        for overlay in glm['source_overlays']:
+            fields(overlay, ('path', 'sha256'))
+            require(overlay['path'] in allowed and overlay['path'] not in seen, 'unsupported or duplicate GLM overlay')
+            seen.add(overlay['path'])
+            require(isinstance(overlay['sha256'], str) and re.fullmatch(r'[a-f0-9]{64}', overlay['sha256']), 'invalid GLM overlay SHA-256')
+        require('chat_template_mm.jinja' in seen, 'GLM needs the pinned multimodal chat template')
+    elif r.get('tool_call_parser') == 'glm47':
+        raise ConfigError('GLM parser requires its runtime profile')
     if "mamba_cache_mode" in r:
         require(r["mamba_cache_mode"] in ("none", "align"), "unsupported hybrid cache mode")
     if "async_scheduling" in r:
@@ -175,6 +202,12 @@ def validate_recipe(r):
             require("deepseek_v4" in r, "DSpark requires the DeepSeek V4 runtime profile")
             require(speculative["draft_sample_method"] == "probabilistic", "unsupported DSpark sampling")
             require(speculative["attention_backend"] == "B12X", "DSpark requires B12X attention")
+        elif speculative.get('method') == 'dflash':
+            fields(speculative, ('method', 'model', 'revision', 'num_speculative_tokens'))
+            require('glm53' in r, 'DFlash requires the GLM runtime profile')
+            require(speculative['model'] == 'incoai/GLM-5.3-Flash-DFlash2', 'unsupported DFlash model')
+            require(isinstance(speculative['revision'], str) and re.fullmatch(r'[a-f0-9]{40}', speculative['revision']), 'DFlash revision must be pinned')
+            require(type(speculative['num_speculative_tokens']) is int and speculative['num_speculative_tokens'] == 7, 'GLM DFlash candidate requires K=7')
         else:
             fields(speculative, ("method", "num_speculative_tokens"))
             require(speculative["method"] == "mtp", "unsupported speculative method")
@@ -248,6 +281,9 @@ def runtime_cache_name(recipe, deployment, node_id, architecture):
 def plan(inv, recipe, deployment):
     """Return an immutable desired state. Rendering never contacts a host."""
     require(deployment["mode"] in recipe["parallelism"], "recipe does not support this parallelism mode")
+    if 'glm53' in recipe:
+        require(deployment['tensor_parallel'] == 2 and deployment['pipeline_parallel'] == 1 and len(deployment['nodes']) == 2,
+                'GLM runtime candidate supports two-node TP2 only')
     if recipe.get("speculative_config"):
         require(deployment["pipeline_parallel"] == 1,
                 "MTP with pipeline parallelism is not validated by this controller")
@@ -270,7 +306,10 @@ def plan(inv, recipe, deployment):
         if "mamba_cache_mode" in recipe:
             cmd += ["--mamba-cache-mode", recipe["mamba_cache_mode"]]
         if "speculative_config" in recipe:
-            cmd += ["--speculative-config", canonical(recipe["speculative_config"])]
+            speculative = dict(recipe['speculative_config'])
+            if speculative.get('method') == 'dflash':
+                speculative['model'] = '/cache/hub/models--' + speculative['model'].replace('/', '--') + '/snapshots/' + speculative.pop('revision')
+            cmd += ["--speculative-config", canonical(speculative)]
         if "async_scheduling" in recipe:
             cmd += ["--async-scheduling" if recipe["async_scheduling"] else "--no-async-scheduling"]
         if "load_strategy" in recipe:
@@ -290,6 +329,13 @@ def plan(inv, recipe, deployment):
             if "cudagraph_capture_size" in ds:
                 cmd += ["--max-cudagraph-capture-size", str(ds["cudagraph_capture_size"]),
                         "--compilation-config", canonical({"cudagraph_mode": "FULL_AND_PIECEWISE", "custom_ops": ["all"]})]
+        if 'glm53' in recipe:
+            glm = recipe['glm53']
+            cmd += ['--reasoning-parser', 'glm45', '--moe-backend', 'marlin',
+                    '--kv-cache-dtype', glm['kv_cache_dtype'], '--block-size', str(glm['block_size']),
+                    '--max-num-batched-tokens', str(glm['max_num_batched_tokens']),
+                    '--no-enable-flashinfer-autotune', '--chat-template', '/opt/spark-runtime/chat_template_mm.jinja',
+                    '--limit-mm-per-prompt', canonical({'image': glm['max_images'], 'video': 0})]
         if "image_processing" in recipe:
             image = recipe["image_processing"]
             cmd += ["--limit-mm-per-prompt", canonical({"image": image["max_images"], "video": 0}),
@@ -310,6 +356,17 @@ def plan(inv, recipe, deployment):
         if "flashinfer_sampler" in recipe:
             service["environment"]["VLLM_USE_FLASHINFER_SAMPLER"] = (
                 "1" if recipe["flashinfer_sampler"] else "0")
+        if 'glm53' in recipe:
+            service['environment'].update({'TORCH_CUDA_ARCH_LIST': '12.1a', 'FLASHINFER_CUDA_ARCH_LIST': '12.1a',
+                'FLASHINFER_DISABLE_VERSION_CHECK': '1', 'VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS': '3600',
+                'PYTORCH_CUDA_ALLOC_CONF': 'expandable_segments:True', 'TILELANG_CACHE_DIR': '/root/.cache/tilelang',
+                'NCCL_NET': 'IB', 'NCCL_NVLS_ENABLE': '0', 'NCCL_CUMEM_ENABLE': '0',
+                'NCCL_IB_MERGE_NICS': '0', 'NCCL_CROSS_NIC': '0', 'NCCL_IGNORE_CPU_AFFINITY': '1',
+                'TORCH_NCCL_ASYNC_ERROR_HANDLING': '1'})
+            for overlay in recipe['glm53']['source_overlays']:
+                source = str(Path(node['cache']).parent / 'runtime-overlays' / overlay['sha256'] / overlay['path'])
+                target = ('/opt/spark-runtime/' if overlay['path'].endswith('.jinja') else '/usr/local/lib/python3.12/dist-packages/') + overlay['path']
+                service['volumes'].append({'type': 'bind', 'source': source, 'target': target, 'read_only': True})
         if "deepseek_v4" in recipe:
             # Fixed, reviewed kernel switches; no arbitrary environment overrides
             # can replace admission, offline loading or the direct fabric settings.

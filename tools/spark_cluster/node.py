@@ -165,7 +165,9 @@ def validate_cached_snapshot(snapshot):
 
 def verify_source_overlays(request):
     verified = []
-    for overlay in request['recipe'].get('deepseek_v4', {}).get('source_overlays', []):
+    overlays = (request['recipe'].get('deepseek_v4', {}).get('source_overlays', []) +
+                request['recipe'].get('glm53', {}).get('source_overlays', []))
+    for overlay in overlays:
         path = Path(request['node']['cache']).parent / 'runtime-overlays' / overlay['sha256'] / overlay['path']
         if not path.is_file() or path.is_symlink():
             raise RuntimeError('pinned source overlay missing or not a regular file')
@@ -173,6 +175,16 @@ def verify_source_overlays(request):
             raise RuntimeError('pinned source overlay SHA-256 mismatch')
         verified.append(overlay)
     return verified
+
+
+def verify_draft_cache(request):
+    speculative = request['recipe'].get('speculative_config', {})
+    if speculative.get('method') != 'dflash':
+        return None
+    snapshot = (Path(request['node']['cache']) / 'hub' /
+                ('models--' + speculative['model'].replace('/', '--')) / 'snapshots' / speculative['revision'])
+    validate_cached_snapshot(snapshot)
+    return {'snapshot': str(snapshot)}
 
 
 def verify_nccl_library(request):
@@ -238,11 +250,13 @@ def preflight(request):
         return {'address': node['fabric'][0]['ip'], 'port': port}
 
     observe('runtime-image', image_check)
-    if recipe.get('deepseek_v4', {}).get('source_overlays'):
+    if recipe.get('deepseek_v4', {}).get('source_overlays') or recipe.get('glm53', {}).get('source_overlays'):
         observe('source-overlays', lambda: verify_source_overlays(request))
     if recipe.get('nccl_library'):
         observe('nccl-library', lambda: verify_nccl_library(request))
     observe('model-cache', cache_check)
+    if recipe.get('speculative_config', {}).get('method') == 'dflash':
+        observe('draft-cache', lambda: verify_draft_cache(request))
     observe('api-port', lambda: port_check(request['deployment']['port']))
     if request['deployment']['mode'] != 'single':
         condition('rdma-devices', Path('/dev/infiniband').is_dir(), {'path': '/dev/infiniband'})
@@ -259,6 +273,7 @@ def reserve(request):
     node, recipe = request["node"], request["recipe"]
     verify_nccl_library(request)
     verify_source_overlays(request)
+    verify_draft_cache(request)
     report = doctor(node)
     if report.get("research_window") not in (None, "released", "restored"):
         raise RuntimeError("looped-LLM has an unresolved GPU window; recover it with its owning project")
@@ -327,6 +342,7 @@ def start(request):
     saved = owned(request)
     verify_nccl_library(request)
     verify_source_overlays(request)
+    verify_draft_cache(request)
     folder = STATE / request["owner"]
     folder.mkdir(exist_ok=True, mode=0o700)
     compose = folder / "compose.json"

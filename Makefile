@@ -2,6 +2,21 @@ SHELL := /usr/bin/env bash
 DOCKER_COMPOSE ?= docker compose
 .DEFAULT_GOAL := init
 
+# Additive GLM TP2 candidate; no existing model alias or launch is replaced.
+.PHONY: glm53-tp-prepare glm53-tp-plan glm53-tp-up glm53-tp-status glm53-tp-down
+glm53-tp-prepare:
+	@test -n "$(PEER)" -a -n "$(OUTPUT)" || { echo 'Use PEER=66f1|e8f1 OUTPUT=/path/to/preparation' >&2; exit 2; }
+	python3 scripts/prepare-glm53-tp.py --peer "$(PEER)" --output "$(OUTPUT)" --apply
+
+glm53-tp-plan glm53-tp-up:
+	@case "$(COORDINATOR)" in 66f1|e8f1) ;; *) echo 'Choose COORDINATOR=66f1 or e8f1' >&2; exit 2 ;; esac
+	@test -n "$(OUTPUT)" || { echo 'Use OUTPUT=/path/to/a/new/deployment-directory' >&2; exit 2; }
+	python3 scripts/sparkctl $(if $(filter glm53-tp-plan,$@),render,up) --deployment "cluster/deployments/glm53-tp2-256k-dflash2-$(COORDINATOR).json" --output "$(OUTPUT)" --timeout 3600
+
+glm53-tp-status glm53-tp-down:
+	@test -n "$(PLAN)" || { echo 'Use PLAN=/path/to/the/exact/saved/plan.json' >&2; exit 2; }
+	python3 scripts/sparkctl $(if $(filter glm53-tp-status,$@),status,down) --saved-plan "$(PLAN)"
+
 # Separate two-node DeepSeek recipes. Existing deepseekv4-* remains single-node.
 DEEPSEEK_TP_SPEC ?= off
 DEEPSEEK_TP_EXECUTION ?= eager

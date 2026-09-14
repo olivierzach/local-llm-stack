@@ -118,6 +118,11 @@ def main():
                          '--cache', source['cache'], '--lock', model_output / 'model-copy.lock.json',
                          '--peer', args.peer, '--peer-cache', peer['cache'],
                          '--fabric-inventory', ROOT / 'cluster/inventory.json'], stdout=receipt)
+            phase('runtime-assets')
+            run([sys.executable, ROOT / 'scripts/prepare-glm53-runtime.py', '--data', str(Path(source['cache']).parent)])
+            peer_root = Path(peer['projects']) / 'local-llm-stack-cluster/current'
+            run(ssh + [alias, shlex.join(['python3', str(peer_root / 'scripts/prepare-glm53-runtime.py'),
+                                        '--data', str(Path(peer['cache']).parent)])])
             phase('staged-awaiting-gpu-testing', complete=True, gpu_workloads_changed=False,
                   models=[{'repo': m['repo'], 'revision': m['revision']} for m in manifests], bytes=total,
                   qualification='Artifacts verified on both nodes; inference and client acceptance are still required.')
