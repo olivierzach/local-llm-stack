@@ -18,6 +18,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--node', required=True)
     parser.add_argument('--client', choices=('omp', 'llm', 'aichat'), required=True)
+    parser.add_argument('--model', default='local-vision')
+    parser.add_argument('--image-count', type=int, choices=(1, 2), default=2)
     parser.add_argument('--port', type=int, default=4110)
     parser.add_argument('--key-file', type=Path)
     parser.add_argument('--registry', type=Path)
@@ -29,7 +31,8 @@ def main():
         images = root/'images'
         images.mkdir()
         paths = []
-        for color in ('blue', 'red'):
+        colors = ['blue', 'red'][:args.image_count]
+        for color in colors:
             path = images/(color+'.png')
             # Filenames must not tell the model the colors it needs to recognize.
             path = path.with_name('image-'+str(len(paths))+'.png')
@@ -41,21 +44,27 @@ def main():
         for flag, path in [('--key-file', args.key_file), ('--registry', args.registry)]:
             if path: command += [flag, str(path.resolve())]
         if args.client == 'omp':
-            command += ['--', '--model', 'spark-'+args.node+'/local-vision', '--no-tools', '--no-lsp',
+            command += ['--', '--model', 'spark-'+args.node+'/'+args.model, '--no-tools', '--no-lsp',
                         '--no-extensions', '--no-session', '--max-time', '90', '--print', *['@'+str(p) for p in paths], prompt]
         elif args.client == 'llm':
-            command += ['--', '-m', 'spark-'+args.node+'/local-vision', '--no-log', '-a', str(paths[0]), '-a', str(paths[1]), prompt]
+            command += ['--', '-m', 'spark-'+args.node+'/'+args.model, '--no-log']
+            for path in paths:
+                command += ['-a', str(path)]
+            command += [prompt]
         else:
-            command += ['--attachment-dir', str(images), '--', '--model', 'spark:local-vision',
-                        '--file', str(paths[0]), '--file', str(paths[1]), prompt]
+            command += ['--attachment-dir', str(images), '--', '--model', 'spark:'+args.model]
+            for path in paths:
+                command += ['--file', str(path)]
+            command += [prompt]
         result = subprocess.run(command, cwd=root, capture_output=True, text=True, timeout=120)
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.with_suffix('.stdout').write_text(result.stdout)
         args.output.with_suffix('.stderr').write_text(result.stderr)
         if result.returncode: raise RuntimeError('client failed; inspect the saved stderr')
-        vision.answer(result.stdout, ['blue', 'red'])
+        vision.answer(result.stdout, colors)
         report = {'passed': True, 'client': args.client, 'gateway': args.node, 'answer': result.stdout.strip(),
-                  'scope': 'Two synthetic image attachments with opaque filenames; no tools or coding-quality evaluation.'}
+                  'model': args.model, 'image_count': args.image_count,
+                  'scope': 'Synthetic image attachments with opaque filenames; no tools or coding-quality evaluation.'}
         args.output.write_text(json.dumps(report, indent=2)+'\n')
         print(json.dumps(report))
 
