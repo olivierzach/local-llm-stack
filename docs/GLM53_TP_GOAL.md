@@ -60,6 +60,18 @@ are measurements on this cluster. Model identity/capabilities originate from
 
 ## Preparation
 
+## Progress record
+
+Artifacts and strict runtime overlays are prepared on both nodes. The selected
+0.82-memory recipe passed the full serving profile with 66f1 coordinating
+(`66f1-02/qualification-01`); see [measured evidence](GLM53_TP_EVIDENCE.md).
+Controller revision `eee6285` passed all 450 Linux tests and verifies memory,
+worker identity and observed cable transport before publication. The identical
+recipe is being qualified with e8f1 coordinating, initiated from e8f1 itself.
+Downstream alias publication and actual OMP/FamChat checks remain pending.
+
+## Preparation commands
+
 `scripts/prepare-glm53-tp.py --peer NODE --output DIR` prints the staging plan
 when run on the other inventoried Spark. Add `--apply` to download and verify
 the pinned artifacts, then copy them over the direct cable. It never starts a
