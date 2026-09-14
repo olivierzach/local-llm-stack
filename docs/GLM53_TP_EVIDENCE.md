@@ -5,7 +5,11 @@
 The candidate and reproduction commands are in [GLM53_TP.md](GLM53_TP.md).
 Measurements below come from this pair of Sparks, not upstream benchmarks.
 
-## Placement and artifacts
+## Initial 0.85 placement and artifacts
+
+These measurements describe the initial memory fraction of 0.85. The recipe was
+subsequently reduced to 0.82 for coordinator-independent host headroom. They are
+baseline measurements, not acceptance receipts for the revised plan.
 
 - Coordinator: `e8f1`; worker: `66f1`; TP2 over the direct RoCE cable.
 - Saved-plan digest: `27ab7d3afe6843e19356d14e359a247d7f6fd428ca4105a6f99590b4fc79ae78`.
@@ -81,6 +85,12 @@ input. Short answers and predictable output can show unusually high token rates.
 
 ## Still required
 
-The primary full-profile gate passed. Repeat the role-check suite with `66f1`
-coordinating, restore the fully qualified placement, publish
+The initial primary full-profile gate passed. The initial reversed placement
+(`66f1-01`, digest `5d5af4d937b06d381f5d01be2f8383cbac3633217d76b3eb3f0f4453755eec06`)
+started its campaign with 6.03 GiB available on its coordinator, versus 7.38 GiB
+in the primary placement. It fell to 5.29 GiB before the long-context phase.
+The test was intentionally stopped to provide more margin; this was not an
+engine crash or a failed-answer claim. See `66f1-01/memory-margin-decision.json`.
+
+Requalify both placements at 0.82, restore the fully qualified placement, publish
 through both Context Guards, and verify actual clients before marking this ready.

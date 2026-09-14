@@ -17,7 +17,7 @@ DeepSeek, Qwen and single-node recipes remain available.
 | Speculation | DFlash2, seven speculative tokens |
 | Execution | Eager, async scheduling, Marlin MoE, prefix caching |
 | Total context / output cap | 262,144 / 8,192 tokens |
-| Scheduler / memory fraction | Four active requests / 0.85 |
+| Scheduler / memory fraction | Four active requests / 0.82 |
 | API / rendezvous port | 8125 / 29545 |
 | Coordinator | Either `66f1` or `e8f1`; a placement choice, no permanent main |
 
@@ -25,6 +25,11 @@ The context limit is per request, with a shared cache pool. Four scheduler slots
 do not promise four simultaneous full-window requests. Qualification records
 single-request near-limit retrieval and a separate 1/2/4-request throughput
 screen. Large concurrent prompts need their own measured capacity test.
+
+The first 0.85 trial passed the primary placement but left only 4.06 GiB available
+at its lowest point. The reversed placement started with less host headroom.
+The current candidate uses 0.82 to reserve approximately another 3.65 GiB per
+node; it retains the same request limits and must be requalified in both roles.
 
 The full model snapshot exists on each machine for repeatable loading and rank
 reversal. Each GPU loads its tensor-parallel shard. Speculative decoding adds a
