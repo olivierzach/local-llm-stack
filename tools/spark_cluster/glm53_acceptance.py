@@ -45,16 +45,16 @@ def verify(plan, directory, full=True):
         require(acceptance.get('profile') == 'glm53-256k' and set(acceptance.get('checks', [])) == {
             'features', 'tools', 'decode', 'long-context', 'soak', 'decode-4096', 'concurrency', 'features-after'},
             'incomplete GLM sustained serving acceptance')
-        long = receipt('long-context')
-        require(long.get('actual_input_tokens', 0) >= plan['recipe']['context_tokens'] - 8192
-                and long.get('corpus') == 'varied' and long.get('prefix_reuse_observed') is True,
-                'GLM requires near-limit varied input and prefix reuse')
-        require(len(long.get('runs', [])) == 2 and all(r.get('retrieval_passed') is True
-                and r.get('tokenizer_usage_match') is True for r in long['runs']), 'GLM retrieval failed')
-        decode = long.get('decode_run', {})
-        require(decode.get('completion_tokens', 0) >= 256 and decode.get('tokenizer_usage_match') is True
-                and decode.get('finish_reason') in ('stop', 'length'), 'GLM long-input decode failed')
         receipt('decode'); receipt('decode-4096')
+    long = receipt('long-context')
+    require(long.get('actual_input_tokens', 0) >= plan['recipe']['context_tokens'] - 8192
+            and long.get('corpus') == 'varied' and long.get('prefix_reuse_observed') is True,
+            'GLM requires near-limit varied input and prefix reuse')
+    require(len(long.get('runs', [])) == 2 and all(r.get('retrieval_passed') is True
+            and r.get('tokenizer_usage_match') is True for r in long['runs']), 'GLM retrieval failed')
+    decode = long.get('decode_run', {})
+    require(decode.get('completion_tokens', 0) >= 256 and decode.get('tokenizer_usage_match') is True
+            and decode.get('finish_reason') in ('stop', 'length'), 'GLM long-input decode failed')
     start = acceptance['started_at'] if full else feature_windows['features'].get('started_at', float('-inf'))
     end = acceptance['ended_at'] if full else feature_windows['features-after'].get('ended_at', float('inf'))
     for node in plan['nodes']:

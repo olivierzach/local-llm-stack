@@ -65,6 +65,8 @@ def main():
         if args.role_check:
             run('probe-glm53-features.py', '--output', out / 'serving/features.json', timeout=3600)
             run('probe-spark-tool-calling.py', '--rounds', '2', '--output', out / 'serving/tools.json', timeout=3600)
+            run('probe-spark-long-context.py', '--input-tokens', str(plan['recipe']['context_tokens'] - 2112),
+                '--corpus', 'varied', '--measure-decode', '--output', out / 'serving/long-context.json', timeout=10800)
             run('soak-spark-serving.py', '--rounds', '3', '--max-tokens', '256',
                 '--output', out / 'serving/soak.json', timeout=2700)
             run('profile-spark-serving.py', '--prompt-tokens', '8192', '--concurrency', '1', '2',

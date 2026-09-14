@@ -97,3 +97,12 @@ def test_alternate_coordinator_also_requires_memory_headroom(accepted):
         path.write_text(json.dumps({**data, **change}))
         with pytest.raises(config.ConfigError):
             verify(plan, folder, full=False)
+
+
+def test_alternate_coordinator_must_serve_the_advertised_context(accepted):
+    plan, folder = accepted[1]
+    path = folder / 'long-context.json'
+    data = json.loads(path.read_text()); data['actual_input_tokens'] = 32000
+    path.write_text(json.dumps(data))
+    with pytest.raises(config.ConfigError, match='near-limit'):
+        verify(plan, folder, full=False)

@@ -77,8 +77,9 @@ image processing, not OCR/document quality. Timing prose is not scored for accur
 
 Stop the exact plan and launch the identical recipe with the other coordinator.
 Run `glm53-tp-accept ... ROLE_CHECK=1` there: text, reasoning, images, tools,
-18-request soak and concurrency checks are repeated. The long-context and long
-decode profile is required for the primary operating placement. After that role
+near-limit retrieval/prefix reuse/continuation, an 18-request soak and concurrency
+checks are repeated. Both roles must pass the memory limits. The separate 1K/4K
+prose/code/planning profile is required for the primary operating placement. After that role
 check, restore the fully qualified placement before publication.
 
 Run `make glm53-tp-publish` on each Spark with `PLAN`, `ACCEPTANCE`,

@@ -30,6 +30,43 @@ Measurements below come from this pair of Sparks, not upstream benchmarks.
 | Cold varied-context retrieval | 259,992 input tokens; 214.26 s to first token; all three planted values correct |
 | Repeated-prefix retrieval | 2.28 s to first token; 258,048 prefix tokens reused; all values correct |
 | Long-history continuation | 260,020 input tokens, 1,024 output tokens; 32.83 decode tokens/s |
+| Sequential soak | 18 requests, 18,101 generated tokens; median decode 24.94 tokens/s; no failed requests |
+| 4,096-token prose/code/planning | 27.62 / 40.20 / 23.20 visible decode tokens/s |
+| Post-load features | All text, reasoning, image and 20 repeated-answer checks passed again |
+
+The cold long-context timing includes first-use kernel compilation. Repeated
+prefix timing benefits from both warmed kernels and the measured prefix hits.
+
+### Concurrency screen
+
+Each level uses four measured requests, 256 output tokens per request, a separate
+warmup and unique prompt prefixes. Aggregate rates include prefill and decode.
+
+| Input target | Active requests | Aggregate output tokens/s | Median per-request decode tokens/s | Median first token, seconds |
+| --- | ---: | ---: | ---: | ---: |
+| 1K | 1 | 22.09 | 24.12 | 0.97 |
+| 1K | 2 | 29.56 | 16.63 | 1.20 |
+| 1K | 4 | 40.36 | 11.73 | 3.31 |
+| 8K | 1 | 14.96 | 23.35 | 6.32 |
+| 8K | 2 | 18.20 | 14.49 | 6.83 |
+| 8K | 4 | 22.51 | 10.08 | 18.23 |
+
+Four scheduler slots improve multi-request throughput but do not accelerate one
+answer. These results do not establish four simultaneous full-window requests.
+
+### Memory and cable
+
+The complete 34-minute campaign retained at least 6.10 GiB available on 66f1 and
+4.06 GiB on e8f1. Neither node swapped new pages out. Existing swapped pages were
+paged in; this is not a claim that swap was empty. Maximum full-memory PSI
+`avg10` was 4.1% on 66f1 and 0% on e8f1, below the 5% gate.
+
+The two logical RoCE interfaces sent approximately 277.6 and 276.5 GiB from 66f1,
+with matching receive counters on e8f1 and similar traffic in the opposite
+direction. Link-error and discard counters did not increase. NCCL selected
+`NET/IB`; its logs report `GDR 0`, so this evidence establishes RoCE transport,
+not a separate claim of GPU-direct zero-copy. Both interfaces share the single
+physical 200-GbE cable; their link labels are not additive capacity.
 
 One earlier streaming reasoning response returned the correct `49` answer in
 Markdown with an explanation despite an integer-only instruction. The capability
@@ -44,7 +81,6 @@ input. Short answers and predictable output can show unusually high token rates.
 
 ## Still required
 
-Complete the 18-request soak, 4K output profile, concurrency screen, post-load
-correctness checks and both-node memory/fabric assessment. Repeat the role-check
-suite with `66f1` coordinating, restore the fully qualified placement, publish
+The primary full-profile gate passed. Repeat the role-check suite with `66f1`
+coordinating, restore the fully qualified placement, publish
 through both Context Guards, and verify actual clients before marking this ready.
