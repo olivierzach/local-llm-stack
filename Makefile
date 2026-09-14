@@ -3,10 +3,14 @@ DOCKER_COMPOSE ?= docker compose
 .DEFAULT_GOAL := init
 
 # Additive GLM TP2 candidate; no existing model alias or launch is replaced.
-.PHONY: glm53-tp-prepare glm53-tp-plan glm53-tp-up glm53-tp-status glm53-tp-down glm53-tp-accept
+.PHONY: glm53-tp-prepare glm53-tp-plan glm53-tp-up glm53-tp-status glm53-tp-down glm53-tp-accept glm53-tp-publish
+glm53-tp-publish:
+	@test -n "$(PLAN)" -a -n "$(ACCEPTANCE)" -a -n "$(ALTERNATE_PLAN)" -a -n "$(ALTERNATE_ACCEPTANCE)" -a -n "$(OUTPUT)" || { echo 'Provide PLAN ACCEPTANCE ALTERNATE_PLAN ALTERNATE_ACCEPTANCE OUTPUT' >&2; exit 2; }
+	$(or $(PYTHON),.venv/bin/python) scripts/publish-glm53-tp.py --plan "$(PLAN)" --acceptance "$(ACCEPTANCE)" --alternate-plan "$(ALTERNATE_PLAN)" --alternate-acceptance "$(ALTERNATE_ACCEPTANCE)" --output "$(OUTPUT)" --apply
+
 glm53-tp-accept:
 	@test -n "$(PLAN)" -a -n "$(OUTPUT)" || { echo 'Use PLAN=/path/to/saved/plan.json OUTPUT=/path/to/new/acceptance' >&2; exit 2; }
-	$(or $(PYTHON),.venv/bin/python) scripts/accept-spark-serving.py --profile glm53-256k --saved-plan "$(PLAN)" --output "$(OUTPUT)"
+	$(or $(PYTHON),.venv/bin/python) scripts/qualify-glm53-tp.py --saved-plan "$(PLAN)" --output "$(OUTPUT)" $(if $(filter 1,$(ROLE_CHECK)),--role-check,)
 
 glm53-tp-prepare:
 	@test -n "$(PEER)" -a -n "$(OUTPUT)" || { echo 'Use PEER=66f1|e8f1 OUTPUT=/path/to/preparation' >&2; exit 2; }
