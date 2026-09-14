@@ -68,6 +68,12 @@ def collect(response, stream):
     return dict(content=text, reasoning=reasoning, finish_reason=finish, usage=usage)
 
 
+def integer_answer(text, expected):
+    """Require an explicit answer line, not a matching number buried in prose."""
+    lines = text.strip().splitlines()
+    return bool(lines) and lines[0].strip() in (str(expected), f'**{expected}**')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--saved-plan', type=Path, required=True)
@@ -102,6 +108,8 @@ def main():
         record = dict(test=label, stream=stream, elapsed_seconds=time.monotonic() - started,
                       content=result['content'], reasoning_characters=len(result['reasoning']),
                       finish_reason=result['finish_reason'], usage=result['usage'])
+        if label.startswith('reasoning-'):
+            record['followed_integer_only_format'] = result['content'].strip() == '49'
         report['checks'].append(record)
         save_json(args.output, report)
         if result['finish_reason'] != 'stop' or not expected(result['content']):
@@ -118,7 +126,7 @@ def main():
             exercise(f'reasoning-{stream}',
                      'A box has 17 rows of 23 beads. Remove 48 beads, then divide the rest into 7 equal groups. '
                      'How many beads are in each group? Give your final answer as only an integer.',
-                     lambda text: text.strip() == '49', thinking=True, stream=stream)
+                     lambda text: integer_answer(text, 49), thinking=True, stream=stream)
         for reverse in (False, True):
             expected = ['blue', 'red'] if reverse else ['red', 'blue']
             exercise(f'vision-reverse-{reverse}', [

@@ -43,3 +43,12 @@ def test_image_fixture_reverses_pixels_without_text_hints():
             cursor += size + 12
         assert set(chunks) == {b'IHDR', b'IDAT', b'IEND'}
         assert zlib.decompress(chunks[b'IDAT']) == (b'\x00' + left * 128 + right * 128) * 128
+
+
+@pytest.mark.parametrize('text, accepted', [
+    ('49', True), ('**49**\n\nTotal beads: 391', True),
+    ('50', False), ('**50**\nThe input includes 49', False),
+    ('149', False), ('49 or 50', False), ('', False),
+])
+def test_reasoning_answer_requires_correct_explicit_answer(text, accepted):
+    assert MOD['integer_answer'](text, 49) is accepted
