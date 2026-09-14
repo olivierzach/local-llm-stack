@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
 from spark_cluster.cli import inspect, save_json
 from spark_cluster.config import read, validate_saved_plan
+from spark_cluster.glm53_acceptance import verify
 
 
 def main():
@@ -97,11 +98,17 @@ def main():
             errors.append(repr(exc))
         if errors:
             report.update(complete=False, monitoring_errors=errors)
+        if report['complete']:
+            try:
+                verify(plan, out / 'serving', full=not args.role_check)
+            except Exception as exc:
+                report.update(complete=False, phase='failed', acceptance_error=repr(exc))
+                errors.append(repr(exc))
         report['ended_at'] = time.time()
         save_json(out / 'campaign.json', report)
         print(json.dumps(report), flush=True)
         if errors:
-            raise RuntimeError('qualification monitoring failed; inspect campaign.json')
+            raise RuntimeError('qualification failed; inspect campaign.json')
 
 
 if __name__ == '__main__':

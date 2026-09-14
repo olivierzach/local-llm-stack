@@ -14,8 +14,10 @@ def verify(plan, directory, full=True):
         require(result.get('complete') is True and result.get('deployment_digest') == plan['digest'],
                 'missing, failed or mismatched GLM ' + name + ' receipt')
         return result
+    feature_windows = {}
     for name in ('features', 'features-after'):
         features = receipt(name)
+        feature_windows[name] = features
         expected = {'text-False', 'text-True', 'reasoning-False', 'reasoning-True',
                     'vision-reverse-False', 'vision-reverse-True'} | {f'repeatability-{i}' for i in range(20)}
         require({r['test'] for r in features.get('checks', [])} == expected, 'incomplete GLM features')
@@ -53,15 +55,17 @@ def verify(plan, directory, full=True):
         require(decode.get('completion_tokens', 0) >= 256 and decode.get('tokenizer_usage_match') is True
                 and decode.get('finish_reason') in ('stop', 'length'), 'GLM long-input decode failed')
         receipt('decode'); receipt('decode-4096')
-        for node in plan['nodes']:
-            memory = read(directory.parent / f'memory-{node}.summary.json')
-            require(memory.get('samples', 0) >= 2 and memory.get('started_at', float('inf')) <= acceptance['started_at']
-                    and memory.get('ended_at', 0) >= acceptance['ended_at'], 'GLM requires memory coverage on both nodes')
-            require(memory.get('min_available_gib', 0) >= 4 and memory.get('max_pressure_full_avg10', 100) < 5,
-                    'GLM exceeded memory headroom/pressure limits')
-            require(memory.get('swapout_pages', -1) >= 0 and memory.get('page_size_bytes', 0) > 0
-                    and memory['swapout_pages'] * memory['page_size_bytes'] < 256 * 1024**2,
-                    'GLM exceeded the paging limit')
+    start = acceptance['started_at'] if full else feature_windows['features'].get('started_at', float('-inf'))
+    end = acceptance['ended_at'] if full else feature_windows['features-after'].get('ended_at', float('inf'))
+    for node in plan['nodes']:
+        memory = read(directory.parent / f'memory-{node}.summary.json')
+        require(memory.get('samples', 0) >= 2 and memory.get('started_at', float('inf')) <= start
+                and memory.get('ended_at', 0) >= end, 'GLM requires memory coverage on both nodes')
+        require(memory.get('min_available_gib', 0) >= 4 and memory.get('max_pressure_full_avg10', 100) < 5,
+                'GLM exceeded memory headroom/pressure limits')
+        require(memory.get('swapout_pages', -1) >= 0 and memory.get('page_size_bytes', 0) > 0
+                and memory['swapout_pages'] * memory['page_size_bytes'] < 256 * 1024**2,
+                'GLM exceeded the paging limit')
     return dict(deployment_digest=plan['digest'], coordinator=plan['deployment']['coordinator'],
                 acceptance=str(directory), full_profile=full)
 

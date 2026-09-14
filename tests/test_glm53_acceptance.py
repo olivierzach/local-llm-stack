@@ -22,7 +22,7 @@ def accepted(tmp_path):
         spec = {'vllm:spec_decode_num_accepted_tokens_total': 10}
         records = [dict(completion_tokens=256, finish_reason='length')] * 18
         receipts = {
-            'features': dict(common, checks=[dict(test=label, finish_reason='stop', content='answer',
+            'features': dict(common, started_at=10, ended_at=100, checks=[dict(test=label, finish_reason='stop', content='answer',
                 reasoning_characters=10 if label.startswith('reasoning-') else 0) for label in
                 ('text-False', 'text-True', 'reasoning-False', 'reasoning-True', 'vision-reverse-False', 'vision-reverse-True')]),
             'tools': dict(common, checks=[{}] * 24, speculative_counter_deltas=spec),
@@ -86,3 +86,14 @@ def test_answer_flip_after_load_blocks_publication(accepted):
     path.write_text(json.dumps(data))
     with pytest.raises(config.ConfigError, match='repeated-answer'):
         verify(plan, folder)
+
+
+def test_alternate_coordinator_also_requires_memory_headroom(accepted):
+    plan, folder = accepted[1]
+    assert verify(plan, folder, full=False)
+    path = folder.parent / 'memory-66f1.summary.json'
+    data = json.loads(path.read_text())
+    for change in ({'min_available_gib': 3}, {'started_at': 11}, {'ended_at': 99}):
+        path.write_text(json.dumps({**data, **change}))
+        with pytest.raises(config.ConfigError):
+            verify(plan, folder, full=False)
