@@ -21,27 +21,34 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--saved-plan', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True, help='new receipt directory')
-    parser.add_argument('--profile', choices=('qwen-256k', 'deepseek-64k', 'deepseek-context'), default='qwen-256k')
+    parser.add_argument('--profile', choices=('qwen-256k', 'deepseek-64k', 'deepseek-context', 'glm53-256k'), default='qwen-256k')
     args = parser.parse_args()
     saved = args.saved_plan.resolve()
     plan = read(saved)
     validate_saved_plan(plan)
     minimum = (plan['recipe']['context_tokens'] if args.profile == 'deepseek-context' else
-               262144 if args.profile == 'qwen-256k' else 65536)
+               262144 if args.profile in ('qwen-256k', 'glm53-256k') else 65536)
     if plan['recipe']['context_tokens'] < minimum or plan['recipe']['max_output_tokens'] < 4096:
         parser.error('recipe context/output limits are too small for this acceptance profile')
     if args.profile.startswith('deepseek-') and not plan['recipe'].get('deepseek_v4'):
         parser.error('the DeepSeek profile requires a DeepSeek V4 recipe')
+    if args.profile.startswith('glm53-') and not plan['recipe'].get('glm53'):
+        parser.error('the GLM53 profile requires a GLM53 recipe')
     args.output.mkdir(parents=True, exist_ok=False)
     report = dict(complete=False, deployment_digest=plan['digest'], profile=args.profile,
                   started_at=time.time(), checks=[])
     checks = [
         ('decode', 'profile-spark-decode.py', ['--max-tokens', '1024'], 2100),
         ('long-context', 'probe-spark-long-context.py', ['--input-tokens', str(minimum - 2112)] +
-         (['--corpus', 'varied', '--measure-decode'] if args.profile == 'deepseek-context' else []), 10800),
+         (['--corpus', 'varied', '--measure-decode'] if args.profile in ('deepseek-context', 'glm53-256k') else []), 10800),
         ('soak', 'soak-spark-serving.py', ['--rounds', '3', '--max-tokens', '1024'], 2700),
         ('decode-4096', 'profile-spark-decode.py', ['--max-tokens', '4096'], 2100),
     ]
+    if args.profile.startswith('glm53-'):
+        checks = [
+            ('features', 'probe-glm53-features.py', [], 3600),
+            ('tools', 'probe-spark-tool-calling.py', ['--rounds', '2'], 3600),
+        ] + checks
     try:
         for label, script, flags, timeout in checks:
             report['phase'] = label
