@@ -1,0 +1,29 @@
+{
+  "files": {
+    ".gitattributes": {
+      "sha256": "70e0ed421d653865ad7ace84728e32ded01ec0a860e989a5ed736fe11b42214f",
+      "size": 116
+    },
+    "README.md": {
+      "sha256": "2014434d3e3639147d35d61259690d585e7820993180e7d579e3b796dddf5a31",
+      "size": 2619
+    },
+    "assets/dflash2-figure.png": {
+      "sha256": "6d8dcc9a9472bddb644c881fe83050b5343d09bf5ffb0912e5598e55fe671e99",
+      "size": 286889
+    },
+    "config.json": {
+      "sha256": "c4aeac0101196a6e26705b34c45230bcd0c7c68ee2d2d1efdb242087f3712573",
+      "size": 1273
+    },
+    "model.safetensors": {
+      "sha256": "b038e1d9d1e7833fa3880c2c0135ba9b673013f03da1b29fb831931584759dac",
+      "size": 2342169800
+    }
+  },
+  "hub_version": "1.23.0",
+  "image": "vllm/vllm-openai@sha256:e4f88a835143cd22aee2397a26ec6bb80b3a4a6fe0c882bcbc63822904766089",
+  "repo": "incoai/GLM-5.3-Flash-DFlash2",
+  "revision": "bf582e4eacc1810f76656d1811693ff6c6737d2a",
+  "version": 1
+}
