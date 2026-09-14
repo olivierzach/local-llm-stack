@@ -4,6 +4,47 @@ from pathlib import Path
 from .config import read, require, validate_saved_plan
 
 
+def verify_fabric(plan, campaign, start, end):
+    """Require owned workers and observed RoCE traffic throughout this campaign."""
+    snapshots = [Path(campaign) / name for name in ('runtime-before', 'runtime-after')]
+    before, after = [read(path / 'fabric.json') for path in snapshots]
+    require(before['time'] <= start and after['time'] >= end, 'GLM fabric evidence does not cover the run')
+    statuses = [read(path / 'status.json') for path in snapshots]
+    require(all(s.get('healthy') is True for s in statuses), 'GLM workers were not healthy at both boundaries')
+    traffic = {}
+    for name, node in plan['nodes'].items():
+        reservations = [s['nodes'][name]['reservation'] for s in statuses]
+        require(all(r['digest'] == plan['digest'] for r in reservations)
+                and reservations[0]['container_ids'] == reservations[1]['container_ids']
+                and bool(reservations[0]['container_ids']), 'GLM fabric evidence belongs to different workers')
+        for index in range(len(reservations[1]['container_ids'])):
+            log = (snapshots[1] / f'{name}-{index}.log').read_text()
+            require('Using network IB' in log and 'via NET/IB/' in log
+                    and 'Using network Socket' not in log and 'via NET/Socket/' not in log,
+                    'GLM requires observed NCCL IB transport without socket fallback')
+        rails = [{r['interface']: r for r in snapshot['nodes'][name]['rails']}
+                 for snapshot in (before, after)]
+        require(all(set(r) == {f['interface'] for f in node['fabric']} for r in rails),
+                'GLM fabric interfaces differ from the plan')
+        traffic[name] = {}
+        for expected in node['fabric']:
+            left, right = [r[expected['interface']] for r in rails]
+            require(all(all(r[k] == expected[k] for k in ('interface', 'ip', 'rdma'))
+                        for r in (left, right)), 'GLM fabric identity changed')
+            deltas = {}
+            for key in ('port_xmit_data', 'port_rcv_data'):
+                delta = right['rdma_counters'][key] - left['rdma_counters'][key]
+                require(delta > 0, 'GLM requires increasing send/receive RDMA counters on every rail')
+                deltas[key + '_bytes'] = delta * 4  # IB Port*Data counters count 32-bit words.
+            for group in ('net_counters', 'rdma_counters', 'rdma_hw_counters'):
+                require(set(left[group]) == set(right[group]), 'GLM fabric counter set changed')
+                for key, value in left[group].items():
+                    if any(part in key for part in ('error', '_err', 'drop', 'discard', 'link_down', 'link_error')):
+                        require(right[group][key] == value, 'GLM fabric error/drop counter changed: ' + key)
+            traffic[name][expected['interface']] = deltas
+    return traffic
+
+
 def verify(plan, directory, full=True):
     validate_saved_plan(plan)
     require(bool(plan['recipe'].get('glm53')) and plan['deployment']['mode'] == 'tensor'
@@ -66,8 +107,9 @@ def verify(plan, directory, full=True):
         require(memory.get('swapout_pages', -1) >= 0 and memory.get('page_size_bytes', 0) > 0
                 and memory['swapout_pages'] * memory['page_size_bytes'] < 256 * 1024**2,
                 'GLM exceeded the paging limit')
+    traffic = verify_fabric(plan, directory.parent, start, end)
     return dict(deployment_digest=plan['digest'], coordinator=plan['deployment']['coordinator'],
-                acceptance=str(directory), full_profile=full)
+                acceptance=str(directory), full_profile=full, fabric_bytes=traffic)
 
 
 def verify_pair(plan, directory, alternate_plan, alternate_directory):

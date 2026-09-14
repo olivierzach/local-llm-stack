@@ -128,6 +128,9 @@ to IB/RoCE and the two inventoried interfaces; Gloo/bootstrap uses the first
 cable subnet. Confirm `NET/IB` in logs and increasing RDMA counters during tests.
 These are two logical interfaces on one physical 200-GbE cable; do not add their
 link-speed labels together. Wi-Fi is not a fallback for copies or GPU collectives.
+The acceptance/publication gate checks both snapshot boundaries: the same owned
+workers, NCCL IB selection without socket collectives, increasing send/receive
+RDMA counters on each inventoried rail, and unchanged error/drop counters.
 
 ## Stop and restore DeepSeek
 

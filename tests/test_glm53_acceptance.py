@@ -44,6 +44,20 @@ def accepted(tmp_path):
             (folder.parent / f'memory-{memory_node}.summary.json').write_text(json.dumps(dict(
                 samples=12, started_at=0, ended_at=110, min_available_gib=8,
                 max_pressure_full_avg10=0, swapout_pages=0, page_size_bytes=4096)))
+        for boundary, timestamp, count in [('runtime-before', 0, 100), ('runtime-after', 110, 200)]:
+            snapshot = folder.parent / boundary
+            snapshot.mkdir()
+            fabric = dict(time=timestamp, nodes={})
+            status = dict(healthy=True, nodes={})
+            for name, settings in plan['nodes'].items():
+                fabric['nodes'][name] = dict(rails=[dict(rail,
+                    rdma_counters=dict(port_xmit_data=count, port_rcv_data=count, port_rcv_errors=0),
+                    net_counters=dict(rx_dropped=0), rdma_hw_counters=dict(req_cqe_error=0))
+                    for rail in settings['fabric']])
+                status['nodes'][name] = dict(reservation=dict(digest=plan['digest'], container_ids=[name+'-container']))
+                (snapshot / f'{name}-0.log').write_text('NCCL INFO Using network IB\nChannel via NET/IB/0\n')
+            (snapshot / 'fabric.json').write_text(json.dumps(fabric))
+            (snapshot / 'status.json').write_text(json.dumps(status))
         pairs.append((plan, folder))
     return pairs
 
@@ -116,3 +130,35 @@ def test_either_qualified_role_can_be_published_with_one_full_profile(accepted):
     (other_folder / 'acceptance.json').unlink()
     with pytest.raises(config.ConfigError, match='full-profile'):
         verify_pair(plan, folder, other, other_folder)
+
+
+@pytest.mark.parametrize('failure', ['no-traffic', 'counter-reset', 'errors', 'wrong-interface', 'missing-coverage'])
+def test_missing_or_failed_cable_evidence_cannot_publish(accepted, failure):
+    plan, folder = accepted[0]
+    path = folder.parent / 'runtime-after/fabric.json'
+    data = json.loads(path.read_text())
+    rail = data['nodes']['e8f1']['rails'][0]
+    if failure == 'no-traffic': rail['rdma_counters']['port_xmit_data'] = 100
+    if failure == 'counter-reset': rail['rdma_counters']['port_rcv_data'] = 0
+    if failure == 'errors': rail['net_counters']['rx_dropped'] = 1
+    if failure == 'wrong-interface': rail['ip'] = '192.168.1.18'
+    if failure == 'missing-coverage': data['time'] = 99
+    path.write_text(json.dumps(data))
+    with pytest.raises(config.ConfigError):
+        verify(plan, folder)
+
+
+def test_socket_collectives_or_replaced_workers_cannot_publish(accepted):
+    plan, folder = accepted[0]
+    log = folder.parent / 'runtime-after/e8f1-0.log'
+    good = log.read_text()
+    log.write_text(good + 'Channel via NET/Socket/0\n')
+    with pytest.raises(config.ConfigError, match='socket fallback'):
+        verify(plan, folder)
+    log.write_text(good)
+    path = folder.parent / 'runtime-after/status.json'
+    data = json.loads(path.read_text())
+    data['nodes']['e8f1']['reservation']['container_ids'] = ['replacement']
+    path.write_text(json.dumps(data))
+    with pytest.raises(config.ConfigError, match='different workers'):
+        verify(plan, folder)
