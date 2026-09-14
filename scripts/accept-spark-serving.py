@@ -41,7 +41,8 @@ def main():
         ('decode', 'profile-spark-decode.py', ['--max-tokens', '1024'], 2100),
         ('long-context', 'probe-spark-long-context.py', ['--input-tokens', str(minimum - 2112)] +
          (['--corpus', 'varied', '--measure-decode'] if args.profile in ('deepseek-context', 'glm53-256k') else []), 10800),
-        ('soak', 'soak-spark-serving.py', ['--rounds', '3', '--max-tokens', '1024'], 2700),
+        ('soak', 'soak-spark-serving.py', ['--rounds', '3', '--max-tokens',
+         '256' if args.profile == 'glm53-256k' else '1024'], 2700),
         ('decode-4096', 'profile-spark-decode.py', ['--max-tokens', '4096'], 2100),
     ]
     if args.profile.startswith('glm53-'):

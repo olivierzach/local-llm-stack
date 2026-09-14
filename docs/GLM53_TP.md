@@ -76,7 +76,8 @@ make glm53-tp-accept PLAN=data/cluster/glm53-e8f1-01/plan.json \
 This records both hosts' available memory, paging/pressure, runtime logs,
 metrics and cable counters around synthetic text, reasoning on/off, image
 color-order fixtures, tool call/result checks, 1K/4K output profiles, near-limit
-varied input retrieval, prefix reuse, an 18-request soak and concurrency 1/2/4.
+varied input retrieval, prefix reuse, an 18-request soak (256-token request cap)
+and concurrency 1/2/4. The separate 1K/4K profiles exercise long outputs.
 Tool probes execute synthetic functions only. Image fixtures establish basic
 image processing, not OCR/document quality. Timing prose is not scored for accuracy.
 
