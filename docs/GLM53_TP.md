@@ -43,6 +43,8 @@ Use `PEER=66f1` when starting preparation on e8f1. Downloads are resumable, all
 snapshot files are SHA-256 checked, and the second copy uses a verified direct
 route and source-bound SSH connection. Runtime assets are built from the exact
 image source with base/output hash checks. Preparation never starts a GPU worker.
+It also checks the actual runtime's dense/shared BF16 and routed INT4 selection
+against the pinned model configuration in a CPU-only, network-disabled container.
 
 After checking inference is idle, explicitly stop the deployment occupying the
 two GPUs using its saved plan. `glm53-tp-up` refuses a busy or reserved GPU.

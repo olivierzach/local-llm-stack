@@ -82,7 +82,22 @@ def main():
                 source = Path(folder) / 'patched.py'; source.write_bytes(content)
                 target = stage(source, args.data.expanduser(), overlay['path'], overlay['sha256'])
         results.append({'path': str(target), 'sha256': overlay['sha256']})
-    print(json.dumps({'assets': results, 'gpu_used': False}))
+    data = args.data.expanduser().resolve()
+    config = data / 'huggingface/hub' / ('models--' + recipe['model'].replace('/', '--')) / 'snapshots' / recipe['revision'] / 'config.json'
+    model_manifest = json.loads((ROOT / 'cluster/model-downloads/glm53-w4a16.json').read_text())
+    if hashlib.sha256(config.read_bytes()).hexdigest() != model_manifest['files']['config.json']['sha256']:
+        raise RuntimeError('GLM model configuration checksum mismatch')
+    model_overlay = next(item for item in results if item['path'].endswith('/vllm/models/glm5next/nvidia/model.py'))
+    probe = subprocess.check_output(['docker', 'run', '--rm', '--network', 'none',
+        '--memory', '2g', '--cpus', '2', '--entrypoint', 'python3',
+        '-v', str(ROOT / 'scripts/probe-glm53-quantization.py') + ':/probe.py:ro',
+        '-v', str(config.resolve()) + ':/model-config.json:ro',
+        '-v', model_overlay['path'] + ':/usr/local/lib/python3.12/dist-packages/vllm/models/glm5next/nvidia/model.py:ro',
+        recipe['image'], '/probe.py', '--config', '/model-config.json'], text=True)
+    quantization = json.loads(probe.splitlines()[-1])
+    if not quantization.get('complete'):
+        raise RuntimeError('GLM quantization regression probe did not pass')
+    print(json.dumps({'assets': results, 'gpu_used': False, 'quantization': quantization}))
 
 
 if __name__ == '__main__':
