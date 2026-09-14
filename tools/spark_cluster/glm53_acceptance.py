@@ -14,15 +14,18 @@ def verify(plan, directory, full=True):
         require(result.get('complete') is True and result.get('deployment_digest') == plan['digest'],
                 'missing, failed or mismatched GLM ' + name + ' receipt')
         return result
-    features = receipt('features')
-    require({r['test'] for r in features.get('checks', [])} == {
-        'text-False', 'text-True', 'reasoning-False', 'reasoning-True',
-        'vision-reverse-False', 'vision-reverse-True'}, 'incomplete GLM features')
-    for check in features['checks']:
-        require(check.get('finish_reason') == 'stop' and bool(check.get('content')),
-                'incomplete GLM feature response')
-        require((check.get('reasoning_characters', 0) > 0) == check['test'].startswith('reasoning-'),
-                'incorrect GLM reasoning toggle')
+    for name in ('features', 'features-after'):
+        features = receipt(name)
+        expected = {'text-False', 'text-True', 'reasoning-False', 'reasoning-True',
+                    'vision-reverse-False', 'vision-reverse-True'} | {f'repeatability-{i}' for i in range(20)}
+        require({r['test'] for r in features.get('checks', [])} == expected, 'incomplete GLM features')
+        for check in features['checks']:
+            require(check.get('finish_reason') == 'stop' and bool(check.get('content')),
+                    'incomplete GLM feature response')
+            require((check.get('reasoning_characters', 0) > 0) == check['test'].startswith('reasoning-'),
+                    'incorrect GLM reasoning toggle')
+            if check['test'].startswith('repeatability-'):
+                require(check['content'].strip() == '391', 'GLM repeated-answer regression failed')
     tools = receipt('tools')
     require(len(tools.get('checks', [])) >= 24, 'incomplete GLM tool continuation')
     soak = receipt('soak')
@@ -38,7 +41,7 @@ def verify(plan, directory, full=True):
     if full:
         acceptance = receipt('acceptance')
         require(acceptance.get('profile') == 'glm53-256k' and set(acceptance.get('checks', [])) == {
-            'features', 'tools', 'decode', 'long-context', 'soak', 'decode-4096', 'concurrency'},
+            'features', 'tools', 'decode', 'long-context', 'soak', 'decode-4096', 'concurrency', 'features-after'},
             'incomplete GLM sustained serving acceptance')
         long = receipt('long-context')
         require(long.get('actual_input_tokens', 0) >= plan['recipe']['context_tokens'] - 8192

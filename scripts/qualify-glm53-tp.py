@@ -69,6 +69,7 @@ def main():
             run('profile-spark-serving.py', '--prompt-tokens', '8192', '--concurrency', '1', '2',
                 str(plan['recipe']['max_num_seqs']), '--max-tokens', '256',
                 '--output', out / 'serving/concurrency.json', timeout=3600)
+            run('probe-glm53-features.py', '--output', out / 'serving/features-after.json', timeout=3600)
         else:
             run('accept-spark-serving.py', '--profile', 'glm53-256k', '--output', out / 'serving', timeout=21600)
         report.update(complete=True, phase='passed')

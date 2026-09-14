@@ -126,6 +126,9 @@ def main():
                 dict(type='image_url', image_url=dict(url=image_url(reverse)))],
                 lambda text, expected=expected: re.findall(r'\b(?:red|blue)\b', text.lower()) == expected,
                 stream=reverse)
+        for trial in range(20):
+            exercise(f'repeatability-{trial}', 'Compute 17 times 23. Reply only with the integer.',
+                     lambda text: text.strip() == '391')
         report['complete'] = True
     except BaseException as exc:
         report['error'] = repr(exc)

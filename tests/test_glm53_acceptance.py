@@ -28,13 +28,16 @@ def accepted(tmp_path):
             'tools': dict(common, checks=[{}] * 24, speculative_counter_deltas=spec),
             'soak': dict(common, records=records, speculative_counter_deltas=spec),
             'acceptance': dict(common, profile='glm53-256k', started_at=10, ended_at=100,
-                checks=['features', 'tools', 'decode', 'long-context', 'soak', 'decode-4096', 'concurrency']),
+                checks=['features', 'tools', 'decode', 'long-context', 'soak', 'decode-4096', 'concurrency', 'features-after']),
             'long-context': dict(common, actual_input_tokens=260000, corpus='varied', prefix_reuse_observed=True,
                 runs=[dict(retrieval_passed=True, tokenizer_usage_match=True)] * 2,
                 decode_run=dict(completion_tokens=1024, tokenizer_usage_match=True, finish_reason='length')),
             'concurrency': dict(common, levels=[dict(concurrency=c) for c in (1, 2, 4)]),
             'decode': common, 'decode-4096': common,
         }
+        receipts['features']['checks'] += [dict(test=f'repeatability-{i}', finish_reason='stop',
+            content='391', reasoning_characters=0) for i in range(20)]
+        receipts['features-after'] = receipts['features']
         for name, value in receipts.items():
             (folder / (name + '.json')).write_text(json.dumps(value))
         for memory_node in plan['nodes']:
@@ -73,3 +76,13 @@ def test_low_memory_or_uncovered_run_cannot_publish(accepted):
         path.write_text(json.dumps({**good, **change}))
         with pytest.raises(config.ConfigError):
             verify(plan, folder)
+
+
+def test_answer_flip_after_load_blocks_publication(accepted):
+    plan, folder = accepted[0]
+    path = folder / 'features-after.json'
+    data = json.loads(path.read_text())
+    data['checks'][-1]['content'] = 'wrong'
+    path.write_text(json.dumps(data))
+    with pytest.raises(config.ConfigError, match='repeated-answer'):
+        verify(plan, folder)

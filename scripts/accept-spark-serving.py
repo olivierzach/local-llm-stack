@@ -51,6 +51,7 @@ def main():
         ] + checks + [
             ('concurrency', 'profile-spark-serving.py', ['--prompt-tokens', '1024', '8192',
              '--concurrency', '1', '2', str(plan['recipe']['max_num_seqs']), '--requests', '4', '--max-tokens', '256'], 3600),
+            ('features-after', 'probe-glm53-features.py', [], 3600),
         ]
     try:
         for label, script, flags, timeout in checks:
