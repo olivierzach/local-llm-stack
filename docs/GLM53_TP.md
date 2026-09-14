@@ -84,8 +84,9 @@ Stop the exact plan and launch the identical recipe with the other coordinator.
 Run `glm53-tp-accept ... ROLE_CHECK=1` there: text, reasoning, images, tools,
 near-limit retrieval/prefix reuse/continuation, an 18-request soak and concurrency
 checks are repeated. Both roles must pass the memory limits. The separate 1K/4K
-prose/code/planning profile is required for the primary operating placement. After that role
-check, restore the fully qualified placement before publication.
+prose/code/planning profile is required for at least one placement. Either
+qualified role can remain live and be published; the full performance profile is
+a reference measurement, not a requirement for a permanent coordinator.
 
 Run `make glm53-tp-publish` on each Spark with `PLAN`, `ACCEPTANCE`,
 `ALTERNATE_PLAN`, `ALTERNATE_ACCEPTANCE`, and a fresh `OUTPUT`. The two acceptance

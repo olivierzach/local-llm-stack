@@ -106,3 +106,13 @@ def test_alternate_coordinator_must_serve_the_advertised_context(accepted):
     path.write_text(json.dumps(data))
     with pytest.raises(config.ConfigError, match='near-limit'):
         verify(plan, folder, full=False)
+
+
+def test_either_qualified_role_can_be_published_with_one_full_profile(accepted):
+    (plan, folder), (other, other_folder) = accepted
+    (folder / 'acceptance.json').unlink()
+    result = verify_pair(plan, folder, other, other_folder)
+    assert [r['full_profile'] for r in result] == [False, True]
+    (other_folder / 'acceptance.json').unlink()
+    with pytest.raises(config.ConfigError, match='full-profile'):
+        verify_pair(plan, folder, other, other_folder)

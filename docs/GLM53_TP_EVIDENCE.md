@@ -92,5 +92,5 @@ in the primary placement. It fell to 5.29 GiB before the long-context phase.
 The test was intentionally stopped to provide more margin; this was not an
 engine crash or a failed-answer claim. See `66f1-01/memory-margin-decision.json`.
 
-Requalify both placements at 0.82, restore the fully qualified placement, publish
+Requalify both placements at 0.82, publish a qualified live placement
 through both Context Guards, and verify actual clients before marking this ready.

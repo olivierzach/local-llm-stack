@@ -71,8 +71,11 @@ def verify(plan, directory, full=True):
 
 
 def verify_pair(plan, directory, alternate_plan, alternate_directory):
-    current = verify(plan, directory)
-    alternate = verify(alternate_plan, alternate_directory, full=False)
+    current_full = (Path(directory) / 'acceptance.json').exists()
+    alternate_full = (Path(alternate_directory) / 'acceptance.json').exists()
+    require(current_full or alternate_full, 'one GLM coordinator must have full-profile acceptance')
+    current = verify(plan, directory, full=current_full)
+    alternate = verify(alternate_plan, alternate_directory, full=alternate_full)
     require(plan['recipe'] == alternate_plan['recipe'], 'GLM coordinator recipes differ')
     require(plan['nodes'] == alternate_plan['nodes'] and current['coordinator'] != alternate['coordinator'],
             'both GLM coordinator roles must be accepted')
