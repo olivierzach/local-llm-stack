@@ -1,7 +1,7 @@
 # GLM-5.3-Flash on interchangeable Sparks
 
-Focused objective requested September 13, 2026. **In progress; not a serving
-acceptance claim.** The thread goal tracker still contains the unfinished broader
+Focused objective requested September 13, 2026. **Completed and qualified.**
+The thread goal tracker still contains the unfinished broader
 interchangeable-node goal and refused creation of a second goal. This document
 records the current focused objective without declaring that broader work complete.
 
@@ -58,17 +58,28 @@ are measurements on this cluster. Model identity/capabilities originate from
 6. Commit/push reproducible commands, recipes, docs and evidence references.
    Preserve exact-plan cleanup and DeepSeek restoration instructions.
 
-## Preparation
-
 ## Progress record
 
-Artifacts and strict runtime overlays are prepared on both nodes. The selected
-0.82-memory recipe passed the full serving profile with 66f1 coordinating
-(`66f1-02/qualification-01`); see [measured evidence](GLM53_TP_EVIDENCE.md).
-Controller revision `eee6285` passed all 450 Linux tests and verifies memory,
-worker identity and observed cable transport before publication. The identical
-recipe is being qualified with e8f1 coordinating, initiated from e8f1 itself.
-Downstream alias publication and actual OMP/FamChat checks remain pending.
+All six completion gates are satisfied for this focused model setup:
+
+- Pinned artifacts and strict runtime overlays are verified on both nodes, with
+  peer transfers over the direct fabric.
+- The selected 0.82-memory recipe passed the full profile with 66f1 coordinating
+  (`66f1-02/qualification-01`) and the reversed-role profile initiated from e8f1
+  (`e8f1-04/qualification-01`). e8f1 remains the live coordinator.
+- Controller revision `eee6285` passed all 450 Linux tests and verifies memory,
+  worker identity and observed RoCE traffic before publication.
+- Both 4010/4110 gateways on both nodes publish the new alias while preserving
+  other routes and defaults. Actual OMP tools/thinking, OMP image attachments,
+  an llm image request and FamChat's configured provider passed.
+- Commands, selected limits, source pins, measured results and exact-plan
+  DeepSeek restoration are recorded in the [runbook](GLM53_TP.md) and
+  [evidence](GLM53_TP_EVIDENCE.md), committed on the existing feature branch.
+
+This does not declare the broader interchangeable-node goal complete, promise
+four simultaneous full-context requests, or constitute a general model-quality
+benchmark. The focused deployment is reproducible without an agent making
+runtime configuration decisions.
 
 ## Preparation commands
 

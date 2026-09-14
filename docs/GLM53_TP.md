@@ -1,13 +1,14 @@
 # GLM-5.3-Flash across the two Sparks
 
-**Preparation/qualification in progress. No live serving acceptance is claimed yet.**
-The [focused goal and source review](GLM53_TP_GOAL.md) record the selected artifacts
-and remaining gates. This adds a separate `local-glm53-flash` alias; existing
+**Qualified in both coordinator roles and published as `local-glm53-flash`.**
+The [hardware and client evidence](GLM53_TP_EVIDENCE.md) records the tested limits.
+The [focused goal and source review](GLM53_TP_GOAL.md) record the selected artifacts.
+This adds a separate `local-glm53-flash` alias; existing
 DeepSeek, Qwen and single-node recipes remain available.
 
-## Candidate
+## Selected recipe
 
-| Setting | Starting point |
+| Setting | Qualified configuration |
 | --- | --- |
 | Target | Pinned `canada-quant/glm-5.3-w4a16-mtp`, 191 GB snapshot |
 | Draft | Pinned `incoai/GLM-5.3-Flash-DFlash2`, 2.34 GB snapshot |
@@ -17,6 +18,7 @@ DeepSeek, Qwen and single-node recipes remain available.
 | Speculation | DFlash2, seven speculative tokens |
 | Execution | Eager, async scheduling, Marlin MoE, prefix caching |
 | Total context / output cap | 262,144 / 8,192 tokens |
+| Input | Text and up to one image per request |
 | Scheduler / memory fraction | Four active requests / 0.82 |
 | API / rendezvous port | 8125 / 29545 |
 | Coordinator | Either `66f1` or `e8f1`; a placement choice, no permanent main |
@@ -28,12 +30,30 @@ screen. Large concurrent prompts need their own measured capacity test.
 
 The first 0.85 trial passed the primary placement but left only 4.06 GiB available
 at its lowest point. The reversed placement started with less host headroom.
-The current candidate uses 0.82 to reserve approximately another 3.65 GiB per
-node; it retains the same request limits and must be requalified in both roles.
+The selected recipe uses 0.82 to reserve approximately another 3.65 GiB per
+node. It passed both placements with the same request limits. This is a measured
+operating point, not a claim of globally optimal settings.
 
 The full model snapshot exists on each machine for repeatable loading and rank
 reversal. Each GPU loads its tensor-parallel shard. Speculative decoding adds a
 small draft model; accepted draft tokens come from the target's verification.
+
+## Current deployment
+
+e8f1 coordinates the live service, with 66f1 as its worker. Both nodes' existing
+4010 and managed 4110 Context Guards expose the same alias. Select
+`spark-context-guard/local-glm53-flash` in the existing Mac OMP provider, or
+`local-glm53-flash` in FamChat's model picker. Other model defaults were preserved.
+
+The saved live plan exists on both nodes:
+
+```text
+~/projects/local-llm-stack-cluster/state/glm53-20260913/e8f1-04/plan.json
+```
+
+The model occupies both GPUs. DeepSeek TP2 is paused; its weights, recipes and
+routes are preserved. Use the exact saved GLM plan when stopping it before
+restoring another GPU deployment.
 
 ## Reproduce from either node
 
@@ -65,6 +85,9 @@ make glm53-tp-status PLAN=data/cluster/glm53-e8f1-01/plan.json
 The startup receipt establishes text/SSE readiness, not full qualification.
 Inspect owned container logs if startup fails; exact-plan cleanup is available
 even when launch never reaches readiness.
+Allow several minutes for checkpoint loading and first-use kernel warmup; the
+cold starts in this campaign took approximately ten minutes. Readiness is probed
+after warmup, and compiled kernels are retained in the pinned runtime caches.
 
 ## Qualification and publication
 
@@ -111,8 +134,8 @@ omp --model spark-context-guard/local-glm53-flash --thinking high
 Use `--thinking off` for direct answers. The helper preserves provider endpoints,
 credentials, other model overrides and the default model selection. The generated
 `spark-client` profiles also expose the GLM alias's text/image/tool capabilities
-and the same OMP thinking controls through either node's managed gateway. For
-example, from either Spark (or the Mac):
+and the same OMP thinking controls through either node's managed gateway. On
+e8f1, use its local gateway directly:
 
 ```bash
 .venv/bin/python scripts/spark-client run --node e8f1 --client omp \
@@ -120,8 +143,30 @@ example, from either Spark (or the Mac):
   --model spark-e8f1/local-glm53-flash --thinking high
 ```
 
-Use `--node 66f1` and the `spark-66f1/` provider prefix to enter through the other
-gateway; this does not require moving the backend or creating another model alias.
+On 66f1, use `--node 66f1` and the `spark-66f1/` provider prefix for its local
+gateway. This does not require moving the backend or creating another model alias.
+
+From the Mac or another controller, generated profiles use a **cached gateway
+registry**. Refresh it after adding a model, and open a tunnel before running the
+client. For example, refresh e8f1 and keep this tunnel open in one terminal:
+
+```bash
+.venv/bin/python scripts/spark-gateway attach --node e8f1
+.venv/bin/python scripts/spark-client tunnel --node e8f1 --port 4112
+```
+
+Then, in another terminal:
+
+```bash
+.venv/bin/python scripts/spark-client run --node e8f1 --port 4112 --client omp \
+  --output data/cluster/glm53-client-e8f1 -- \
+  --model spark-e8f1/local-glm53-flash --thinking high
+```
+
+Use the same node and local port for the tunnel and client. This also applies to
+the generated OpenClaw, AIChat and llm profiles. The existing Mac
+`spark-context-guard` provider has its own direct URL and does not need these
+temporary-profile tunnels.
 
 The backend binds to the coordinator's `10.10.20.x` fabric IP. NCCL is restricted
 to IB/RoCE and the two inventoried interfaces; Gloo/bootstrap uses the first

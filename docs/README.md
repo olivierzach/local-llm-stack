@@ -27,3 +27,4 @@ Start here:
 20. [Qwen3.8 Single-Spark Runbook](qwen38-flash-next.md)
 21. [Spark GPU Admission And Recovery](SPARK_GPU_ADMISSION.md)
 22. [Routing Failures And Streaming Recovery](ROUTING_FAILURES.md)
+23. [GLM-5.3-Flash Two-Spark Recipe](GLM53_TP.md)
