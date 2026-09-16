@@ -28,3 +28,5 @@ Start here:
 21. [Spark GPU Admission And Recovery](SPARK_GPU_ADMISSION.md)
 22. [Routing Failures And Streaming Recovery](ROUTING_FAILURES.md)
 23. [GLM-5.3-Flash Two-Spark Recipe](GLM53_TP.md)
+24. [Current Cluster Status And Remaining Work](CLUSTER_IMPLEMENTATION.md)
+25. [Source Reconciliation And Deployment Hygiene](SOURCE_RECONCILIATION.md)
