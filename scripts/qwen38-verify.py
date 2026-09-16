@@ -49,7 +49,8 @@ def chat(base, payload, key):
     with requests.post(base + "/chat/completions", json=payload, headers=headers,
                        stream=payload.get("stream", False), timeout=(10, 600)) as response:
         response.raise_for_status()
-        guard = {k.lower(): v for k, v in response.headers.items() if k.lower().startswith("x-context-")}
+        guard = {k.lower(): v for k, v in response.headers.items()
+                 if k.lower().startswith(("x-context-", "x-spark-"))}
         if payload.get("stream"):
             for line in response.iter_lines(chunk_size=1):
                 if not line.startswith(b"data:"):

@@ -18,6 +18,7 @@ SERVICE_NAME="${DEEPSEEKV4_SYSTEMD_UNIT:-local-deepseek-v4.service}"
 PORT="${DEEPSEEKV4_PORT:-8011}"
 CONTEXT="${DEEPSEEKV4_MAX_MODEL_LEN:-65536}"
 DSPARK_ENABLED="${DEEPSEEKV4_DSPARK_ENABLED:-true}"
+DRAFT_MODE="${DRAFT_MODE:-${DEEPSEEKV4_DRAFT_MODE:-auto}}"
 BUILD_JOBS="${DEEPSEEKV4_BUILD_JOBS:-4}"
 MODEL_PATH="$MODEL_DIR/$MODEL_FILE"
 DSPARK_PATH="$MODEL_DIR/$DSPARK_FILE"
@@ -27,6 +28,7 @@ usage() {
 Usage: scripts/deepseek-v4.sh COMMAND
 
 Commands:
+  check-draft  Validate the selected drafting mode without changing services.
   install  Build the pinned Spark engine and download the weights.
   start    Start the OpenAI-compatible server in the background.
   stop     Stop the server started by this script.
@@ -41,11 +43,27 @@ die() {
 }
 
 dspark_enabled() {
+  case "$DRAFT_MODE" in
+    local) return 0 ;;
+    off) return 1 ;;
+  esac
   case "${DSPARK_ENABLED,,}" in
     1|true|yes|on) return 0 ;;
     0|false|no|off) return 1 ;;
     *) die "DEEPSEEKV4_DSPARK_ENABLED must be true or false; found $DSPARK_ENABLED" ;;
   esac
+}
+
+validate_draft_mode() {
+  case "$DRAFT_MODE" in
+    auto|local|off) ;;
+    remote) die "the pinned DS4 engine has no remote-drafter transport; use local or off. No services changed." ;;
+    *) die "DRAFT_MODE must be auto, local, or off" ;;
+  esac
+  # Validate the legacy setting even before a managed switch stops services.
+  if [[ "$DRAFT_MODE" == auto ]]; then
+    case "${DSPARK_ENABLED,,}" in 1|true|yes|on|0|false|no|off) ;; *) die "invalid DEEPSEEKV4_DSPARK_ENABLED" ;; esac
+  fi
 }
 
 docker_bridge_host() {
@@ -165,6 +183,7 @@ running_pid() {
 }
 
 start_server() {
+  validate_draft_mode
   if [[ "$(docker inspect -f '{{.State.Running}}' local-qwen38-flash-next 2>/dev/null)" == true ]]; then
     die "Qwen3.8 is resident; use make deepseekv4-up for the managed switch"
   fi
@@ -206,6 +225,7 @@ start_server() {
     --user \
     --unit "$SERVICE_NAME" \
     --collect \
+    --setenv "SPARK_LEGACY_TRANSACTION=${SPARK_LEGACY_TRANSACTION:-}" \
     --property "WorkingDirectory=$ROOT" \
     --property "StandardOutput=append:$LOG_FILE" \
     --property "StandardError=append:$LOG_FILE" \
@@ -266,6 +286,7 @@ show_status() {
 
 command="${1:-}"
 case "$command" in
+  check-draft) validate_draft_mode ;;
   install) install_engine ;;
   start) start_server ;;
   stop) stop_server ;;

@@ -1,0 +1,149 @@
+#!/usr/bin/env python3
+"""Stage and supervise looped-LLM jobs on an inventoried Spark with a shared GPU lease.
+
+Use a fresh --job ID per run. Staging uses the project's existing hash-verified,
+allowlisted snapshot publisher; running uses its durable systemd job manager.
+"""
+import argparse
+import hashlib
+import importlib.util
+import json
+from pathlib import Path
+import shutil
+import shlex
+import socket
+import subprocess
+import sys
+import tarfile
+import tempfile
+import time
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tools"))
+from spark_cluster.cli import remote, save_json
+from spark_cluster.config import canonical, integer, name, read, require, validate_inventory
+from spark_cluster.bundles import checksum
+
+LOOP_REMOTE = ROOT / "tools/spark_cluster/loop_node.py"
+
+
+def stage_snapshot(module, source, node, key=None):
+    """Keep the project's allowlist/verification with local or configured SSH transport."""
+    with tempfile.TemporaryDirectory(prefix='spark-loop-') as temporary:
+        snapshot = Path(temporary) / 'snapshot'
+        snapshot.mkdir()
+        manifest = module._snapshot(source,[],snapshot,max_bytes=2*1024**3)
+        archive_path = Path(temporary) / 'snapshot.tar'
+        with tarfile.open(archive_path,'w') as archive:
+            for relative in ['snapshot.json',*(entry['path'] for entry in manifest['files'])]:
+                archive.add(snapshot / relative,arcname=relative,recursive=False)
+        command = ['python3','-c',module._RECEIVER,node['projects']+'/looped-llm-lab/snapshots',manifest['identity']]
+        if socket.gethostname() != node['hostname']:
+            ssh = ['ssh','-o','BatchMode=yes','-o','ConnectTimeout=10','-o','ServerAliveInterval=15']
+            if key is not None: ssh += ['-i',str(key.expanduser())]
+            command = ssh + [node['ssh'],shlex.join(command)]
+        with archive_path.open('rb') as stream:
+            result = subprocess.run(command,stdin=stream,text=True,capture_output=True,timeout=3600)
+        require(result.returncode == 0,'snapshot transfer failed: '+result.stderr[-1000:])
+        receipt = json.loads(result.stdout)
+        require(receipt.get('identity') == manifest['identity'] and receipt.get('verified') is True,
+                'snapshot acknowledgement mismatch')
+        return {**receipt,'files':len(manifest['files']),'bytes':sum(f['size'] for f in manifest['files'])}
+
+
+def wait_job(node, p, output, timeout):
+    integer(timeout,1,86400)
+    deadline = time.monotonic() + timeout
+    while True:
+        result = remote(node,{**p,'action':'status'},LOOP_REMOTE)
+        save_json(output / 'status.json',result)
+        if result['status'] in ('succeeded','failed','stopped','interrupted','launch_failed'):
+            require(result['status'] == 'succeeded', 'Loop job ended with '+result['status']+'; inspect logs and recover with stop')
+            require(not result.get('restoration_error'),'job finished but project recovery failed; reservation retained')
+            # Success is persisted before finalization finishes. Observe that
+            # same job until its project window has also been recovered.
+            if result.get('restoration',{}).get('status') in ('released','restored'):
+                return result
+        if time.monotonic() >= deadline:
+            raise RuntimeError('observation deadline reached; job and reservation retained, use wait/status again')
+        time.sleep(5)
+
+
+def fetch_artifacts(node, p, output, artifacts):
+    require(bool(artifacts),'fetch requires at least one --artifact path relative to this job run directory')
+    receipt = remote(node,{**p,'action':'artifacts','artifacts':artifacts},LOOP_REMOTE)
+    for relative, item in receipt['files'].items():
+        path = Path(relative)
+        require(not path.is_absolute() and '..' not in path.parts,'unsafe artifact receipt')
+        target = output / 'artifacts' / path
+        target.parent.mkdir(parents=True,exist_ok=True)
+        if socket.gethostname() == node['hostname']: shutil.copyfile(item['path'],target)
+        else: subprocess.run(['scp','-q',node['ssh']+':'+item['path'],str(target)],check=True)
+        require(target.stat().st_size == item['size'] and checksum(target) == item['sha256'],
+                'downloaded artifact differs from its checksum')
+    return receipt
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("action", choices=("stage", "inspect", "start", "status", "logs", "wait", "fetch", "stop", "release"))
+    parser.add_argument("--node", required=True)
+    parser.add_argument("--job", required=True)
+    parser.add_argument("--inventory", type=Path, default=ROOT / "cluster/inventory.json")
+    parser.add_argument("--source", type=Path, help="local looped-llm-lab source for stage")
+    parser.add_argument("--ssh-key", type=Path, help="optional identity override; defaults to the node's SSH configuration")
+    parser.add_argument("--job-config", type=Path, default=ROOT / "cluster/workloads/loop-capacity-smoke.json")
+    parser.add_argument("--timeout",type=int,default=600,help="wait observation deadline; does not stop or restart jobs")
+    parser.add_argument("--artifact",action="append",default=[],help="explicit file relative to this job's runs directory")
+    args = parser.parse_args()
+    name(args.job)
+    inv = read(args.inventory)
+    validate_inventory(inv)
+    require(args.node in inv["nodes"], "unknown node")
+    node = inv["nodes"][args.node]
+    output = ROOT / "data/cluster/loop" / args.node / args.job
+    plan_path = output / "plan.json"
+    if args.action == "stage":
+        require(args.source is not None, "stage requires --source")
+        source = args.source.resolve()
+        spec = importlib.util.spec_from_file_location("loop_stage", source / "src/looped_llm_lab/operations.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        receipt = stage_snapshot(module,source,node,args.ssh_key)
+        job = read(args.job_config)
+        job.update(expected_host=node["hostname"], project_root=receipt["path"],
+                   window_id=args.job, job_id=args.job, inference_policy="idle_only")
+        job["container"].update(data_dir=node["projects"] + "/looped-llm-lab/data",
+                                runs_dir=node["projects"] + "/looped-llm-lab/runs/cluster/" + args.job)
+        identity = {"node": node, "snapshot": receipt, "config": job}
+        digest = hashlib.sha256(canonical(identity).encode()).hexdigest()
+        p = {**identity, "digest": digest, "owner": "loop-" + args.job + "-" + digest[:12]}
+        require(len(p["owner"]) <= 70, "job ID too long")
+        if plan_path.exists(): require(read(plan_path) == p, "job already staged with different inputs; choose a fresh ID")
+        save_json(plan_path, p)
+        print(json.dumps({"staged": receipt, "plan": str(plan_path)}))
+        return
+    p = read(plan_path)
+    require(p["node"] == node, "inventory changed; restore the staged inventory for recovery")
+    require(hashlib.sha256(canonical({k: p[k] for k in ("node", "snapshot", "config")}).encode()).hexdigest() == p["digest"],
+            "staged plan identity mismatch")
+    req = {"node": node, "owner": p["owner"], "digest": p["digest"]}
+    if args.action == "start":
+        remote(node, {**req, "action": "reserve-workload", "min_available_mib": 16384})
+    if args.action == 'wait': result = wait_job(node,p,output,args.timeout)
+    elif args.action == 'fetch': result = fetch_artifacts(node,p,output,args.artifact)
+    else: result = remote(node, {**p, "action": args.action}, LOOP_REMOTE)
+    # release verifies the project's durable recovery record and idle GPU state.
+    # A failed start retains the reservation, so an ambiguous launch cannot race
+    # with a new inference deployment. Use stop/release with this saved job.
+    if args.action in ("stop", "release"):
+        result["lease"] = remote(node, {**req, "action": "release-workload"})
+    save_json(output / (args.action + ".json"), result)
+    print(json.dumps(result))
+
+
+if __name__ == "__main__":
+    try: main()
+    except Exception as exc:
+        print(f"spark-loop: {exc}", file=sys.stderr)
+        sys.exit(1)

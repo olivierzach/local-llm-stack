@@ -1,0 +1,122 @@
+#!/usr/bin/env python3
+"""Install an independent Context Guard on either node without changing legacy Compose."""
+import argparse
+import json
+import os
+from pathlib import Path
+import secrets
+import stat
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tools"))
+from spark_cluster.cli import remote, save_json
+from spark_cluster.config import read, validate_inventory
+from spark_cluster.gateway import from_plans, validate_registry
+from spark_cluster.gateway_node import credential_name, credential_value
+
+
+def store_attachment(output, result):
+    validate_registry(result["registry"])
+    key = result["api_key"]
+    if not isinstance(key, str) or len(key) < 24 or not all(c.isalnum() or c in "-_" for c in key):
+        raise RuntimeError("invalid installed gateway key")
+    output.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path = output / "api-key"
+    if path.exists():
+        if path.read_text().strip() != key:
+            raise RuntimeError("controller key differs; existing credential was preserved")
+        path.chmod(0o600)
+    else:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w") as stream:
+            stream.write(key)
+    save_json(output / "registry.json", result["registry"])
+    return {"attached": True, "registry": str(output / "registry.json"),
+            "key_file": str(path), "port": result["port"]}
+
+
+def read_provider_key(path):
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd) as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+            raise RuntimeError("provider key file must be owned by you with no group/other access")
+        if not 1 <= info.st_size <= 8194:
+            raise RuntimeError("provider key file has an invalid size")
+        value = stream.read(8194).strip()
+    return credential_value(value)
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("action", choices=("render", "up", "status", "probe", "routes", "attach", "credential-set", "credential-remove", "credential-status", "down"))
+    p.add_argument("--node", required=True)
+    p.add_argument("--inventory", type=Path, default=ROOT / "cluster/inventory.json")
+    p.add_argument("--plan", type=Path, action="append", default=[])
+    p.add_argument("--replicas",action="store_true",help="group identical recipes under one alias with least-in-flight routing")
+    p.add_argument("--registry", type=Path)
+    p.add_argument("--merge", action="store_true", help="Upsert routes while preserving other installed aliases")
+    p.add_argument("--alias", help="Expose one plan under a distinct client alias")
+    p.add_argument("--port", type=int, default=4110)
+    p.add_argument("--name", help="registry upstream_key_env name for credential-set/remove")
+    p.add_argument("--key-file", type=Path, help="private file containing only the provider API key")
+    args = p.parse_args()
+    if args.merge and args.action != 'routes': p.error('--merge applies only to routes')
+    if args.alias and (args.action not in ('render', 'up', 'routes') or len(args.plan) != 1 or args.registry or args.replicas):
+        p.error('--alias requires exactly one plan without a registry or replicas')
+    inv = read(args.inventory)
+    validate_inventory(inv)
+    if args.node not in inv["nodes"]: p.error("unknown node")
+    node = inv["nodes"][args.node]
+    output = ROOT / "data/cluster/gateways" / args.node
+    request = {"action": args.action, "node": node}
+    if args.action in ("credential-set", "credential-remove"):
+        request["name"] = credential_name(args.name)
+        if args.action == "credential-set":
+            if not args.key_file: p.error("credential-set requires --key-file")
+            request["key"] = read_provider_key(args.key_file)
+        elif args.key_file: p.error("--key-file applies only to credential-set")
+    elif args.name or args.key_file:
+        p.error("--name/--key-file apply only to credential-set/remove")
+    if args.action in ("render", "up", "routes"):
+        if args.registry and args.plan: p.error("choose --registry or --plan")
+        if args.registry and args.replicas: p.error('--replicas applies to --plan inputs')
+        registry = read(args.registry) if args.registry else from_plans([read(path) for path in args.plan],replicas=args.replicas)
+        if args.alias:
+            registry = {'version': 1, 'routes': {args.alias: next(iter(registry['routes'].values()))}}
+        validate_registry(registry)
+        request["registry"] = registry
+        if args.merge:
+            request['merge'] = True
+        else:
+            save_json(output / "registry.json", registry)
+    if args.action == "render":
+        print(json.dumps({"registry": str(output / "registry.json")}))
+        return
+    if args.action == "up":
+        output.mkdir(parents=True, exist_ok=True, mode=0o700)
+        key_path = output / "api-key"
+        if not key_path.exists():
+            fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "w") as f: f.write(secrets.token_urlsafe(48))
+        request.update(api_key=key_path.read_text().strip(), port=args.port,
+            image="sha256:a7ec324e5bb322cfa5e120e3c80a1f425a3aee9295916c260a643580b2024137",
+            files={path: (ROOT / path).read_text() for path in (
+                "scripts/context-guard-proxy.py", "tools/spark_cluster/gateway.py",
+                "tools/spark_cluster/config.py", "tools/spark_cluster/__init__.py")})
+    result = remote(node, request, ROOT / "tools/spark_cluster/gateway_node.py")
+    if args.merge:
+        merged = result.pop('registry')
+        validate_registry(merged)
+        save_json(output / 'registry.json', merged)
+    if args.action == "attach":
+        result = store_attachment(output, result)
+    print(json.dumps(result))
+
+
+if __name__ == "__main__":
+    try: main()
+    except Exception as exc:
+        print(f"spark-gateway: {exc}", file=sys.stderr)
+        sys.exit(1)

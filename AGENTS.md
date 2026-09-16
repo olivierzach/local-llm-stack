@@ -22,7 +22,7 @@ Use two-space indentation in YAML. Keep shell scripts POSIX-friendly where pract
 
 ## Testing Guidelines
 
-There is no unit-test framework. Validate changes with `docker compose config --quiet` and `bash -n scripts/*.sh`. For runtime changes, test from the bottom up: direct vLLM endpoint, `make smoke`, then Open WebUI. Example:
+Run the CPU regression suite with `./tests/test.sh`. Validate Compose with `docker compose --profile '*' config --quiet`, and check shell scripts individually with `for script in scripts/*.sh; do bash -n "$script"; done`. Preserve active workloads and obtain shared GPU admission before hardware tests. For runtime changes, test from the bottom up: direct vLLM endpoint, `make smoke`, then Open WebUI. Example:
 
 ```bash
 curl -sS http://localhost:8001/v1/models
@@ -31,8 +31,10 @@ make smoke
 
 ## Commit & Pull Request Guidelines
 
-This repo has no commit history yet. Use concise imperative commits, such as `Add vLLM metrics watcher` or `Fix Prometheus volume permissions`. Pull requests should include the purpose, changed services/configs, validation commands run, and any operational impact such as model downloads, port changes, or required restarts.
+Use concise imperative commits, such as `Add vLLM metrics watcher` or `Fix Prometheus volume permissions`. Pull requests should include the purpose, changed services/configs, validation commands run, and any operational impact such as model downloads, port changes, or required restarts.
 
 ## Security & Configuration Tips
 
 Never commit `.env`, model caches, logs, or database files. Keep Open WebUI LAN/Tailscale-only unless HTTPS, auth policy, rate limiting, and backups are added. Redact API keys and Tailscale details from logs before sharing.
+
+Deploy committed source revisions; avoid copying individual controller modules into an older baseline. The `data/` runtime tree is ignored, including routing registries and environment backups. Retain runtime overlays, reservations and saved plans during source updates. Avoid indiscriminate Git clean/reset operations on checkouts supplying bind-mounted service code.

@@ -19,7 +19,8 @@ configure() {
   export TP1_MODEL_REVISION="$QWEN38_MODEL_REVISION"
   export TP1_MODEL_ID="$QWEN38_MODEL"
   export TP1_CONTAINER_NAME="$CONTAINER"
-  export IMAGE="$QWEN38_IMAGE" SERVED_MODEL_NAME=local-qwen38-flash-next
+  IMAGE="$QWEN38_IMAGE"
+  export IMAGE SERVED_MODEL_NAME=local-qwen38-flash-next
   export PORT="${QWEN38_PORT:-8012}"
   export TP1_BIND_HOST="${QWEN38_BIND_HOST:-$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')}"
   export MAX_MODEL_LEN="${QWEN38_MAX_MODEL_LEN:-262144}" YARN=0
@@ -29,7 +30,9 @@ configure() {
   export MAMBA_SSM_CACHE_DTYPE="${QWEN38_SSM_DTYPE-bfloat16}"
   export MAX_NUM_SEQS="${QWEN38_MAX_NUM_SEQS:-4}" MAX_NUM_BATCHED_TOKENS="${QWEN38_BATCHED_TOKENS:-2048}"
   export CUDAGRAPH_CAPTURE_SIZES=auto COMPILATION_MODE=0 MTP_K_SCHEDULE=""
-  export EXTRA_DOCKER_ARGS="-e VLLM_USE_V2_MODEL_RUNNER=1"
+  local root_digest
+  root_digest="$(python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.argv[1].encode()).hexdigest())' "$ROOT")"
+  export EXTRA_DOCKER_ARGS="-e VLLM_USE_V2_MODEL_RUNNER=1 --label io.spark.legacy-root-sha256=$root_digest --label io.spark.legacy-transaction=${SPARK_LEGACY_TRANSACTION:-}"
   export EXTRA_VLLM_ARGS="--revision $QWEN38_MODEL_REVISION --tokenizer-revision $QWEN38_MODEL_REVISION"
   export MTP_DRAFT_VOCAB="${QWEN38_DRAFT_VOCAB:-}"
   export REQUIRE_IDLE_GPU=true PLE_OFFLOAD=true GPU_MEMORY_UTILIZATION="" KV_CACHE_MEMORY=""
@@ -41,6 +44,7 @@ configure() {
   [[ "$MAX_MODEL_LEN" =~ ^[0-9]+$ && "$MAX_MODEL_LEN" -ge 4096 && "$MAX_MODEL_LEN" -le 262144 ]] || die "context must be 4096..262144 (native rope)"
   [[ "$HOST_RESERVE_GIB" =~ ^[0-9]+$ && "$HOST_RESERVE_GIB" -ge 26 ]] || die "host reserve must be at least 26 GiB"
   [[ -z "$MTP_DRAFT_VOCAB" || "$MTP_DRAFT_VOCAB" =~ ^[a-zA-Z0-9_./-]+$ ]] || die "invalid draft vocabulary path"
+  IMAGE="$(python3 "$ROOT/scripts/resolve-spark-runtime-image.py")"
 }
 
 verify_recipe() {

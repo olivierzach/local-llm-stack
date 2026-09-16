@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "kind": "vllm",
+  "image": "vllm/vllm-openai@sha256:e4f88a835143cd22aee2397a26ec6bb80b3a4a6fe0c882bcbc63822904766089",
+  "model": "Qwen/Qwen3-4B-Instruct-2507",
+  "revision": "cdbee75f17c01a7cc42f958dc650907174af0554",
+  "alias": "local-fast",
+  "context_tokens": 8192,
+  "max_output_tokens": 2048,
+  "capabilities": {"text": true, "vision": false, "tools": false, "streaming": true},
+  "dtype": "bfloat16",
+  "gpu_memory_utilization": 0.25,
+  "min_available_mib": 24576,
+  "max_num_seqs": 8,
+  "extra_args": ["--enforce-eager", "--disable-custom-all-reduce"],
+  "parallelism": ["tensor", "pipeline"],
+  "validation": "TP=2 and PP=2 completion passed with either coordinator. Reverse TP and both PP placements passed text/SSE through both gateways. Two-rank NCCL correctness passed. Small synthetic performance measurements are recorded in docs/CLUSTER_IMPLEMENTATION.md."
+}

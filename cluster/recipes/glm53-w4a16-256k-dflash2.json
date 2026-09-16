@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "kind": "vllm",
+  "image": "ghcr.io/tonyd2wild/vllm-glm53-flash@sha256:4def0ef644cb2e9814136dcffd5e385e21bc594f48f3b292234051904abe85a6",
+  "model": "canada-quant/glm-5.3-w4a16-mtp",
+  "revision": "4eeb77a3499fc2503290197118102eae2ed44553",
+  "alias": "local-glm53-flash",
+  "context_tokens": 262144,
+  "max_output_tokens": 8192,
+  "capabilities": {
+    "text": true,
+    "vision": true,
+    "tools": true,
+    "streaming": true
+  },
+  "dtype": "auto",
+  "gpu_memory_utilization": 0.82,
+  "min_available_mib": 106496,
+  "max_num_seqs": 4,
+  "extra_args": [
+    "--enforce-eager",
+    "--enable-prefix-caching",
+    "--disable-custom-all-reduce"
+  ],
+  "parallelism": [
+    "tensor"
+  ],
+  "validation": "GLM53 W4A16/DFlash2 TP2: qualification comes from exact-plan text/tools/reasoning/vision, memory and direct-fabric receipts before publication; see docs/GLM53_TP.md.",
+  "tool_call_parser": "glm47",
+  "default_chat_template_kwargs": {
+    "enable_thinking": false,
+    "reasoning_effort": "high"
+  },
+  "runtime_cache": true,
+  "async_scheduling": true,
+  "glm53": {
+    "backend": "w4a16-marlin",
+    "block_size": 2304,
+    "kv_cache_dtype": "fp8_e4m3",
+    "max_num_batched_tokens": 8192,
+    "max_images": 1,
+    "source_overlays": [
+      {
+        "path": "chat_template_mm.jinja",
+        "sha256": "918b0d8cd4392b7ad81958005aec900eac788d0322a106e3792ad5ef7772f525"
+      },
+      {
+        "path": "vllm/v1/core/kv_cache_coordinator.py",
+        "sha256": "1f4f11011bff2a4aab1f0deaaa1c77878c354e939e19441064bd56933c50919d"
+      },
+      {
+        "path": "vllm/model_executor/layers/sparse_attn_indexer_kpool.py",
+        "sha256": "e4305933dec1f2f19e050494f9ad89ad97d94e80a33b477ca3a0739b1ced72c2"
+      },
+      {
+        "path": "vllm/models/glm5next/nvidia/model.py",
+        "sha256": "874396a0971a7091540d8122db3ace3b038989f6917d8350e1155845bcb82610"
+      }
+    ]
+  },
+  "speculative_config": {
+    "method": "dflash",
+    "model": "incoai/GLM-5.3-Flash-DFlash2",
+    "revision": "bf582e4eacc1810f76656d1811693ff6c6737d2a",
+    "num_speculative_tokens": 7
+  }
+}

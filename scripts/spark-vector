@@ -1,0 +1,185 @@
+#!/usr/bin/env python3
+"""Stage, run and collect isolated Vector Bucket jobs on either Spark."""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'tools'))
+from spark_cluster.bundles import publish, checksum
+from spark_cluster.cli import remote, save_json
+from spark_cluster.config import absolute, canonical, fields, integer, name, read, require, validate_inventory
+
+
+def collect(node, result, target):
+    target.mkdir(parents=True,exist_ok=True)
+    for filename in ('vectors.npz','acceptance.json'):
+        source = Path(result['artifact_dir']) / filename
+        if socket.gethostname() == node['hostname']:
+            shutil.copyfile(source,target / filename)
+        else:
+            subprocess.run(['scp','-q',node['ssh']+':'+str(source),str(target / filename)],check=True)
+    require(checksum(target / 'vectors.npz') == result['acceptance']['artifact_sha256'],'downloaded artifact checksum mismatch')
+    require(read(target / 'acceptance.json') == result['acceptance'],'downloaded acceptance report changed')
+
+
+def checked_container(result, plan):
+    saved = result['reservation']
+    require(saved is not None and saved['owner'] == plan['owner'] and saved['digest'] == plan['digest'],
+            'job reservation changed; inspect ownership before recovery')
+    require(len(result['containers']) == 1,'owned job container is missing/ambiguous; inspect its reservation')
+    container = result['containers'][0]
+    require(saved['container_ids'] == [container['id']], 'job container was replaced; reservation retained')
+    return container
+
+
+def validate_saved(p, node):
+    require(p['node'] == node,'inventory changed; restore the staged inventory for recovery')
+    identity = {k:p[k] for k in ('node','bundle','spec','model_cache','job_id','user')}
+    if 'renderer' in p: identity['renderer'] = p['renderer']
+    require(hashlib.sha256(canonical(identity).encode()).hexdigest() == p['digest'],'job identity mismatch')
+    require(p['owner'] == 'vector-' + p['job_id'] + '-' + p['digest'][:12], 'job owner changed')
+    worker = p['compose']['services']['worker']
+    require(set(p['compose']['services']) == {'worker'} and
+            worker['labels'] == {'io.spark.owner':p['owner'],'io.spark.digest':p['digest']} and
+            worker['container_name'] == 'spark-' + p['owner'] and
+            worker['image'] == p['spec']['image'], 'saved worker ownership/image changed')
+
+
+def validate_spec(s):
+    fields(s, ('version','model','image','min_available_mib','threads','max_seconds','max_runtime_seconds','batch_size',
+               'windows_per_track','window_mode','audio_workers','prefetch_batches','checkpoint_every_batches','output_level'))
+    require(s['version'] == 1 and s['model'] in ('clap','mert-330m'), 'unsupported vector recipe')
+    require(s['image'] == 'vllm/vllm-openai@sha256:e4f88a835143cd22aee2397a26ec6bb80b3a4a6fe0c882bcbc63822904766089',
+            'vector recipe must use the validated audio runtime image')
+    for key, low, high in [('min_available_mib',1024,131072),('threads',1,64),('max_seconds',1,120),('max_runtime_seconds',1,604800),
+            ('batch_size',1,128),('windows_per_track',1,10000),('audio_workers',0,64),
+            ('prefetch_batches',0,64),('checkpoint_every_batches',1,10000)]: integer(s[key],low,high)
+    require(s['window_mode'] in ('first','spread'), 'this pinned worker currently supports first/spread windows')
+    require(s['output_level'] in ('track','clip'), 'unsupported output level')
+
+
+def stage(args, node, folder):
+    require(args.source and args.job and args.data_dir, 'stage requires --source, --job and --data-dir')
+    spec = read(args.spec)
+    validate_spec(spec)
+    source = args.source.resolve()
+    sys.path.insert(0, str(source / 'src'))
+    from vector_bucket.remote import prepare_remote_embedding_bundle
+    tracks = {row['track_id']: row for row in (json.loads(line) for line in (args.data_dir / 'manifests/tracks.jsonl').read_text().splitlines())}
+    job = read(args.job)
+    require(bool(job.get('items')), 'job has no selected tracks')
+    require(len({i['track_id'] for i in job['items']}) == len(job['items']), 'duplicate job track IDs')
+    for item in job['items']:
+        track = tracks[item['track_id']]
+        relative = Path(track['relative_path'])
+        require(not relative.is_absolute() and '..' not in relative.parts, 'audio relative path escapes bundle')
+    with tempfile.TemporaryDirectory(prefix='spark-vector-') as tmp:
+        root = Path(tmp)
+        prepare_remote_embedding_bundle(job_path=args.job, manifest_dir=args.data_dir / 'manifests',
+            bundle_dir=root, remote_audio_dir='/input/audio')
+        for path in sorted((source / 'src/vector_bucket').rglob('*.py')):
+            require(not path.is_symlink(), 'source symlinks are not allowed')
+            if '__pycache__' in path.parts: continue
+            target = root / 'source' / path.relative_to(source / 'src')
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(path, target)
+        shutil.copyfile(ROOT / 'scripts/run-vector-batch.py', root / 'runner.py')
+        save_json(root / 'spec.json', spec)
+        save_json(root / 'model-lock.json', read(args.model_lock))
+        bundle = publish(root, node)
+    cache = args.model_cache or str(Path(node['cache']).parent / 'vector-huggingface')
+    absolute(cache)
+    user = remote(node, {'node':node,'action':'identity'}, ROOT / 'tools/spark_cluster/vector_node.py')
+    identity = {'renderer':2, 'node': node, 'bundle': bundle, 'spec': spec, 'model_cache': cache, 'job_id': args.id,
+                'user': f"{user['uid']}:{user['gid']}"}
+    digest = hashlib.sha256(canonical(identity).encode()).hexdigest()
+    owner = 'vector-' + args.id + '-' + digest[:12]
+    require(len(owner) <= 70, 'job ID is too long')
+    artifacts = str(Path(node['projects']).parent / '.local/state/local-llm-cluster' / owner / 'artifacts')
+    service = {'image': spec['image'], 'pull_policy': 'never', 'container_name': 'spark-' + owner, 'user':identity['user'],
+        'labels': {'io.spark.owner': owner, 'io.spark.digest': digest}, 'init': True, 'gpus': 'all',
+        'network_mode': 'none', 'restart': 'no', 'read_only': True, 'shm_size': '1gb',
+        'tmpfs': ['/tmp:size=1073741824,mode=1777'],
+        'entrypoint': ['timeout','--signal=TERM','--kill-after=30s',str(spec['max_runtime_seconds'])],
+        'command': ['python3','/input/runner.py'],
+        'environment': {'PYTHONPATH':'/input/source', 'PYTHONDONTWRITEBYTECODE':'1', 'HF_HOME':'/cache',
+            'HF_HUB_OFFLINE':'1', 'TRANSFORMERS_OFFLINE':'1', 'HF_MODULES_CACHE':'/output/hf-modules',
+            'HOME':'/tmp', 'OMP_NUM_THREADS':str(spec['threads']), 'VECTOR_BUCKET_TRACE_DEVICE':'1',
+            'USER':Path(node['projects']).parent.name, 'TORCHINDUCTOR_CACHE_DIR':'/output/torch-cache',
+            'VECTOR_BUCKET_PROFILE_EMBED_STAGES':'1', 'VECTOR_BUCKET_EMBED_CHECKPOINT_DIR':'/output/parts'},
+        'volumes': [{'type':'bind','source':bundle['path'],'target':'/input','read_only':True},
+                    {'type':'bind','source':cache+'/hub','target':'/cache/hub','read_only':True},
+                    {'type':'bind','source':artifacts,'target':'/output'}],
+        'logging': {'driver':'json-file','options':{'max-size':'20m','max-file':'3'}}}
+    p = {**identity,'owner':owner,'digest':digest,'compose':{'name':'spark-'+owner,'services':{'worker':service}}}
+    if (folder / 'plan.json').exists(): require(read(folder / 'plan.json') == p, 'job ID already has different inputs')
+    save_json(folder / 'plan.json', p)
+    print(json.dumps({'staged':bundle,'plan':str(folder / 'plan.json'),'owner':owner}))
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('action',choices=('stage','start','status','wait','stop','fetch'))
+    parser.add_argument('--node',required=True)
+    parser.add_argument('--id',required=True)
+    parser.add_argument('--inventory',type=Path,default=ROOT / 'cluster/inventory.json')
+    parser.add_argument('--source',type=Path)
+    parser.add_argument('--job',type=Path)
+    parser.add_argument('--data-dir',type=Path)
+    parser.add_argument('--spec',type=Path,default=ROOT / 'cluster/workloads/vector-clap.json')
+    parser.add_argument('--model-lock',type=Path,default=ROOT / 'cluster/vector-models.lock.json')
+    parser.add_argument('--model-cache')
+    parser.add_argument('--timeout',type=int,default=600)
+    args = parser.parse_args()
+    name(args.id)
+    inv = read(args.inventory)
+    validate_inventory(inv)
+    require(args.node in inv['nodes'],'unknown node')
+    node = inv['nodes'][args.node]
+    folder = ROOT / 'data/cluster/vector' / args.node / args.id
+    if args.action == 'stage': return stage(args,node,folder)
+    p = read(folder / 'plan.json')
+    validate_saved(p,node)
+    request = {**p,'min_available_mib':p['spec']['min_available_mib']}
+    helper = ROOT / 'tools/spark_cluster/vector_node.py'
+    if args.action == 'start':
+        remote(node,{**p,'action':'prepare'},helper)
+        remote(node,{**request,'action':'reserve-batch'})
+        result = remote(node,{**request,'action':'start'})
+    elif args.action == 'stop': result = remote(node,{**request,'action':'stop'})
+    elif args.action in ('status','wait'):
+        integer(args.timeout,1,86400)
+        deadline = time.monotonic()+args.timeout
+        while True:
+            result = remote(node,{**request,'action':'status'})
+            if args.action == 'status': break
+            c = checked_container(result,p)
+            if c['state'] in ('exited','dead'):
+                require(c['exit_code'] == 0,'embedding job failed; inspect its owned container logs before cleanup')
+                result = remote(node,{**p,'action':'result'},helper)
+                break
+            if time.monotonic()>=deadline: raise RuntimeError('observation deadline reached; job and reservation retained, use wait/status again')
+            time.sleep(5)
+    else:
+        result = remote(node,{**p,'action':'result'},helper)
+        target = folder / 'artifacts'
+        collect(node,result,target)
+        result['local_artifacts'] = str(target)
+    save_json(folder / (args.action+'.json'),result)
+    print(json.dumps(result))
+
+
+if __name__ == '__main__':
+    try: main()
+    except Exception as exc:
+        print(f'spark-vector: {exc}',file=sys.stderr)
+        sys.exit(1)

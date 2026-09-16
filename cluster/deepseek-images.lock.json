@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "images": [
+    {
+      "tag": "eugr/spark-vllm-b12x:deepseek-20260910",
+      "id": "sha256:6d01fec064f7443a0d82360f918f6774212d4701f6bd08a2d338e10dafb696a2",
+      "registry": "eugr/spark-vllm-b12x@sha256:693a1d778e998ccf9d9268d70f5af0f1f397e4a8c0d2ce6e54bb75e22bd1b36b"
+    }
+  ]
+}

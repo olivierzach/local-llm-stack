@@ -1,0 +1,187 @@
+{
+  "hostname": "spark-66f1",
+  "release": {
+    "format": 1,
+    "python": "Python 3.12.3",
+    "requirements_sha256": "5af29d29fe1fe1da12047129ffe9622b0bd85779c0f76e2e8ed6454f8da92277",
+    "revision": "696af2ae90eede000164ac9ee992281917db25b4"
+  },
+  "node_id": "66f1",
+  "peer_aliases": [
+    "spark-e8f1-wired"
+  ],
+  "routes": {
+    "local-deepseek-v4-flash": {
+      "upstream_model": "local-deepseek-v4-flash",
+      "context_tokens": 1048576,
+      "max_output_tokens": 8192,
+      "deployment_digest": "57e2f8f870062a204f757f1f6373f20d185a10fe39f8c8bd219e53d82af0fe18",
+      "request_timeout_s": 3600
+    },
+    "local-qwen3-next-80b": {
+      "upstream_model": "local-large",
+      "context_tokens": 262144,
+      "max_output_tokens": 16384,
+      "deployment_digest": "a83ebf27f1b5f0ecbc92288191c206660ac5b13b3815ed411dea90e1383e3d20"
+    },
+    "local-glm53-flash": {
+      "upstream_model": "local-glm53-flash",
+      "context_tokens": 262144,
+      "max_output_tokens": 8192,
+      "deployment_digest": "b1cf7901f81c861758f5f7c14ba7cea5605519713c4fc4816f1e06af41eb3bb2",
+      "request_timeout_s": 3600
+    }
+  },
+  "containers": [
+    {
+      "name": "spark-glm53-tp2-256k-dflash2-e8f1-b1cf7901f81c",
+      "started_at": "2026-09-14T06:08:35.995310507Z",
+      "status": "running",
+      "health": "healthy",
+      "deployment_digest": "b1cf7901f81c861758f5f7c14ba7cea5605519713c4fc4816f1e06af41eb3bb2"
+    },
+    {
+      "name": "spark-gateway-f2e6f608b301",
+      "started_at": "2026-09-13T04:37:45.880199176Z",
+      "status": "running",
+      "health": null,
+      "deployment_digest": null
+    },
+    {
+      "name": "local-llm-stack-context-guard-1",
+      "started_at": "2026-09-13T04:37:45.467069174Z",
+      "status": "running",
+      "health": "healthy",
+      "deployment_digest": null,
+      "environment_comparison": {
+        "DEEPSEEKV4_API_BASE": "matches",
+        "CONTEXT_GUARD_ROUTE_REGISTRY": "matches",
+        "CONTEXT_GUARD_TOKENIZER_BASE_URLS": "matches"
+      },
+      "healthcheck_matches_compose": true,
+      "source_mounts": [
+        "/home/statsparrot/projects/local-llm-stack/tools/spark_cluster",
+        "/home/statsparrot/projects/local-llm-stack/data/context-guard-routes",
+        "/home/statsparrot/projects/local-llm-stack/scripts"
+      ]
+    },
+    {
+      "name": "local-llm-stack-litellm-1",
+      "started_at": "2026-09-07T04:55:54.337314213Z",
+      "status": "running",
+      "health": null,
+      "deployment_digest": null,
+      "environment_comparison": {
+        "QWEN38_API_BASE": "differs",
+        "DEEPSEEKV4_API_BASE": "missing_in_running_container"
+      },
+      "healthcheck_matches_compose": false,
+      "source_mounts": [
+        "/home/statsparrot/projects/local-llm-stack/logs/litellm",
+        "/home/statsparrot/projects/local-llm-stack/config/litellm.yaml"
+      ]
+    },
+    {
+      "name": "local-llm-stack-open-webui-1",
+      "started_at": "2026-07-12T05:19:21.896699103Z",
+      "status": "running",
+      "health": "healthy",
+      "deployment_digest": null
+    },
+    {
+      "name": "local-llm-stack-grafana-1",
+      "started_at": "2026-07-09T02:18:17.354141735Z",
+      "status": "running",
+      "health": null,
+      "deployment_digest": null
+    },
+    {
+      "name": "local-llm-stack-prometheus-1",
+      "started_at": "2026-07-09T02:18:17.225644283Z",
+      "status": "running",
+      "health": null,
+      "deployment_digest": null
+    },
+    {
+      "name": "local-llm-stack-postgres-1",
+      "started_at": "2026-07-09T02:18:17.220749377Z",
+      "status": "running",
+      "health": "healthy",
+      "deployment_digest": null
+    }
+  ],
+  "gpu_reservation": {
+    "digest": "b1cf7901f81c861758f5f7c14ba7cea5605519713c4fc4816f1e06af41eb3bb2",
+    "owner": "glm53-tp2-256k-dflash2-e8f1-b1cf7901f81c",
+    "phase": "started"
+  },
+  "saved_plan_compatibility": {
+    "glm53-20260913/e8f1-04/plan.json": {
+      "accepted": false,
+      "error": "unknown fields: {'glm53', 'async_scheduling', 'speculative_config'}"
+    },
+    "glm53-20260913/66f1-02/plan.json": {
+      "accepted": false,
+      "error": "unknown fields: {'glm53', 'async_scheduling', 'speculative_config'}"
+    }
+  },
+  "receipt_summaries": {
+    "glm53-20260913/66f1-01/acceptance.json": {},
+    "glm53-20260913/66f1-01/qualification-01/campaign.json": {
+      "complete": false,
+      "deployment_digest": "5d5af4d937b06d381f5d01be2f8383cbac3633217d76b3eb3f0f4453755eec06"
+    },
+    "glm53-20260913/66f1-02/acceptance.json": {},
+    "glm53-20260913/66f1-02/qualification-01/campaign.json": {
+      "complete": true,
+      "deployment_digest": "4fb2111f5d1f8e945bfde0824addcc57b3bd46bde7c8383676b42b25187575af"
+    },
+    "glm53-20260913/66f1-02/qualification-01/serving/acceptance.json": {
+      "complete": true,
+      "deployment_digest": "4fb2111f5d1f8e945bfde0824addcc57b3bd46bde7c8383676b42b25187575af",
+      "profile": "glm53-256k"
+    },
+    "glm53-20260913/e8f1-03/acceptance.json": {},
+    "glm53-20260913/e8f1-03/qualification-01/campaign.json": {
+      "complete": false,
+      "deployment_digest": "27ab7d3afe6843e19356d14e359a247d7f6fd428ca4105a6f99590b4fc79ae78"
+    },
+    "glm53-20260913/e8f1-03/qualification-01/serving/acceptance.json": {
+      "complete": false,
+      "deployment_digest": "27ab7d3afe6843e19356d14e359a247d7f6fd428ca4105a6f99590b4fc79ae78",
+      "profile": "glm53-256k"
+    },
+    "glm53-20260913/e8f1-03/qualification-02/campaign.json": {
+      "complete": true,
+      "deployment_digest": "27ab7d3afe6843e19356d14e359a247d7f6fd428ca4105a6f99590b4fc79ae78"
+    },
+    "glm53-20260913/e8f1-03/qualification-02/serving/acceptance.json": {
+      "complete": true,
+      "deployment_digest": "27ab7d3afe6843e19356d14e359a247d7f6fd428ca4105a6f99590b4fc79ae78",
+      "profile": "glm53-256k"
+    },
+    "glm53-20260913/e8f1-04/acceptance.json": {},
+    "glm53-20260913/e8f1-04/famchat-provider.json": {
+      "passed": true,
+      "deployment_digest": "b1cf7901f81c861758f5f7c14ba7cea5605519713c4fc4816f1e06af41eb3bb2"
+    },
+    "glm53-20260913/e8f1-04/publication-66f1-01/publication.json": {
+      "deployment_digest": "b1cf7901f81c861758f5f7c14ba7cea5605519713c4fc4816f1e06af41eb3bb2",
+      "passed": true
+    },
+    "glm53-20260913/e8f1-04/qualification-01/campaign.json": {
+      "complete": true,
+      "deployment_digest": "b1cf7901f81c861758f5f7c14ba7cea5605519713c4fc4816f1e06af41eb3bb2"
+    }
+  },
+  "package_check": {
+    "ninja-build": "missing",
+    "git-lfs": "missing",
+    "ripgrep": "missing",
+    "sox": "missing",
+    "iperf3": "missing",
+    "openmpi-bin": "missing",
+    "libopenmpi-dev": "missing"
+  },
+  "runtime_overlay_content_hashes_match_directory": true
+}

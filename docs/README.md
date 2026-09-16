@@ -25,3 +25,8 @@ Start here:
 18. [Context Guard Proxy](context-guard.md)
 19. [Terminal UI](tui.md)
 20. [Qwen3.8 Single-Spark Runbook](qwen38-flash-next.md)
+21. [Spark GPU Admission And Recovery](SPARK_GPU_ADMISSION.md)
+22. [Routing Failures And Streaming Recovery](ROUTING_FAILURES.md)
+23. [GLM-5.3-Flash Two-Spark Recipe](GLM53_TP.md)
+24. [Current Cluster Status And Remaining Work](CLUSTER_IMPLEMENTATION.md)
+25. [Source Reconciliation And Deployment Hygiene](SOURCE_RECONCILIATION.md)

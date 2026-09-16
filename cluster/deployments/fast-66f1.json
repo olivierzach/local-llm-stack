@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "name": "fast-66f1",
+  "recipe": "qwen3-4b",
+  "nodes": ["66f1"],
+  "coordinator": "66f1",
+  "mode": "single",
+  "tensor_parallel": 1,
+  "pipeline_parallel": 1,
+  "port": 8101
+}

@@ -4,6 +4,7 @@ set -euo pipefail
 mkdir -p \
   config/grafana/provisioning/datasources \
   data/huggingface \
+  data/context-guard-routes \
   data/open-webui \
   data/postgres \
   data/prometheus \

@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "name": "vision-e8f1",
+  "recipe": "qwen3-vl-4b",
+  "nodes": [
+    "e8f1"
+  ],
+  "coordinator": "e8f1",
+  "mode": "single",
+  "tensor_parallel": 1,
+  "pipeline_parallel": 1,
+  "port": 8101
+}

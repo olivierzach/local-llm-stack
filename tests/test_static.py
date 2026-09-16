@@ -293,6 +293,12 @@ def test_context_guard_forces_history_reduction_after_backend_overflow() -> None
     assert prepared["messages"] == [payload["messages"][-1]]
 
 
+def test_default_make_still_initializes_the_stack() -> None:
+    default = subprocess.check_output(['make', '-n'], cwd=ROOT, text=True)
+    explicit = subprocess.check_output(['make', '-n', 'init'], cwd=ROOT, text=True)
+    assert default == explicit
+
+
 def test_context_guard_prefers_native_tokenizer(monkeypatch: pytest.MonkeyPatch) -> None:
     from types import SimpleNamespace
 
@@ -322,17 +328,20 @@ def test_context_guard_prefers_native_tokenizer(monkeypatch: pytest.MonkeyPatch)
     class TokenResponse:
         status_code = 200
 
+        def __init__(self, count=1234):
+            self.count = count
+
         def raise_for_status(self) -> None:
             return None
 
         def json(self) -> dict[str, int]:
-            return {"count": 1234, "max_model_len": 65536}
+            return {"count": self.count, "max_model_len": 65536}
 
     calls = []
 
     def fake_post(url: str, **kwargs):
         calls.append((url, kwargs))
-        return TokenResponse()
+        return TokenResponse(1233 + len(calls))
 
     monkeypatch.setattr(module.requests, "post", fake_post)
     payload = {
@@ -356,6 +365,16 @@ def test_context_guard_prefers_native_tokenizer(monkeypatch: pytest.MonkeyPatch)
     assert config.context_cache["exact"] == 65536
     assert handler.estimate_input_tokens(payload) == 1234
     assert len(calls) == 1
+    # Thinking controls can change the rendered prompt; a cached count from
+    # another mode must not be reused or sent without the mode to the tokenizer.
+    for index, (field, value) in enumerate((('thinking', {'type': 'disabled'}),
+                                          ('think', False), ('reasoning', {'effort': 'low'})), 1):
+        changed = {**payload, field: value}
+        assert handler.estimate_input_tokens(changed) == 1234 + index
+        assert calls[-1][1]['json'][field] == value
+        assert handler.estimate_input_tokens(changed) == 1234 + index
+    assert handler.estimate_input_tokens(payload) == 1234
+    assert len(calls) == 4
 
 
 def test_context_guard_tokenizer_failure_uses_conservative_fallback(
@@ -793,7 +812,7 @@ def test_lora_workflow_config_is_wired() -> None:
     config = yaml.safe_load((ROOT / "training/configs/qwen3-lora-smoke.yaml").read_text())
 
     for target in ["lora-train", "lora-serve", "lora-eval"]:
-        assert re.search(rf"^{target}:", makefile, re.MULTILINE)
+        assert re.search(rf"^{target}:", run(["make", "-qp"]).stdout, re.MULTILINE)
 
     assert "lora-eval:\n\tset -a; source .env; set +a; python scripts/run-evals.py" in makefile
     assert "local-balanced-smoke-lora" in aliases
@@ -815,7 +834,7 @@ def test_vision_and_throughput_workflow_config_is_wired() -> None:
     aliases = {entry["model_name"] for entry in litellm["model_list"]}
 
     for target in ["download-vision", "throughput-eval", "vision-up", "vision-eval"]:
-        assert re.search(rf"^{target}:", makefile, re.MULTILINE)
+        assert re.search(rf"^{target}:", run(["make", "-qp"]).stdout, re.MULTILINE)
 
     assert "local-vision" in aliases
     assert "vision-up:\n\t$(DOCKER_COMPOSE) up -d postgres\n\t$(DOCKER_COMPOSE) --profile vision up -d vllm-vision\n\t$(DOCKER_COMPOSE) up -d --no-deps litellm" in makefile

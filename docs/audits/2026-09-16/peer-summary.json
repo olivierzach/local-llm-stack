@@ -1,0 +1,173 @@
+{
+  "hostname": "spark-e8f1",
+  "baseline_head": "500d05023e5a120e453c0a0c6a47d5cd20166a42",
+  "controller_release": {
+    "format": 1,
+    "python": "Python 3.12.3",
+    "requirements_sha256": "5af29d29fe1fe1da12047129ffe9622b0bd85779c0f76e2e8ed6454f8da92277",
+    "revision": "696af2ae90eede000164ac9ee992281917db25b4"
+  },
+  "venv_resolved": "/home/statsparrot/.local/share/spark-host-envs/20260909-locked",
+  "missing_system_packages": [
+    "ripgrep",
+    "sox",
+    "iperf3",
+    "openmpi-bin",
+    "libopenmpi-dev"
+  ],
+  "containers": [
+    "spark-glm53-tp2-256k-dflash2-e8f1-b1cf7901f81c\tUp 46 hours (healthy)",
+    "spark-gateway-f2e6f608b301\tUp 2 days",
+    "local-llm-stack-context-guard-1\tUp 2 days (healthy)",
+    "local-llm-stack-litellm-1\tUp 4 days (healthy)",
+    "local-llm-stack-postgres-1\tUp 6 days (healthy)"
+  ],
+  "receipts": {
+    "python-parity/20260909/acceptance.json": {
+      "passed": true,
+      "cleanup_verified": true,
+      "probe_passed": true
+    },
+    "python-parity/20260909/activation.json": {},
+    "model-tests/native-20260909-005/acceptance.json": {
+      "passed": false
+    },
+    "model-tests/native-20260909-006/acceptance.json": {
+      "passed": true
+    },
+    "model-tests/parity-20260909-001/acceptance.json": {
+      "all_passed": false,
+      "finished": false,
+      "models": [
+        {
+          "alias": "local-fast",
+          "passed": true,
+          "acceptance_version": null
+        }
+      ]
+    },
+    "model-tests/parity-20260909-001/local-fast/acceptance.json": {
+      "passed": true,
+      "cleanup_verified": true,
+      "alias": "local-fast"
+    },
+    "model-tests/parity-20260909-002/acceptance.json": {
+      "all_passed": false,
+      "finished": true,
+      "models": [
+        {
+          "alias": "local-balanced",
+          "passed": true,
+          "acceptance_version": null
+        },
+        {
+          "alias": "local-large",
+          "passed": true,
+          "acceptance_version": null
+        },
+        {
+          "alias": "local-qwen30-a3b",
+          "passed": true,
+          "acceptance_version": null
+        },
+        {
+          "alias": "local-deepseek-r1-qwen32b",
+          "passed": true,
+          "acceptance_version": null
+        },
+        {
+          "alias": "local-mistral-small",
+          "passed": true,
+          "acceptance_version": null
+        },
+        {
+          "alias": "local-gpt-oss-120b",
+          "passed": false,
+          "acceptance_version": null
+        },
+        {
+          "alias": "local-laguna-s-2.1",
+          "passed": true,
+          "acceptance_version": null
+        },
+        {
+          "alias": "local-vision",
+          "passed": true,
+          "acceptance_version": null
+        }
+      ]
+    },
+    "model-tests/parity-20260909-002/local-balanced/acceptance.json": {
+      "passed": true,
+      "cleanup_verified": true,
+      "alias": "local-balanced"
+    },
+    "model-tests/parity-20260909-002/local-deepseek-r1-qwen32b/acceptance.json": {
+      "passed": true,
+      "cleanup_verified": true,
+      "alias": "local-deepseek-r1-qwen32b"
+    },
+    "model-tests/parity-20260909-002/local-gpt-oss-120b/acceptance.json": {
+      "passed": false,
+      "alias": "local-gpt-oss-120b"
+    },
+    "model-tests/parity-20260909-002/local-laguna-s-2.1/acceptance.json": {
+      "passed": true,
+      "cleanup_verified": true,
+      "alias": "local-laguna-s-2.1"
+    },
+    "model-tests/parity-20260909-002/local-large/acceptance.json": {
+      "passed": true,
+      "cleanup_verified": true,
+      "alias": "local-large"
+    },
+    "model-tests/parity-20260909-002/local-mistral-small/acceptance.json": {
+      "passed": true,
+      "cleanup_verified": true,
+      "alias": "local-mistral-small"
+    },
+    "model-tests/parity-20260909-002/local-qwen30-a3b/acceptance.json": {
+      "passed": true,
+      "cleanup_verified": true,
+      "alias": "local-qwen30-a3b"
+    },
+    "model-tests/parity-20260909-002/local-vision/acceptance.json": {
+      "passed": true,
+      "cleanup_verified": true,
+      "alias": "local-vision"
+    },
+    "model-tests/parity-20260909-003/acceptance.json": {
+      "all_passed": true,
+      "finished": true,
+      "models": [
+        {
+          "alias": "local-deepseek-r1-qwen32b",
+          "passed": true,
+          "acceptance_version": 2
+        }
+      ]
+    },
+    "model-tests/parity-20260909-003/local-deepseek-r1-qwen32b/acceptance.json": {
+      "passed": true,
+      "cleanup_verified": true,
+      "alias": "local-deepseek-r1-qwen32b"
+    },
+    "model-tests/parity-20260909-004/acceptance.json": {
+      "all_passed": true,
+      "finished": true,
+      "models": [
+        {
+          "alias": "local-gpt-oss-120b",
+          "passed": true,
+          "acceptance_version": 2
+        }
+      ]
+    },
+    "model-tests/parity-20260909-004/local-gpt-oss-120b/acceptance.json": {
+      "passed": true,
+      "cleanup_verified": true,
+      "alias": "local-gpt-oss-120b"
+    }
+  },
+  "source_differences_from_66f1": []
+}

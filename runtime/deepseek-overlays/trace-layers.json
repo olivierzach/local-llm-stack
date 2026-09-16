@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "base_image": "eugr/spark-vllm-b12x@sha256:693a1d778e998ccf9d9268d70f5af0f1f397e4a8c0d2ce6e54bb75e22bd1b36b",
+  "path": "vllm/models/deepseek_v4/nvidia/model.py",
+  "base_sha256": "c23afe36749d458e1afff7cf8fb0924ecb64a10173acaf5250f27474f59eedea",
+  "append": "trace-layers.py",
+  "sha256": "175f5ebd900cccd4972d4ca500100354a4ed986d0bc0d9492b4df38f093ea785"
+}

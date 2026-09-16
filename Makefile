@@ -1,5 +1,126 @@
 SHELL := /usr/bin/env bash
 DOCKER_COMPOSE ?= docker compose
+.DEFAULT_GOAL := init
+
+# Additive GLM TP2 candidate; no existing model alias or launch is replaced.
+.PHONY: glm53-tp-prepare glm53-tp-plan glm53-tp-up glm53-tp-status glm53-tp-down glm53-tp-accept glm53-tp-publish
+glm53-tp-publish:
+	@test -n "$(PLAN)" -a -n "$(ACCEPTANCE)" -a -n "$(ALTERNATE_PLAN)" -a -n "$(ALTERNATE_ACCEPTANCE)" -a -n "$(OUTPUT)" || { echo 'Provide PLAN ACCEPTANCE ALTERNATE_PLAN ALTERNATE_ACCEPTANCE OUTPUT' >&2; exit 2; }
+	$(or $(PYTHON),.venv/bin/python) scripts/publish-glm53-tp.py --plan "$(PLAN)" --acceptance "$(ACCEPTANCE)" --alternate-plan "$(ALTERNATE_PLAN)" --alternate-acceptance "$(ALTERNATE_ACCEPTANCE)" --output "$(OUTPUT)" --apply
+
+glm53-tp-accept:
+	@test -n "$(PLAN)" -a -n "$(OUTPUT)" || { echo 'Use PLAN=/path/to/saved/plan.json OUTPUT=/path/to/new/acceptance' >&2; exit 2; }
+	$(or $(PYTHON),.venv/bin/python) scripts/qualify-glm53-tp.py --saved-plan "$(PLAN)" --output "$(OUTPUT)" $(if $(filter 1,$(ROLE_CHECK)),--role-check,)
+
+glm53-tp-prepare:
+	@test -n "$(PEER)" -a -n "$(OUTPUT)" || { echo 'Use PEER=66f1|e8f1 OUTPUT=/path/to/preparation' >&2; exit 2; }
+	python3 scripts/prepare-glm53-tp.py --peer "$(PEER)" --output "$(OUTPUT)" --apply
+
+glm53-tp-plan glm53-tp-up:
+	@case "$(COORDINATOR)" in 66f1|e8f1) ;; *) echo 'Choose COORDINATOR=66f1 or e8f1' >&2; exit 2 ;; esac
+	@test -n "$(OUTPUT)" || { echo 'Use OUTPUT=/path/to/a/new/deployment-directory' >&2; exit 2; }
+	python3 scripts/sparkctl $(if $(filter glm53-tp-plan,$@),render,up) --deployment "cluster/deployments/glm53-tp2-256k-dflash2-$(COORDINATOR).json" --output "$(OUTPUT)" --timeout 3600
+
+glm53-tp-status glm53-tp-down:
+	@test -n "$(PLAN)" || { echo 'Use PLAN=/path/to/the/exact/saved/plan.json' >&2; exit 2; }
+	python3 scripts/sparkctl $(if $(filter glm53-tp-status,$@),status,down) --saved-plan "$(PLAN)"
+
+# Separate two-node DeepSeek recipes. Existing deepseekv4-* remains single-node.
+DEEPSEEK_TP_SPEC ?= off
+DEEPSEEK_TP_EXECUTION ?= eager
+DEEPSEEK_TP_EXPERTS ?= bf16
+DEEPSEEK_TP_REPEAT_TRIALS ?= 100
+DEEPSEEK_TP_CONTEXT ?= 64k
+DEEPSEEK_TP_MANIFEST = cluster/deployments/deepseek-tp2$(if $(filter bf16,$(DEEPSEEK_TP_EXPERTS)),-a16,)$(if $(filter dspark2,$(DEEPSEEK_TP_SPEC)),-dspark2,)$(if $(filter graphs,$(DEEPSEEK_TP_EXECUTION)),-graphs,)$(if $(filter-out 64k,$(DEEPSEEK_TP_CONTEXT)),-$(DEEPSEEK_TP_CONTEXT),)-$(COORDINATOR).json
+.PHONY: deepseek-tp-prepare deepseek-tp-plan deepseek-tp-up deepseek-tp-status deepseek-tp-down deepseek-tp-accept deepseek-tp-publish deepseek-tp-context-accept
+deepseek-tp-prepare:
+	@test -n "$(PEER)" -a -n "$(OUTPUT)" || { echo 'Use PEER=66f1|e8f1 OUTPUT=/path/to/preparation-receipts' >&2; exit 2; }
+	python3 scripts/prepare-deepseek-tp.py --peer "$(PEER)" --output "$(OUTPUT)" --apply
+
+deepseek-tp-plan deepseek-tp-up:
+	@case "$(COORDINATOR)" in 66f1|e8f1) ;; *) echo 'Choose COORDINATOR=66f1 or e8f1' >&2; exit 2 ;; esac
+	@case "$(DEEPSEEK_TP_SPEC)" in off|dspark2) ;; *) echo 'Use DEEPSEEK_TP_SPEC=off or dspark2' >&2; exit 2 ;; esac
+	@case "$(DEEPSEEK_TP_EXECUTION)" in eager|graphs) ;; *) echo 'Use DEEPSEEK_TP_EXECUTION=eager or graphs' >&2; exit 2 ;; esac
+	@case "$(DEEPSEEK_TP_EXPERTS)" in bf16|fp8) ;; *) echo 'Use DEEPSEEK_TP_EXPERTS=bf16 or fp8' >&2; exit 2 ;; esac
+	@case "$(DEEPSEEK_TP_CONTEXT)" in 64k) ;; 256k|512k|768k|1m) test "$(DEEPSEEK_TP_EXPERTS)/$(DEEPSEEK_TP_SPEC)/$(DEEPSEEK_TP_EXECUTION)" = bf16/dspark2/graphs || { echo 'Extended contexts require bf16/dspark2/graphs' >&2; exit 2; } ;; *) echo 'Use DEEPSEEK_TP_CONTEXT=64k|256k|512k|768k|1m' >&2; exit 2 ;; esac
+	@test -n "$(OUTPUT)" || { echo 'Use OUTPUT=/path/to/a/new/deployment-receipt-directory' >&2; exit 2; }
+	python3 scripts/sparkctl $(if $(filter deepseek-tp-plan,$@),render,up) --deployment "$(DEEPSEEK_TP_MANIFEST)" --output "$(OUTPUT)" --timeout 3600
+
+deepseek-tp-status deepseek-tp-down:
+	@test -n "$(PLAN)" || { echo 'Use PLAN=/path/to/the/exact/saved/plan.json' >&2; exit 2; }
+	python3 scripts/sparkctl $(if $(filter deepseek-tp-status,$@),status,down) --saved-plan "$(PLAN)"
+
+deepseek-tp-accept:
+	@test -n "$(PLAN)" -a -n "$(OUTPUT)" || { echo 'Use PLAN=/path/to/saved/plan.json OUTPUT=/path/to/new/acceptance' >&2; exit 2; }
+	.venv/bin/python scripts/probe-deepseek-repeatability.py --saved-plan "$(PLAN)" --output "$(OUTPUT)/repeatability.json" --trials "$(DEEPSEEK_TP_REPEAT_TRIALS)"
+	.venv/bin/python scripts/probe-spark-tool-calling.py --saved-plan "$(PLAN)" --output "$(OUTPUT)/tools.json"
+	.venv/bin/python scripts/probe-deepseek-thinking.py --saved-plan "$(PLAN)" --output "$(OUTPUT)/thinking.json"
+	.venv/bin/python scripts/accept-spark-serving.py --profile deepseek-context --saved-plan "$(PLAN)" --output "$(OUTPUT)/serving"
+	.venv/bin/python scripts/probe-deepseek-repeatability.py --saved-plan "$(PLAN)" --output "$(OUTPUT)/repeatability-after.json" --trials "$(DEEPSEEK_TP_REPEAT_TRIALS)"
+
+deepseek-tp-context-accept:
+	@test -n "$(PLAN)" -a -n "$(OUTPUT)" || { echo 'Use PLAN=/path/to/saved/plan.json OUTPUT=/path/to/new/qualification SWEEP=1 (optional)' >&2; exit 2; }
+	.venv/bin/python scripts/accept-deepseek-context.py --saved-plan "$(PLAN)" --output "$(OUTPUT)" $(if $(filter 1,$(SWEEP)),--sweep,)
+
+deepseek-tp-publish:
+	@test -n "$(PLAN)" -a -n "$(ACCEPTANCE)" -a -n "$(ALTERNATE_PLAN)" -a -n "$(ALTERNATE_ACCEPTANCE)" -a -n "$(OUTPUT)" || { echo 'Set PLAN ACCEPTANCE ALTERNATE_PLAN ALTERNATE_ACCEPTANCE OUTPUT; run on each Spark gateway' >&2; exit 2; }
+	.venv/bin/python scripts/publish-deepseek-tp.py --plan "$(PLAN)" --acceptance "$(ACCEPTANCE)" --alternate-plan "$(ALTERNATE_PLAN)" --alternate-acceptance "$(ALTERNATE_ACCEPTANCE)" --output "$(OUTPUT)" --apply
+
+# Public GPU operations share admission with sparkctl and the research adapters.
+SPARK_GPU_TARGETS := up balanced-up large-up qwen30-up deepseek32-up mistral24-up gptoss120-up lagunas21-up vision-up lora-serve training-up lora-train qwen38-up deepseekv4-up qwen38-down deepseekv4-down down
+.PHONY: $(SPARK_GPU_TARGETS) gpu-admission-check gpu-recover
+.PHONY: $(addprefix _spark-,$(SPARK_GPU_TARGETS)) _spark-admitted
+$(SPARK_GPU_TARGETS):
+	python3 scripts/spark-legacy-run.py run --root "$(CURDIR)" --target "$@"
+
+$(addprefix _spark-,$(SPARK_GPU_TARGETS)): | _spark-admitted
+_spark-admitted:
+	@python3 scripts/spark-legacy-run.py verify --root "$(CURDIR)"
+
+gpu-admission-check:
+	@test -n "$(TARGET)" || { echo 'Use TARGET=deepseekv4-up (or another GPU Make target)' >&2; exit 2; }
+	python3 scripts/spark-legacy-run.py check --root "$(CURDIR)" --target "$(TARGET)"
+
+gpu-recover:
+	python3 scripts/spark-legacy-run.py recover --root "$(CURDIR)"
+
+.PHONY: routing-failure-test
+routing-failure-test:
+	.venv/bin/python -m pytest tests/test_stream_failures.py -q
+
+.PHONY: native-fabric-plan native-fabric-config
+native-fabric-plan:
+	python3 scripts/configure-native-fabric.py --root "$(CURDIR)"
+
+native-fabric-config:
+	python3 scripts/configure-native-fabric.py --root "$(CURDIR)" --apply
+
+.PHONY: model-parity-check model-parity-copy model-runtime-prepare model-compose-test
+model-parity-check:
+	python3 scripts/audit-stack-models.py --root "$(CURDIR)"
+
+model-parity-copy:
+	@test -n "$(PEER)" || { echo 'Use PEER=spark-e8f1-wired or PEER=spark-66f1-wired (run on the source Spark)' >&2; exit 2; }
+	python3 scripts/sync-spark-model-parity.py --root "$(CURDIR)" --peer "$(PEER)" --peer-root "$(or $(PEER_ROOT),$(CURDIR))" --catalog cluster/single-node-models.lock.json --fabric-rail "$(or $(FABRIC_RAIL),0)" --output "$(or $(OUTPUT),data/model-parity/copy)"
+
+model-runtime-prepare:
+	python3 scripts/prepare-spark-model-runtimes.py --root "$(CURDIR)" $(if $(BUNDLE_DIR),--bundle-dir "$(BUNDLE_DIR)",)
+
+model-compose-test:
+	@test -n "$(RUN_ID)" || { echo 'Use a fresh RUN_ID; optionally select MODELS="local-fast local-large"' >&2; exit 2; }
+	$(or $(PYTHON),.venv/bin/python) scripts/probe-stack-models.py --stack-root "$(CURDIR)" --run-id "$(RUN_ID)" --output "$(or $(OUTPUT),data/model-parity/inference/$(RUN_ID))" $(foreach alias,$(MODELS),--alias "$(alias)")
+
+.PHONY: python-parity-check python-parity-prepare python-parity-test
+python-parity-check:
+	python3 scripts/bootstrap-spark-python.py check --venv "$(or $(VENV),$(CURDIR)/.venv)"
+
+python-parity-prepare:
+	@test -n "$(VENV)" || { echo 'Use VENV=/absolute/path/to/a/new/environment; existing environments are never replaced' >&2; exit 2; }
+	python3 scripts/bootstrap-spark-python.py create --venv "$(VENV)" $(if $(WHEELHOUSE),--wheelhouse "$(WHEELHOUSE)",)
+
+python-parity-test:
+	@test -n "$(RUN_ID)" || { echo 'Use a fresh RUN_ID; this CUDA smoke requires an idle GPU and research window' >&2; exit 2; }
+	python3 scripts/probe-spark-python.py --venv "$(or $(VENV),$(CURDIR)/.venv)" --output "$(or $(OUTPUT),data/python-parity/$(RUN_ID))"
 
 
 .PHONY: init test check gpu-check up down logs ps smoke large-up balanced-up qwen30-up deepseek32-up mistral24-up gptoss120-up lagunas21-up deepseekv4-install deepseekv4-up deepseekv4-down deepseekv4-status deepseekv4-smoke download-model download-qwen32 download-qwen30 download-deepseek32 download-mistral24 download-gptoss120 download-lagunas21 download-vision training-up lora-train lora-serve lora-eval throughput-eval vision-up vision-eval context-guard context-guard-up aichat-build aichat opencode
@@ -18,28 +139,28 @@ check:
 gpu-check:
 	./scripts/gpu-container-check.sh
 
-up:
+_spark-up:
 	$(DOCKER_COMPOSE) up -d
 
-balanced-up:
+_spark-balanced-up:
 	$(DOCKER_COMPOSE) --profile balanced up -d vllm-balanced
 
-large-up:
+_spark-large-up:
 	$(DOCKER_COMPOSE) --profile large up -d vllm-large
 
-qwen30-up:
+_spark-qwen30-up:
 	$(DOCKER_COMPOSE) --profile qwen30a3b up -d vllm-qwen30a3b
 
-deepseek32-up:
+_spark-deepseek32-up:
 	$(DOCKER_COMPOSE) --profile deepseek32b up -d vllm-deepseek32b
 
-mistral24-up:
+_spark-mistral24-up:
 	$(DOCKER_COMPOSE) --profile mistral24b up -d vllm-mistral24b
 
-gptoss120-up:
+_spark-gptoss120-up:
 	$(DOCKER_COMPOSE) --profile gptoss120b up -d vllm-gptoss120b
 
-lagunas21-up:
+_spark-lagunas21-up:
 	$(DOCKER_COMPOSE) --profile lagunas21 up -d vllm-lagunas21
 
 # The recipe owns a host-network container, outside Compose's default startup.
@@ -50,14 +171,14 @@ qwen38-check:
 qwen38-install:
 	set -a; source .env; set +a; bash scripts/qwen38-flash-next.sh install
 
-qwen38-up:
+_spark-qwen38-up:
 	set -a; source .env; set +a; bash scripts/qwen38-flash-next.sh check
 	set -a; source .env; set +a; ./scripts/deepseek-v4.sh stop
 	$(DOCKER_COMPOSE) stop vllm-fast vllm-balanced vllm-large vllm-qwen30a3b vllm-deepseek32b vllm-mistral24b vllm-gptoss120b vllm-lagunas21 vllm-lora vllm-vision
 	set -a; source .env; set +a; bash scripts/qwen38-flash-next.sh start
-	$(DOCKER_COMPOSE) up -d --no-deps --force-recreate litellm context-guard
+	$(DOCKER_COMPOSE) up -d --no-deps --force-recreate --wait --wait-timeout 180 litellm context-guard
 
-qwen38-down:
+_spark-qwen38-down:
 	bash scripts/qwen38-flash-next.sh stop
 
 qwen38-status:
@@ -102,13 +223,14 @@ qwen38-recovery:
 deepseekv4-install:
 	set -a; source .env; set +a; ./scripts/deepseek-v4.sh install
 
-deepseekv4-up:
+_spark-deepseekv4-up:
+	set -a; source .env; set +a; ./scripts/deepseek-v4.sh check-draft
 	bash scripts/qwen38-flash-next.sh stop
 	$(DOCKER_COMPOSE) stop vllm-fast vllm-balanced vllm-large vllm-qwen30a3b vllm-deepseek32b vllm-mistral24b vllm-gptoss120b vllm-lagunas21 vllm-lora vllm-vision
 	set -a; source .env; set +a; ./scripts/deepseek-v4.sh start
-	$(DOCKER_COMPOSE) up -d --no-deps --force-recreate litellm context-guard
+	$(DOCKER_COMPOSE) up -d --no-deps --force-recreate --wait --wait-timeout 180 litellm context-guard
 
-deepseekv4-down:
+_spark-deepseekv4-down:
 	set -a; source .env; set +a; ./scripts/deepseek-v4.sh stop
 
 deepseekv4-status:
@@ -142,13 +264,13 @@ download-lagunas21:
 download-vision:
 	set -a; source .env; set +a; ./scripts/download-model.sh "$${VISION_MODEL:-Qwen/Qwen3-VL-4B-Instruct}"
 
-training-up:
+_spark-training-up:
 	$(DOCKER_COMPOSE) --profile training up -d training
 
-lora-train:
+_spark-lora-train:
 	$(DOCKER_COMPOSE) --profile training run --rm training python /workspace/training/train_lora.py --config /workspace/training/configs/qwen3-lora-smoke.yaml
 
-lora-serve:
+_spark-lora-serve:
 	$(DOCKER_COMPOSE) --profile lora up -d vllm-lora litellm
 
 lora-eval:
@@ -157,7 +279,7 @@ lora-eval:
 throughput-eval:
 	set -a; source .env; set +a; python scripts/load-test.py --model local-fast --concurrency $${CONCURRENCY:-4} --requests $${REQUESTS:-20} --max-tokens $${MAX_TOKENS:-128} --stream --json --jsonl evals/runs/throughput-local-fast.jsonl
 
-vision-up:
+_spark-vision-up:
 	$(DOCKER_COMPOSE) up -d postgres
 	$(DOCKER_COMPOSE) --profile vision up -d vllm-vision
 	$(DOCKER_COMPOSE) up -d --no-deps litellm
@@ -165,7 +287,7 @@ vision-up:
 vision-eval:
 	set -a; source .env; set +a; python scripts/run-evals.py --models local-vision --prompt-file evals/prompts/vision.jsonl
 
-down:
+_spark-down:
 	bash scripts/qwen38-flash-next.sh stop
 	-set -a; source .env; set +a; ./scripts/deepseek-v4.sh stop
 	$(DOCKER_COMPOSE) --profile large --profile qwen30a3b --profile deepseek32b --profile mistral24b --profile gptoss120b --profile lagunas21 --profile training --profile lora --profile vision down
@@ -180,10 +302,27 @@ smoke:
 	set -a; source .env; set +a; ./scripts/smoke-test.sh
 
 context-guard:
-	set -ae; source .env; export QWEN38_API_BASE="$${QWEN38_API_BASE:-http://$${QWEN38_BIND_HOST:-$$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')}:$${QWEN38_PORT:-8012}/v1}"; python scripts/context-guard-proxy.py
+	set -ae; source .env; \
+	export QWEN38_API_BASE="$${QWEN38_API_BASE:-http://$${QWEN38_BIND_HOST:-$$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')}:$${QWEN38_PORT:-8012}/v1}"; \
+	export DEEPSEEKV4_API_BASE="$${DEEPSEEKV4_API_BASE:-http://$${DEEPSEEKV4_BIND_HOST:-$$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')}:$${DEEPSEEKV4_PORT:-8011}/v1}"; \
+	python scripts/context-guard-router.py
 
 context-guard-up:
 	$(DOCKER_COMPOSE) up -d context-guard
+
+.PHONY: context-routes context-routes-disable context-route-test
+context-routes:
+	@test -n "$(ROUTES)" || { echo 'Use ROUTES=/path/to/complete-registry.json' >&2; exit 2; }
+	$(or $(PYTHON),.venv/bin/python) scripts/configure-context-routes.py --registry "$(ROUTES)"
+	$(DOCKER_COMPOSE) up -d --no-deps context-guard
+
+context-routes-disable:
+	$(or $(PYTHON),.venv/bin/python) scripts/configure-context-routes.py --disable
+	$(DOCKER_COMPOSE) up -d --no-deps context-guard
+
+context-route-test:
+	@test -n "$(MODEL)" -a -n "$(RUN_ID)" || { echo 'Use MODEL=alias RUN_ID=fresh-id; optional TOOLS=1 THINKING_DISABLED=1' >&2; exit 2; }
+	$(or $(PYTHON),.venv/bin/python) scripts/probe-context-route.py --model "$(MODEL)" --output "$(or $(OUTPUT),data/context-route-tests/$(RUN_ID).json)" $(if $(GATEWAY_URL),--base-url "$(GATEWAY_URL)",) $(if $(filter 1 true yes,$(TOOLS)),--tools,) $(if $(filter 1 true yes,$(THINKING_DISABLED)),--thinking-disabled,)
 
 aichat-build:
 	$(DOCKER_COMPOSE) --profile tui build aichat

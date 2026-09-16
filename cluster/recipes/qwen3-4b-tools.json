@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "kind": "vllm",
+  "image": "vllm/vllm-openai@sha256:e4f88a835143cd22aee2397a26ec6bb80b3a4a6fe0c882bcbc63822904766089",
+  "model": "Qwen/Qwen3-4B-Instruct-2507",
+  "revision": "cdbee75f17c01a7cc42f958dc650907174af0554",
+  "alias": "local-coder",
+  "context_tokens": 32768,
+  "max_output_tokens": 4096,
+  "capabilities": {"text": true, "vision": false, "tools": true, "streaming": true},
+  "tool_call_parser": "hermes",
+  "dtype": "bfloat16",
+  "gpu_memory_utilization": 0.30,
+  "min_available_mib": 24576,
+  "max_num_seqs": 4,
+  "extra_args": ["--enforce-eager", "--enable-prefix-caching"],
+  "parallelism": ["single"],
+  "validation": "Text, automatic tools, tool-result continuation and streamed tool arguments passed through both gateways with e8f1 serving. OMP read-only tool execution passed on the Mac and both Sparks. llm, AIChat and OpenClaw provider inference passed. Coding quality is not evaluated."
+}

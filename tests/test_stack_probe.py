@@ -1,0 +1,114 @@
+import importlib.util
+import json
+from pathlib import Path
+import shutil
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
+spec = importlib.util.spec_from_file_location('stack_probe', ROOT / 'scripts/probe-stack-models.py')
+probe = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(probe)
+
+
+def request():
+    return {'owner': 'accept-stack-fixture', 'digest': 'a'*64, 'node': {},
+            'recipe': {'alias': 'local-fast', 'model': 'Qwen/Qwen3-test', 'image': 'sha256:'+'b'*64, 'revision': 'c'*40},
+            'deployment': {'port': 8180}}
+
+
+@pytest.mark.parametrize('reason', ['length', None, 'error'])
+def test_truncated_or_unfinished_output_is_not_acceptance(reason):
+    stream = 'data: ' + json.dumps({'choices': [{'delta': {'content': 'Still thinking'}, 'finish_reason': reason}]}) + '\n\ndata: [DONE]\n'
+    with pytest.raises(RuntimeError, match='complete answer'):
+        probe.completed_text(stream)
+
+
+def test_answer_fragments_require_normal_finish_and_done():
+    stream = ''.join('data: ' + json.dumps({'choices': [{'delta': {'content': text}, 'finish_reason': finish}]}) + '\n\n'
+                     for text, finish in [('Hel', None), ('lo!', None), ('', 'stop')])
+    with pytest.raises(RuntimeError): probe.completed_text(stream)
+    result = probe.completed_text(stream + 'data: [DONE]\n')
+    assert result == {'text': 'Hello!', 'stream_done': True, 'finish_reason': 'stop'}
+
+
+def test_indexed_zero_based_shards_are_complete_without_filename_guessing(tmp_path):
+    (tmp_path / 'config.json').write_text('{}')
+    names = ['model-00000-of-00001.safetensors', 'model-00001-of-00001.safetensors']
+    for name in names: (tmp_path / name).write_bytes(b'weights')
+    (tmp_path / 'model.safetensors.index.json').write_text(json.dumps({'weight_map': dict(zip(('a', 'b'), names))}))
+    probe.node.validate_cached_snapshot(tmp_path)
+    (tmp_path / names[0]).unlink()
+    with pytest.raises(RuntimeError, match='missing shard'):
+        probe.node.validate_cached_snapshot(tmp_path)
+
+
+def test_failed_start_cleans_only_after_acquiring_lease(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(probe.node, 'check_port', lambda *a: None)
+    def call(req):
+        calls.append(req['action'])
+        if req['action'] == 'start':
+            raise RuntimeError('startup failed')
+        return {'released': True}
+    monkeypatch.setattr(probe.node, 'main', call)
+    monkeypatch.setattr(probe.node, 'reservation', lambda: None)
+    result = probe.exercise(request(), tmp_path / 'run', 10)
+    assert calls == ['reserve', 'start', 'stop']
+    assert not result['passed'] and result['cleanup_verified']
+    assert json.loads((tmp_path / 'run/request.json').read_text()) == request()
+
+
+def test_foreign_lease_refusal_never_calls_stop(tmp_path, monkeypatch):
+    monkeypatch.setattr(probe.node, 'check_port', lambda *a: None)
+    calls = []
+    def call(req):
+        calls.append(req['action'])
+        raise RuntimeError('foreign lease')
+    monkeypatch.setattr(probe.node, 'main', call)
+    result = probe.exercise(request(), tmp_path / 'run', 10)
+    assert calls == ['reserve'] and not result['passed']
+
+
+def test_interrupt_during_start_cleans_up_and_propagates(tmp_path, monkeypatch):
+    monkeypatch.setattr(probe.node, 'check_port', lambda *a: None)
+    monkeypatch.setattr(probe.node, 'reservation', lambda: None)
+    calls = []
+    def call(req):
+        calls.append(req['action'])
+        if req['action'] == 'start':
+            raise SystemExit(143)
+        return {'released': True}
+    monkeypatch.setattr(probe.node, 'main', call)
+    with pytest.raises(SystemExit):
+        probe.exercise(request(), tmp_path / 'run', 10)
+    assert calls == ['reserve', 'start', 'stop']
+
+
+def test_probe_keeps_model_arguments_but_excludes_credentials(monkeypatch):
+    service = {'command': ['python3', '-m', 'vllm.entrypoints.openai.api_server', '--model', 'test/model',
+                           '--served-model-name', 'local-fast', '--host', '0.0.0.0', '--port', '8000',
+                           '--max-model-len', '32768'], 'image': 'test/image', 'volumes': [],
+               'environment': {'HF_TOKEN': 'secret', 'HF_HOME': '/cache', 'MAX_JOBS': '4', 'PRIVATE_KEY': 'secret'}}
+    monkeypatch.setattr(probe.subprocess, 'check_output', lambda *a, **kw: json.dumps([{'Id': 'sha256:'+'b'*64}]))
+    r = probe.build_request(Path('/stack'), {'services': {'vllm-fast': service}},
+                            {'repo': 'test/model', 'revision': 'c'*40, 'alias': 'local-fast'}, {}, 8180, 'fixture')
+    worker = r['compose']['services']['worker']
+    assert 'secret' not in json.dumps(r)
+    assert worker['environment']['HF_HUB_OFFLINE'] == '1'
+    assert worker['command'][-2:] == ['--revision', 'c'*40]
+    assert worker['command'][worker['command'].index('--max-model-len')+1] == '32768'
+    assert worker['restart'] == 'no' and worker['labels']['io.spark.owner'] == r['owner']
+
+
+@pytest.mark.skipif(not shutil.which('docker'), reason='requires Compose CLI, no Docker daemon or GPU')
+def test_sweep_renders_optional_profiles_without_starting_containers(tmp_path):
+    (tmp_path / 'compose.yaml').write_text('''name: profile-render-fixture
+services:
+  default-model:
+    image: example.invalid/unused
+  optional-model:
+    image: example.invalid/unused
+    profiles: [optional]
+''')
+    assert set(probe.load_definition(tmp_path)['services']) == {'default-model', 'optional-model'}

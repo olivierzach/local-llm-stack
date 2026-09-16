@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "kind": "vllm",
+  "image": "vllm/vllm-openai@sha256:e4f88a835143cd22aee2397a26ec6bb80b3a4a6fe0c882bcbc63822904766089",
+  "model": "Qwen/Qwen3-Next-80B-A3B-Instruct",
+  "revision": "9c7f2fbe84465e40164a94cc16cd30b6999b0cc7",
+  "alias": "local-large",
+  "context_tokens": 131072,
+  "max_output_tokens": 4096,
+  "capabilities": {
+    "text": true,
+    "vision": false,
+    "tools": false,
+    "streaming": true
+  },
+  "dtype": "bfloat16",
+  "gpu_memory_utilization": 0.8,
+  "min_available_mib": 102400,
+  "max_num_seqs": 16,
+  "extra_args": [
+    "--enforce-eager",
+    "--disable-custom-all-reduce",
+    "--enable-prefix-caching"
+  ],
+  "parallelism": [
+    "tensor",
+    "pipeline"
+  ],
+  "validation": "Candidate 128K/16-sequence profile. Same pinned BF16 model and 80% memory budget; hardware context/concurrency/performance acceptance pending.",
+  "runtime_cache": true,
+  "load_strategy": "lazy",
+  "mamba_cache_mode": "align"
+}

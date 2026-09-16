@@ -1,0 +1,183 @@
+{
+  "local_shell_syntax": {
+    "checked": 8,
+    "errors": []
+  },
+  "local_python_syntax": {
+    "checked": 29,
+    "errors": []
+  },
+  "remote_shell_syntax": {
+    "checked": 12,
+    "errors": []
+  },
+  "remote_python_syntax": {
+    "checked": 90,
+    "errors": []
+  },
+  "missing_remote_test_files": 38,
+  "model_catalog": {
+    "models": [
+      {
+        "repo": "Qwen/Qwen3-32B",
+        "revision": "9216db5781bf21249d130ec9da846c4624c16137",
+        "alias": "local-large",
+        "make_target": "large-up",
+        "setting": "LARGE_MODEL",
+        "weight_shards": 17,
+        "architectures": [
+          "Qwen3ForCausalLM"
+        ],
+        "weight_bytes": 65524328560,
+        "image_id": "sha256:96d1b845de7f90adeb21fdc53c5f4b7eecd884844f0064d11d4904cbc19959cb",
+        "artifact_checks_passed": true,
+        "errors": []
+      },
+      {
+        "repo": "Qwen/Qwen3-30B-A3B-Instruct-2507",
+        "revision": "0d7cf23991f47feeb3a57ecb4c9cee8ea4a17bfe",
+        "alias": "local-qwen30-a3b",
+        "make_target": "qwen30-up",
+        "setting": "QWEN30A3B_MODEL",
+        "weight_shards": 16,
+        "architectures": [
+          "Qwen3MoeForCausalLM"
+        ],
+        "weight_bytes": 61066575656,
+        "image_id": "sha256:96d1b845de7f90adeb21fdc53c5f4b7eecd884844f0064d11d4904cbc19959cb",
+        "artifact_checks_passed": true,
+        "errors": []
+      },
+      {
+        "repo": "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B",
+        "revision": "711ad2ea6aa40cfca18895e8aca02ab92df1a746",
+        "alias": "local-deepseek-r1-qwen32b",
+        "make_target": "deepseek32-up",
+        "setting": "DEEPSEEK32B_MODEL",
+        "weight_shards": 8,
+        "architectures": [
+          "Qwen2ForCausalLM"
+        ],
+        "weight_bytes": 65527841532,
+        "image_id": "sha256:96d1b845de7f90adeb21fdc53c5f4b7eecd884844f0064d11d4904cbc19959cb",
+        "artifact_checks_passed": true,
+        "errors": []
+      },
+      {
+        "repo": "mistralai/Mistral-Small-3.2-24B-Instruct-2506",
+        "revision": "95a6d26c4bfb886c58daf9d3f7332c857cb27b43",
+        "alias": "local-mistral-small",
+        "make_target": "mistral24-up",
+        "setting": "MISTRAL24B_MODEL",
+        "weight_shards": 10,
+        "architectures": [
+          "Mistral3ForConditionalGeneration"
+        ],
+        "weight_bytes": 48022800560,
+        "image_id": "sha256:96d1b845de7f90adeb21fdc53c5f4b7eecd884844f0064d11d4904cbc19959cb",
+        "artifact_checks_passed": true,
+        "errors": []
+      },
+      {
+        "repo": "openai/gpt-oss-120b",
+        "revision": "b5c939de8f754692c1647ca79fbf85e8c1e70f8a",
+        "alias": "local-gpt-oss-120b",
+        "make_target": "gptoss120-up",
+        "setting": "GPTOSS120B_MODEL",
+        "weight_shards": 15,
+        "architectures": [
+          "GptOssForCausalLM"
+        ],
+        "weight_bytes": 65248893184,
+        "image_id": "sha256:96d1b845de7f90adeb21fdc53c5f4b7eecd884844f0064d11d4904cbc19959cb",
+        "artifact_checks_passed": true,
+        "errors": []
+      },
+      {
+        "repo": "poolside/Laguna-S-2.1-NVFP4",
+        "revision": "07614121b31898586430f189d27a25a0be310843",
+        "alias": "local-laguna-s-2.1",
+        "make_target": "lagunas21-up",
+        "setting": "LAGUNAS21_MODEL",
+        "weight_shards": 15,
+        "architectures": [
+          "LagunaForCausalLM"
+        ],
+        "weight_bytes": 71916714120,
+        "image_id": "sha256:30a38a1d74a17365eca400e83ffd885b250e0c8c0d3c5b508afa8c412d2ddf95",
+        "artifact_checks_passed": true,
+        "errors": []
+      },
+      {
+        "repo": "Mia-AiLab/Qwen3.8-Flash-Next-NVFP4",
+        "revision": "925d7be6c14c6c9442ef83e8f05b5a3c39304f69",
+        "alias": "local-qwen38-flash-next",
+        "make_target": "qwen38-up",
+        "setting": "QWEN38_MODEL",
+        "weight_shards": 35,
+        "architectures": [
+          "Qwen3_8FlashNextForConditionalGeneration"
+        ],
+        "weight_bytes": 105839538520,
+        "image_id": "sha256:d464f3b466fa9c45ddbff8a812e80564503b6879a9fd95c1a47514f3f0df5a4a",
+        "artifact_checks_passed": true,
+        "errors": []
+      },
+      {
+        "repo": "Qwen/Qwen3-4B-Instruct-2507",
+        "revision": "cdbee75f17c01a7cc42f958dc650907174af0554",
+        "alias": "local-fast",
+        "make_target": "up",
+        "setting": "FAST_MODEL",
+        "weight_shards": 3,
+        "architectures": [
+          "Qwen3ForCausalLM"
+        ],
+        "weight_bytes": 8044982000,
+        "image_id": "sha256:96d1b845de7f90adeb21fdc53c5f4b7eecd884844f0064d11d4904cbc19959cb",
+        "artifact_checks_passed": true,
+        "errors": []
+      },
+      {
+        "repo": "Qwen/Qwen3-14B",
+        "revision": "40c069824f4251a91eefaf281ebe4c544efd3e18",
+        "alias": "local-balanced",
+        "make_target": "balanced-up",
+        "setting": "BALANCED_MODEL",
+        "weight_shards": 8,
+        "architectures": [
+          "Qwen3ForCausalLM"
+        ],
+        "weight_bytes": 29536665640,
+        "image_id": "sha256:96d1b845de7f90adeb21fdc53c5f4b7eecd884844f0064d11d4904cbc19959cb",
+        "artifact_checks_passed": true,
+        "errors": []
+      },
+      {
+        "repo": "Qwen/Qwen3-VL-4B-Instruct",
+        "revision": "ebb281ec70b05090aa6165b016eac8ec08e71b17",
+        "alias": "local-vision",
+        "make_target": "vision-up",
+        "setting": "VISION_MODEL",
+        "weight_shards": 2,
+        "architectures": [
+          "Qwen3VLForConditionalGeneration"
+        ],
+        "weight_bytes": 8875719344,
+        "image_id": "sha256:30a38a1d74a17365eca400e83ffd885b250e0c8c0d3c5b508afa8c412d2ddf95",
+        "artifact_checks_passed": true,
+        "errors": []
+      },
+      {
+        "alias": "local-deepseek-v4-flash",
+        "make_target": "deepseekv4-up",
+        "artifact_checks_passed": true,
+        "errors": []
+      }
+    ],
+    "missing_auxiliary": [],
+    "artifact_checks_passed": true,
+    "inference_verified": false,
+    "qualification": "Presence/structure only. Does not establish image architecture support, GPU fit, checksum integrity, or routed completion. LoRA adapters are generated by training and are not included in this base-model catalog."
+  }
+}

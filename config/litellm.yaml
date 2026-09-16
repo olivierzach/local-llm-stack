@@ -92,7 +92,7 @@ model_list:
   - model_name: local-deepseek-v4-flash
     litellm_params:
       model: openai/deepseek-v4-flash
-      api_base: http://host.docker.internal:8011/v1
+      api_base: os.environ/DEEPSEEKV4_API_BASE
       api_key: none
     model_info:
       mode: chat
@@ -148,4 +148,3 @@ general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
   database_url: os.environ/DATABASE_URL
   store_model_in_db: true
-

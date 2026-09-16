@@ -1,14 +1,7 @@
 .env
 
-data/huggingface/
-data/open-webui/
-data/postgres/
-data/prometheus/
-data/grafana/
-data/aichat/
-data/opencode/
-data/deepseek-v4/
-data/qwen38-flash-next/
+# Runtime caches, routes, private backups and receipts; tracked fixtures stay versioned.
+/data/
 
 logs/
 models/adapters/
@@ -17,9 +10,10 @@ models/deepseek-v4/
 evals/results/
 evals/runs/
 
-.venv-tools/
-
-.venv/
+# Match environment directories, activation symlinks and rollback environments.
+/.venv-tools
+/.venv
+/.venv.before-*
 *.pyc
 __pycache__/
 .ipynb_checkpoints/

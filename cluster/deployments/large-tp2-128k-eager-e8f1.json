@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "name": "large-tp2-128k-eager-e8f1",
+  "recipe": "qwen3-next-80b-128k-eager",
+  "nodes": [
+    "66f1",
+    "e8f1"
+  ],
+  "coordinator": "e8f1",
+  "mode": "tensor",
+  "tensor_parallel": 2,
+  "pipeline_parallel": 1,
+  "port": 8121,
+  "master_port": 29541
+}

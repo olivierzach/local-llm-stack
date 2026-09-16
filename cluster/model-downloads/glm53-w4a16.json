@@ -1,0 +1,93 @@
+{
+  "files": {
+    ".gitattributes": {
+      "sha256": "d1a8f4a1d2e3787c5956393d9306365ebefe1912cb76828870682b1ab16f5c27",
+      "size": 1635
+    },
+    "README.md": {
+      "sha256": "166b0037a63d07af33f88e05abc0439eff887c4d39702dcbef1d088c08fcd1b7",
+      "size": 15445
+    },
+    "chat_template.jinja": {
+      "sha256": "34d5ee66b12fa6446cdae131c352b8f68cd85369e0e6fda115583805fada3891",
+      "size": 10644
+    },
+    "config.json": {
+      "sha256": "92ae6f37ca659fe95b2032d1b680a0dffebf3b367b7122de45eba1dafc436acc",
+      "size": 51558
+    },
+    "generation_config.json": {
+      "sha256": "a07de3408f578c6a7ca8a1646aa91a41df55d539349fda15fb8b611eb007e9b7",
+      "size": 215
+    },
+    "model-00001-of-00009.safetensors": {
+      "sha256": "f22024cd97a7fd10d5f1d02e8453a1e16a1436bd595297570fff7e7e930ce7fd",
+      "size": 19999265568
+    },
+    "model-00002-of-00009.safetensors": {
+      "sha256": "0368aaa15e0a4f2601e564ef5276438bbb530da8137a01e896757c775ffb1ae5",
+      "size": 20000117756
+    },
+    "model-00003-of-00009.safetensors": {
+      "sha256": "2ac3ce3c9d2a3124591445d7660572927e054da6f37e456fab7596c9a77aa06d",
+      "size": 20000019772
+    },
+    "model-00004-of-00009.safetensors": {
+      "sha256": "3e1e7f45dcf32930787a3b179edf7279d5d79b3dbeac3f05ba1b45c4d69825e5",
+      "size": 20000019772
+    },
+    "model-00005-of-00009.safetensors": {
+      "sha256": "15c4aaccfe79ffaa265020705ce4b512cdfa9cefe5fd5a2597ce971e13cb57b1",
+      "size": 20000019772
+    },
+    "model-00006-of-00009.safetensors": {
+      "sha256": "c847a519ab19d72e5241a98d751618a184bddaddbaf9580bc5c5348b62ca1407",
+      "size": 20000125844
+    },
+    "model-00007-of-00009.safetensors": {
+      "sha256": "fa954c39cf2280fe600daa78995311f7d06323697ba0898ca107f3810b008907",
+      "size": 20000019772
+    },
+    "model-00008-of-00009.safetensors": {
+      "sha256": "0fd7e38bbd66d287b6abe5108c8f8129eeae6e73e2e1039c5582ff0c2b7ca232",
+      "size": 20000019780
+    },
+    "model-00009-of-00009.safetensors": {
+      "sha256": "c27796d45ef8981b90e1c184b2f452732d06f0ec1bead71665bd4af6af4f7f64",
+      "size": 15952219840
+    },
+    "model-f32patch-00001.safetensors": {
+      "sha256": "2d83705c35be8efaf7b039f8b031e6dcf2acdd5b2f04cc473ea393406a4e0374",
+      "size": 6725624
+    },
+    "model-mtp-00001.safetensors": {
+      "sha256": "0922b228b41c5959f4196da3e541220786cbbacb7ff20e6ee7708b2586f6b044",
+      "size": 14865311048
+    },
+    "model.safetensors.index.json": {
+      "sha256": "046a1fa35a55b7776bf716490040e8f68b80097b911628966f12588e75ca16c2",
+      "size": 12000253
+    },
+    "processor_config.json": {
+      "sha256": "aae38374c94b08cc9b0547c6e64f05b951bd9735cea571c6988f5ed552bed3ed",
+      "size": 909
+    },
+    "recipe.yaml": {
+      "sha256": "f8af4da7156969cc776395bb2087d22be778b563c131b4c68660290ee9bffa3f",
+      "size": 629
+    },
+    "tokenizer.json": {
+      "sha256": "19e773648cb4e65de8660ea6365e10acca112d42a854923df93db4a6f333a82d",
+      "size": 20217442
+    },
+    "tokenizer_config.json": {
+      "sha256": "77af7d4769cd62c107b90495cac9b0ba81573c86486821bfba2980c04285ec7a",
+      "size": 790
+    }
+  },
+  "hub_version": "1.23.0",
+  "image": "vllm/vllm-openai@sha256:e4f88a835143cd22aee2397a26ec6bb80b3a4a6fe0c882bcbc63822904766089",
+  "repo": "canada-quant/glm-5.3-w4a16-mtp",
+  "revision": "4eeb77a3499fc2503290197118102eae2ed44553",
+  "version": 1
+}
