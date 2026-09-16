@@ -40,6 +40,32 @@ and from operating the current GLM service. The attempted installs changed nothi
 because sudo required interactive host authentication. The package-baseline audit
 remains useful for future build, audio and diagnostic work.
 
-Deployed source identities and final two-node verification are recorded after rollout.
+## Two-node rollout result
+
+Both baselines were reconciled to cleanup commit `2d957cc`, descended from the
+complete feature revision `696af2a`. The final documentation commit and merge
+retain the same operational source. GitHub PR [#1](https://github.com/olivierzach/local-llm-stack/pull/1)
+records publication into main. Both immutable installed controllers remain at
+`696af2a`; this cleanup changes no controller execution code relative to that release.
+
+- 66f1: all 450 tests passed in 68.56 seconds.
+- e8f1: all 450 tests passed in 69.55 seconds.
+- GitHub's Static checks job passed for the cleanup revision.
+- Both nodes passed Compose and individual shell syntax checks, authenticated
+  LiteLLM/Guard model discovery, invalid-key rejection, managed-gateway discovery,
+  and a small guarded GLM response identifying the exact accepted deployment.
+- Both baseline checkouts were clean. Both GLM worker container identities and
+  start times were preserved and their health checks remained healthy.
+- The local LiteLLM environment and healthcheck now match rendered Compose.
+- The peer's active environment symlink and protected runtime files were preserved.
+
+The peer rollback archive is
+`logs/source-reconciliation/20260916T042743Z/`. Neither source archive contains
+private runtime data. `.env` and operational artifacts stayed in place.
+
+Normal operation should use a clean baseline `main` synchronized with
+`origin/main`, while controller upgrades continue to use explicit immutable
+releases. Future maintenance must distinguish source synchronization, container
+configuration rollout, and GPU qualification instead of mixing their status.
 The original audit remains a dated snapshot, including subsequently resolved
 findings. Deferred hardware tests and research plans remain in the cluster checklist.

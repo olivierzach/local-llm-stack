@@ -78,7 +78,7 @@ The following records describe the earlier September 12 maintenance campaign:
 
 ## Remaining work, in order
 
-1. Complete source reconciliation as recorded above. Treat the declared system package baseline as optional maintenance for build, audio and diagnostic workflows; it is not a prerequisite for the currently running GLM service.
+1. Source reconciliation is complete; see its receipt above. Treat the declared system package baseline as optional maintenance for build, audio and diagnostic workflows; it is not a prerequisite for the currently running GLM service.
 2. Schedule 66f1 single-node model, Vector and Loop acceptance after releasing TP2;
    do not interrupt the user's active OMP testing to run it.
 3. Implement and exercise [the recovery and stable-endpoint plan](SPARK_SCALING_RECOVERY_PLAN.md).
