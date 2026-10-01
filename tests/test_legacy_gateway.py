@@ -72,14 +72,17 @@ def test_existing_alias_moves_without_forwarding_client_credential(running):
     assert not legacy.received
 
 
-def test_unregistered_alias_keeps_legacy_path_and_virtual_key(running):
+@pytest.mark.parametrize('stream', [False, True])
+def test_unregistered_alias_keeps_legacy_path_and_virtual_key(running, stream):
     url, legacy, moved, *_ = running
-    response = chat(url, 'legacy-other', key='existing-litellm-virtual-key')
+    response = chat(url, 'legacy-other', key='existing-litellm-virtual-key', stream=stream)
     assert response.status_code == 200, response.text
     assert response.headers['X-Context-Limit'] == '8192'
     assert legacy.received[-1]['authorization'] == 'Bearer existing-litellm-virtual-key'
     assert legacy.received[-1]['payload']['model'] == 'legacy-other'
     assert not moved.received
+    if stream:
+        assert 'data: [DONE]' in response.text
 
 
 def test_migrated_alias_never_bypasses_virtual_key_policy(running):

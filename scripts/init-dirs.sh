@@ -99,7 +99,7 @@ ensure_owner() {
   local service="$3"
   local current_owner
 
-  current_owner="$(stat -c '%u:%g' "$path")"
+  current_owner="$(stat -c '%u:%g' "$path" 2>/dev/null || stat -f '%u:%g' "$path")"
   if [[ "$current_owner" == "$owner" ]]; then
     return 0
   fi

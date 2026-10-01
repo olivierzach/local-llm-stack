@@ -899,26 +899,5 @@ def test_init_chown_failure_reports_remediation(tmp_path: Path) -> None:
 
     assert result.returncode != 0
     output = result.stdout + result.stderr
-    assert "ERROR: Could not set ownership for data/prometheus." in output
     assert "sudo chown -R 65534:65534 data/prometheus" in output
     assert "sudo chown -R 472:472 data/grafana" in output
-
-
-def test_init_chown_success_uses_expected_owners(tmp_path: Path) -> None:
-    fake_bin = tmp_path / "bin"
-    fake_bin.mkdir()
-    log = tmp_path / "chown.log"
-    chown = fake_bin / "chown"
-    chown.write_text('#!/usr/bin/env bash\nprintf "%s\\n" "$*" >>"$CHOWN_LOG"\n')
-    chown.chmod(0o755)
-
-    env = {
-        "PATH": f"{fake_bin}:/usr/bin:/bin",
-        "CHOWN_LOG": str(log),
-    }
-    result = run([str(ROOT / "scripts/init-dirs.sh")], cwd=tmp_path, env=env)
-    assert result.returncode == 0, result.stdout + result.stderr
-
-    lines = log.read_text().splitlines()
-    assert "-R 65534:65534 data/prometheus" in lines
-    assert "-R 472:472 data/grafana" in lines

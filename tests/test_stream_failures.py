@@ -300,6 +300,30 @@ def test_successful_stream_is_preserved_byte_for_byte(stack):
     await_released(stack)
 
 
+def test_close_without_recovery_does_not_wait_for_active_stream(stack):
+    stack.first.mode = 'gated'
+    stack.gateway.config.timeout_s = 5
+    closed = threading.Event()
+
+    def close_server():
+        stack.gateway.server_close()
+        closed.set()
+
+    with post(stack, streaming_client=True) as response:
+        lines = response.iter_lines(chunk_size=1)
+        assert next(lines) == DELTA.splitlines()[0]
+        stack.gateway.shutdown()
+        closer = threading.Thread(target=close_server, daemon=True)
+        closer.start()
+        try:
+            assert closed.wait(1)
+        finally:
+            stack.first.unblock.set()
+            closer.join(5)
+        assert b'[DONE]' in b'\n'.join(lines)
+    await_released(stack)
+
+
 def test_older_transport_fallback_preserves_stream():
     import io
     handler = object.__new__(gateway.guard.ContextGuardHandler)

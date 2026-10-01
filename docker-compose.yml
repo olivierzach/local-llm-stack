@@ -500,7 +500,10 @@ services:
       - "${BIND_HOST:-127.0.0.1}:${PROMETHEUS_PORT:-9090}:9090"
     volumes:
       - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./config/prometheus-spark-alerts.yml:/etc/prometheus/prometheus-spark-alerts.yml:ro
       - ./data/prometheus:/prometheus
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - llm
 
@@ -518,6 +521,7 @@ services:
     volumes:
       - ./data/grafana:/var/lib/grafana
       - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./config/grafana/dashboards:/var/lib/grafana/dashboards:ro
     networks:
       - llm
 

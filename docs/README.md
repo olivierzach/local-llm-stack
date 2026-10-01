@@ -30,3 +30,6 @@ Start here:
 23. [GLM-5.3-Flash Two-Spark Recipe](GLM53_TP.md)
 24. [Current Cluster Status And Remaining Work](CLUSTER_IMPLEMENTATION.md)
 25. [Source Reconciliation And Deployment Hygiene](SOURCE_RECONCILIATION.md)
+26. [Local-First Cluster Operations: Full Automatic Fallback And Failback Plan](LOCAL_FIRST_OPERATIONS_PLAN.md)
+27. [Spark Recovery Implementation Goal](SPARK_RECOVERY_GOAL.md)
+28. [Spark Scaling, Topology And Recovery Roadmap](SPARK_SCALING_RECOVERY_PLAN.md)

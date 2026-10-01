@@ -1,0 +1,222 @@
+# Alert instances use only bounded inventory, target, policy and interface labels;
+# route generations, request identifiers and prompt contents are never labels.
+# These rules observe the recovery installation, not arbitrary optional model
+# profiles. Configure spark-monitor with inventory, saved plans, status.json and
+# the authenticated gateway feed. Missing feeds are unavailable, never healthy.
+# No rule fills absent device measurements with zero. Counter increases stay
+# endpoint-scoped: neither TP ranks nor two ends of a physical cable are summed.
+groups:
+  - name: spark-collection
+    rules:
+      - record: spark_monitor_required_target_up
+        expr: |
+          spark_monitor_target_up{job="spark-monitor",kind!="engine"}
+          or (spark_monitor_target_up{job="spark-monitor",kind="engine"}
+              and on(job,instance,target)
+              (spark_engine_plan_info{job="spark-monitor"}
+               and on(job,instance,plan_digest)
+               spark_recovery_selected_deployment_info{job="spark-monitor"}))
+
+      - alert: SparkMonitorUnavailable
+        expr: up{job="spark-monitor"} == 0 or absent(up{job="spark-monitor"})
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Spark monitor cannot be scraped
+          description: Check the awake Mac, monitor service and host.docker.internal connectivity. Host and recovery health are unknown, not healthy.
+
+      - alert: SparkMonitorSnapshotStale
+        expr: |
+          (spark_monitor_snapshot_fresh{job="spark-monitor"} == 0
+          or absent(spark_monitor_snapshot_fresh{job="spark-monitor"}))
+          and on(job) (up{job="spark-monitor"} == 1)
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Spark collection has stopped advancing
+          description: The HTTP exporter responds but its collection snapshot is missing or stale. Device and service values must not be treated as current.
+
+      - alert: SparkMonitorRequiredFeedMissing
+        expr: |
+          (absent(spark_monitor_target_up{job="spark-monitor",kind="host"})
+          or absent(spark_monitor_target_up{job="spark-monitor",kind="engine"})
+          or absent(spark_monitor_target_up{job="spark-monitor",kind="recovery"})
+          or absent(spark_monitor_target_up{job="spark-monitor",kind="gateway"})
+          or absent(spark_monitor_target_up{job="spark-monitor",kind="gateway_recovery"}))
+          and on(job) (up{job="spark-monitor"} == 1)
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Spark {{ $labels.kind }} feed is not present'
+          description: Configure the monitor inventory, saved plans, controller status.json and authenticated gateway URL/key. An unconfigured feed is unavailable, not a successful health check.
+
+      - alert: SparkMonitorTargetUnavailable
+        expr: spark_monitor_required_target_up{job="spark-monitor"} == 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Spark {{ $labels.kind }} target {{ $labels.target }} cannot be collected'
+          description: Inspect spark_monitor_target_error for the bounded failure reason. Engine alerts cover only the authority's selected exact deployment; configured inactive fallback plans remain visible without generating false service-outage alerts.
+
+      - alert: SparkMonitorTargetMissingOrStale
+        expr: |
+          ((time() - spark_monitor_target_last_success_timestamp_seconds{job="spark-monitor"} > 60)
+            and on(job,instance,kind,target) spark_monitor_required_target_up{job="spark-monitor"})
+          or (spark_monitor_required_target_up{job="spark-monitor"}
+              unless on(job,instance,kind,target)
+              spark_monitor_target_last_success_timestamp_seconds{job="spark-monitor"})
+          or (max_over_time(spark_monitor_target_up{job="spark-monitor",kind!="engine"}[1h])
+              unless on(job,instance,kind,target) spark_monitor_target_up{job="spark-monitor"})
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Spark {{ $labels.kind }} target {{ $labels.target }} has no recent successful sample'
+          description: The target has never succeeded, has stopped succeeding, or disappeared from collection within the last hour. Confirm intentional inventory or plan removal rather than interpreting missing data as recovery.
+
+  - name: spark-recovery
+    rules:
+      - alert: SparkRecoveryTelemetryUnavailable
+        expr: |
+          (absent(spark_recovery_updated_timestamp_seconds{job="spark-monitor"})
+          or absent(spark_recovery_phase_info{job="spark-monitor"})
+          or absent(spark_recovery_circuit_open{job="spark-monitor"})
+          or absent(spark_recovery_quarantined_nodes{job="spark-monitor"}))
+          and on(job) (up{job="spark-monitor"} == 1)
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Recovery authority telemetry is incomplete or unavailable
+          description: Check the monitor's sanitized controller status.json input. Missing circuit or quarantine data cannot establish safe recovery health.
+
+      - alert: SparkRecoveryAuthorityStale
+        expr: |
+          time() - spark_recovery_updated_timestamp_seconds{job="spark-monitor"} > 60
+          or spark_recovery_updated_timestamp_seconds{job="spark-monitor"} - time() > 15
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Recovery authority {{ $labels.policy }} is not publishing current status'
+          description: Check the controller service, Mac sleep/stalls and clock consistency. Reading an old status file successfully is not proof that the controller is alive.
+
+      - alert: SparkGatewayLeaseUnavailable
+        expr: |
+          (spark_gateway_recovery_fresh{job="spark-monitor"} == 0
+          or spark_gateway_recovery_expires_at{job="spark-monitor"} <= time()
+          or absent(spark_gateway_recovery_fresh{job="spark-monitor"})
+          or absent(spark_gateway_recovery_expires_at{job="spark-monitor"}))
+          and on(job) (up{job="spark-monitor"} == 1)
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: Recovery gateway has no verified fresh route lease
+          description: The route lease is expired, rejected or unobservable. Ingress must fail closed; a lease expiry does not release GPU ownership.
+
+      - alert: SparkGatewayNotAccepting
+        expr: |
+          (spark_gateway_recovery_accepting{job="spark-monitor"} == 0
+          or absent(spark_gateway_recovery_accepting{job="spark-monitor"}))
+          and on(job) (up{job="spark-monitor"} == 1)
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Recovery gateway admission is closed or unknown
+          description: Correlate with recovery phase. Drain, startup and maintenance can intentionally close admission; no accepting sample means availability is unknown, not restored.
+
+      - alert: SparkRecoveryCircuitOpen
+        expr: spark_recovery_circuit_open{job="spark-monitor"} == 1
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Recovery circuit is open for {{ $labels.policy }}'
+          description: Automatic promotion retries are suspended. Inspect durable recovery status and correct the cause before an explicitly approved clear-circuit operation.
+
+      - alert: SparkRecoveryNodeQuarantined
+        expr: spark_recovery_quarantined_nodes{job="spark-monitor"} > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Recovery policy {{ $labels.policy }} retains quarantined nodes'
+          description: Ownership or returned-node safety has not been reconciled. Do not clear fences or reuse GPUs solely because the node becomes reachable.
+
+  - name: spark-physical-links
+    rules:
+      - alert: SparkFabricInterfaceDown
+        expr: |
+          spark_interface_present{job="spark-monitor",physical_link!=""} == 0
+          or spark_interface_carrier{job="spark-monitor",physical_link!=""} == 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Fabric interface {{ $labels.node }}/{{ $labels.interface }} is absent or has no carrier'
+          description: Inspect the physical link and correlate with recovery phase. Single-node serving can remain healthy without collective fabric; this is not permission to move collectives onto management Wi-Fi.
+
+      - alert: SparkFabricCarrierUnknown
+        expr: |
+          (spark_interface_present{job="spark-monitor",physical_link!=""} == 1)
+          unless on(job,instance,node,interface)
+          spark_interface_carrier{job="spark-monitor",physical_link!=""}
+        for: 2m
+        labels:
+          severity: info
+        annotations:
+          summary: 'Carrier telemetry is unavailable for {{ $labels.node }}/{{ $labels.interface }}'
+          description: The interface exists but the collector cannot read carrier state. Unsupported or unreadable data does not prove that the cable is down or up.
+
+      - alert: SparkPhysicalPortTelemetryUnavailable
+        expr: spark_physical_port_available{job="spark-monitor"} == 0
+        for: 2m
+        labels:
+          severity: info
+        annotations:
+          summary: 'Physical port counters are unavailable on {{ $labels.node }} for {{ $labels.physical_link }}'
+          description: Check read-only ethtool support and collection health. Do not substitute logical netdev/RDMA counters or report zero physical throughput when external-port byte counters are unavailable.
+
+      - alert: SparkPhysicalErrorTelemetryUnavailable
+        expr: |
+          (spark_physical_port_available{job="spark-monitor"}
+              unless on(job,instance,node,interface,physical_link,peer)
+              spark_physical_port_rx_crc_errors_total{job="spark-monitor"})
+          or (spark_physical_port_available{job="spark-monitor"}
+              unless on(job,instance,node,interface,physical_link,peer)
+              spark_physical_port_rx_discards_total{job="spark-monitor"})
+          or (spark_physical_port_available{job="spark-monitor"}
+              unless on(job,instance,node,interface,physical_link,peer)
+              spark_physical_port_link_down_events_total{job="spark-monitor"})
+        for: 2m
+        labels:
+          severity: info
+        annotations:
+          summary: 'Physical error telemetry is incomplete on {{ $labels.node }} for {{ $labels.physical_link }}'
+          description: One or more external-port CRC, discard or link-down counters are unsupported or unreadable. Absence is not evidence of an error-free cable.
+
+      - alert: SparkPhysicalPortErrorsIncreasing
+        expr: |
+          increase(spark_physical_port_rx_crc_errors_total{job="spark-monitor"}[5m]) > 0
+          or increase(spark_physical_port_rx_discards_total{job="spark-monitor"}[5m]) > 0
+          or increase(spark_physical_port_link_down_events_total{job="spark-monitor"}[5m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Physical errors increased on {{ $labels.node }} for {{ $labels.physical_link }}'
+          description: An external-port CRC, discard or link-down counter increased in the last five minutes. Counters are reset-aware and evaluated per endpoint, never summed across cable ends or logical PCIe paths.
+
+      - alert: SparkPhysicalLinkAggregationUnavailable
+        expr: spark_fabric_aggregation_available{job="spark-monitor"} == 0
+        for: 2m
+        labels:
+          severity: info
+        annotations:
+          summary: 'Physical throughput is unavailable for {{ $labels.physical_link }}'
+          description: The link lacks a verified physical-port mapping or its selected endpoint has no physical byte counters. Do not add logical paths or substitute zero for unknown cable throughput.

@@ -3,6 +3,8 @@ import io
 from pathlib import Path
 import sys
 import threading
+import time
+from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -11,7 +13,7 @@ import requests
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
-from spark_cluster import gateway, gateway_node, config
+from spark_cluster import gateway, gateway_node, config, recovery_routes
 from spark_cluster.cli import save_json
 
 KEY = "test-only-gateway-key-0000000000000000"
@@ -49,12 +51,23 @@ class Backend(BaseHTTPRequestHandler):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         if self.path == "/tokenize":
             self.server.tokenizer_model = body.get('model')
+            self.server.tokenizer_payload = body
+            if getattr(self.server, "tokenizer_entered", None):
+                self.server.tokenizer_entered.set()
+                self.server.tokenizer_unblock.wait(timeout=5)
+            if getattr(self.server, "tokenizer_failed", False):
+                self.send_error(503)
+                return
             if getattr(self.server, 'strict_tokenizer_model', None) and body.get('model') != self.server.strict_tokenizer_model:
                 self.send_error(400)
                 return
-            self.reply({"count": 10})
+            count = getattr(self.server, "token_count", 10)
+            self.reply({"count": count(body) if callable(count) else count})
             return
         self.server.received.append({"payload": body, "authorization": self.headers.get("Authorization")})
+        if getattr(self.server, "context_error", False):
+            self.send_error(400, "maximum context length exceeded")
+            return
         if getattr(self.server,'entered',None):
             self.server.entered.set()
             self.server.unblock.wait(timeout=5)
@@ -65,7 +78,14 @@ class Backend(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.end_headers()
-            self.wfile.write(b'data: {"choices":[{"delta":{"content":"ready"}}]}\n\ndata: [DONE]\n\n')
+            self.wfile.write(getattr(self.server, "stream_content",
+                b'data: {"choices":[{"delta":{"content":"ready"}}]}\n\n'))
+            self.wfile.flush()
+            if getattr(self.server, "stream_entered", None):
+                self.server.stream_entered.set()
+                self.server.stream_unblock.wait(timeout=5)
+            if not getattr(self.server, "incomplete_stream", False):
+                self.wfile.write(b'data: [DONE]\n\n')
         else:
             self.reply({"model": body["model"], "choices": [{"message": {"role": "assistant", "content": "ready"}}]})
 
@@ -458,3 +478,557 @@ def test_provider_key_input_requires_private_regular_file(tmp_path):
     path.write_text('token\nInjected: header')
     with pytest.raises(RuntimeError, match='printable'):
         read_key(path)
+
+
+@pytest.fixture
+def policy(running, tmp_path):
+    _, backend, registry, _ = running
+    registry = deepcopy(registry)
+    route = registry["routes"]["local-fast"]
+    route.update(model_root="/cache/test", deployment_digest="a" * 64)
+    # Deliberately include a static policy alias: it must never bypass fencing.
+    registry["routes"]["local-auto"] = deepcopy(route)
+    path = tmp_path / "policy-registry.json"
+    save_json(path, registry)
+    state_path = tmp_path / "recovery" / "route.json"
+    server = gateway.serve(path, "127.0.0.1", 0, KEY, recovery_state=state_path)
+    worker = threading.Thread(target=server.serve_forever, daemon=True)
+    worker.start()
+    state = {"version": 1, "policy": "agent", "authority": "authority-one", "generation": 1,
+             "alias": "local-auto", "accepting": True, "route": deepcopy(route),
+             "mode": "fallback", "reason": "qualified single", "issued_at": time.time(),
+             "expires_at": time.time() + 15}
+    recovery_routes.write_state(state_path, state, gateway.validate_registry)
+    result = {"url": f"http://127.0.0.1:{server.server_port}", "backend": backend,
+              "state": state, "path": state_path, "server": server}
+    yield result
+    for name in ("stream_unblock", "tokenizer_unblock", "unblock"):
+        if getattr(backend, name, None):
+            getattr(backend, name).set()
+    server.shutdown()
+    server.server_close()
+    worker.join()
+
+
+def policy_publish(policy, **changes):
+    state = deepcopy(policy["state"])
+    state.update(changes)
+    state["issued_at"] = time.time()
+    state["expires_at"] = state["issued_at"] + 15
+    recovery_routes.write_state(policy["path"], state, gateway.validate_registry)
+    policy["state"] = state
+    return state
+
+
+def policy_status(policy):
+    response = requests.get(policy["url"] + "/_spark/recovery",
+        headers={"Authorization": "Bearer " + KEY}, timeout=5)
+    assert response.status_code == 200
+    return response.json()
+
+
+def test_policy_exposes_real_backend_and_keeps_strict_alias(policy):
+    response = chat(policy["url"], model="local-auto", max_tokens=17)
+    assert response.status_code == 200, response.text
+    assert response.json()["model"] == "local-fast"
+    assert response.headers["X-Spark-Backend"] == "local-fast"
+    assert response.headers["X-Spark-Deployment"] == "a" * 64
+    assert response.headers["X-Spark-Generation"] == "1"
+    assert response.headers["X-Context-Output-Reserve"] == "17"
+    assert policy["backend"].tokenizer_model == "local-fast"
+    models = requests.get(policy["url"] + "/v1/models",
+        headers={"Authorization": "Bearer " + KEY}, timeout=5).json()["data"]
+    advertised = next(m for m in models if m["id"] == "local-auto")
+    assert (advertised["backend_alias"], advertised["context_length"], advertised["max_output_tokens"]) == ("local-fast", 8192, 256)
+    assert advertised["capabilities"]["tools"] is False
+    strict = chat(policy["url"], max_tokens=4096)
+    assert strict.status_code == 200 and strict.json()["model"] == "local-fast"
+    assert policy["backend"].received[-1]["payload"]["max_tokens"] == 256
+    policy_publish(policy, generation=2, accepting=False)
+    rejected = chat(policy["url"], model="local-auto")
+    assert rejected.status_code == 503 and rejected.headers["Retry-After"] == "5"
+    strict = chat(policy["url"], max_tokens=4096)
+    assert strict.status_code == 503 and strict.headers["Retry-After"] == "5"
+    assert len(policy["backend"].received) == 2
+
+
+@pytest.mark.parametrize("payload", [
+    {"tools": [{"type": "function", "function": {"name": "work"}}]},
+    {"messages": [{"role": "tool", "tool_call_id": "call", "content": "result"}]},
+    {"messages": [{"role": "user", "content": [{"type": "image_url", "image_url": {"url": "https://example.test/image"}}]}]},
+    {"response_format": {"type": "json_object"}},
+    {"max_tokens": 257}, {"max_completion_tokens": True},
+    {"chat_template": "{{ messages }}"}, {"n": 2},
+    {"messages": [{"role": "user", "content": [{"type": "input_audio", "input_audio": {}}]}]},
+])
+def test_policy_rejects_incompatible_requests_before_generation(policy, payload):
+    response = chat(policy["url"], model="local-auto", **payload)
+    assert response.status_code == 400, response.text
+    assert not policy["backend"].received
+    assert policy_status(policy)["active_requests"] == 0
+
+
+def test_policy_context_never_compacts_or_replays(policy):
+    backend = policy["backend"]
+    history = [{"role": "system", "content": "keep every instruction"},
+               {"role": "user", "content": "earlier " * 1000},
+               {"role": "assistant", "content": "earlier answer"},
+               {"role": "user", "content": "continue"}]
+    backend.token_count = 8190
+    response = chat(policy["url"], model="local-auto", messages=history, max_tokens=3)
+    assert response.status_code == 400
+    assert response.json()["error"]["type"] == "context_length_exceeded"
+    assert not backend.received
+    assert backend.tokenizer_payload["messages"] == history
+    # The exact boundary is accepted, retaining full history and requested output.
+    backend.token_count = 8189
+    response = chat(policy["url"], model="local-auto", messages=history, max_tokens=3)
+    assert response.status_code == 200
+    assert len(backend.received) == 1
+    assert backend.received[0]["payload"]["messages"] == history
+    assert backend.received[0]["payload"]["max_tokens"] == 3
+
+
+def test_policy_tokenizer_failure_does_not_use_estimate(policy):
+    policy["backend"].tokenizer_failed = True
+    response = chat(policy["url"], model="local-auto")
+    assert response.status_code == 503
+    assert response.json()["error"]["type"] == "tokenizer_unavailable"
+    assert not policy["backend"].received
+
+
+@pytest.mark.parametrize("corruption", ["missing", "malformed", "public", "symlink"])
+def test_policy_file_failure_never_falls_through_static_alias(policy, corruption):
+    path = policy["path"]
+    if corruption == "missing":
+        path.unlink()
+    elif corruption == "malformed":
+        path.write_text('{"version":')
+    elif corruption == "public":
+        path.chmod(0o644)
+    else:
+        actual = path.with_name("actual.json")
+        path.rename(actual)
+        path.symlink_to(actual)
+    response = chat(policy["url"], model="local-auto")
+    assert response.status_code == 503
+    assert chat(policy["url"], model="local-fast").status_code == 503
+    assert not policy["backend"].received
+    assert not policy_status(policy)["fresh"]
+    models = requests.get(policy["url"] + "/v1/models",
+        headers={"Authorization": "Bearer " + KEY}, timeout=5).json()["data"]
+    assert not models
+
+
+def test_policy_expiry_uses_wall_and_monotonic_time(policy, monkeypatch):
+    from types import SimpleNamespace
+    assert policy_status(policy)["fresh"]
+    now = policy["state"]["expires_at"] + 1
+    monkeypatch.setattr(recovery_routes, "time", SimpleNamespace(time=lambda: now, monotonic=time.monotonic))
+    assert chat(policy["url"], model="local-auto").status_code == 503
+    assert chat(policy["url"], model="local-fast").status_code == 503
+    models = requests.get(policy["url"] + "/v1/models",
+        headers={"Authorization": "Bearer " + KEY}, timeout=5).json()["data"]
+    assert not models
+    status = policy_status(policy)
+    assert not status["fresh"] and not status["accepting"]
+    assert status["generation"] == status["highest_generation"] == 1
+    assert status["authority"] == "authority-one"
+    assert not policy["backend"].received
+
+
+def test_policy_generation_rollback_and_authority_change_are_fenced(policy):
+    assert policy_status(policy)["fresh"]
+    policy_publish(policy, generation=3, accepting=False)
+    status = policy_status(policy)
+    assert status["generation"] == 3 and status["fresh"] and not status["accepting"]
+    policy_publish(policy, generation=2, accepting=True)
+    assert chat(policy["url"], model="local-auto").status_code == 503
+    assert policy_status(policy)["highest_generation"] == 3
+    policy_publish(policy, generation=4, accepting=True, authority="other-authority")
+    assert chat(policy["url"], model="local-auto").status_code == 503
+    assert not policy["backend"].received
+    policy_publish(policy, generation=4, authority="authority-one")
+    assert chat(policy["url"], model="local-auto").status_code == 200
+
+
+def test_policy_same_generation_contract_change_is_rejected(policy):
+    assert policy_status(policy)["fresh"]
+    policy_publish(policy, accepting=False)
+    assert not policy_status(policy)["fresh"]
+    assert chat(policy["url"], model="local-auto").status_code == 503
+    assert not policy["backend"].received
+
+
+def test_policy_restart_requires_fresh_heartbeat_and_persists_highwater(policy):
+    assert policy_status(policy)["fresh"]
+    policy_publish(policy, generation=5)
+    assert policy_status(policy)["generation"] == 5
+    server = policy["server"]
+    server.shutdown()
+    server.server_close()
+    replacement = gateway.serve(server.registry_path, "127.0.0.1", 0, KEY, recovery_state=policy["path"])
+    worker = threading.Thread(target=replacement.serve_forever, daemon=True)
+    worker.start()
+    try:
+        policy["url"] = f"http://127.0.0.1:{replacement.server_port}"
+        assert chat(policy["url"], model="local-auto").status_code == 503
+        assert not policy_status(policy)["fresh"]
+        policy_publish(policy, generation=4)
+        assert chat(policy["url"], model="local-auto").status_code == 503
+        policy_publish(policy, generation=5)
+        assert chat(policy["url"], model="local-auto").status_code == 200
+    finally:
+        replacement.shutdown()
+        replacement.server_close()
+        worker.join()
+
+
+def test_policy_single_ingress_lock_excludes_second_process(policy):
+    with pytest.raises(BlockingIOError):
+        gateway.serve(policy["server"].registry_path, "127.0.0.1", 0, KEY, recovery_state=policy["path"])
+    assert chat(policy["url"], model="local-auto").status_code == 200
+
+
+@pytest.mark.parametrize("alias", ["local-auto", "local-fast"])
+def test_policy_drain_counts_stream_across_generations(policy, alias):
+    backend = policy["backend"]
+    backend.stream_entered = threading.Event()
+    backend.stream_unblock = threading.Event()
+    with ThreadPoolExecutor() as pool:
+        future = pool.submit(chat, policy["url"], model=alias, stream=True)
+        assert backend.stream_entered.wait(3)
+        try:
+            policy_publish(policy, generation=2, accepting=False)
+            status = policy_status(policy)
+            assert status["generation"] == 2 and status["active_requests"] == 1 and not status["accepting"]
+            for name in ("local-auto", "local-fast"):
+                rejected = chat(policy["url"], model=name)
+                assert rejected.status_code == 503
+            models = requests.get(policy["url"] + "/v1/models",
+                headers={"Authorization": "Bearer " + KEY}, timeout=5).json()["data"]
+            assert not models
+            assert len(backend.received) == 1
+            policy_publish(policy, generation=3, accepting=True)
+            assert policy_status(policy)["active_requests"] == 1
+        finally:
+            backend.stream_unblock.set()
+        response = future.result(timeout=5)
+    assert "data: [DONE]" in response.text
+    assert response.headers["X-Spark-Generation"] == "1"
+    assert policy_status(policy)["active_requests"] == 0
+
+
+@pytest.mark.parametrize("alias", ["local-auto", "local-fast"])
+@pytest.mark.parametrize("transition", ["generation", "backend-identity", "route"])
+def test_policy_rechecks_admission_after_tokenizer_before_dispatch(policy, alias, transition):
+    backend = policy["backend"]
+    backend.tokenizer_entered = threading.Event()
+    backend.tokenizer_unblock = threading.Event()
+    with ThreadPoolExecutor() as pool:
+        future = pool.submit(chat, policy["url"], model=alias)
+        assert backend.tokenizer_entered.wait(3)
+        try:
+            if transition == "generation":
+                policy_publish(policy, generation=2, accepting=False)
+            elif transition == "route":
+                route = deepcopy(policy["state"]["route"])
+                route["deployment_digest"] = "b" * 64
+                policy_publish(policy, generation=2, route=route)
+            else:
+                backend.model_root = "/cache/stale"
+            assert policy_status(policy)["active_requests"] == 1
+        finally:
+            backend.tokenizer_unblock.set()
+        response = future.result(timeout=5)
+    assert response.status_code == 503
+    assert not backend.received
+    assert policy_status(policy)["active_requests"] == 0
+
+
+def test_policy_stale_backend_identity_and_upstream_failure_are_not_replayed(policy):
+    backend = policy["backend"]
+    backend.model_root = "/cache/wrong"
+    assert chat(policy["url"], model="local-auto").status_code == 503
+    assert not backend.received
+    backend.model_root = "/cache/test"
+    backend.fail_completion = True
+    response = chat(policy["url"], model="local-auto")
+    assert response.status_code == 503
+    assert len(backend.received) == 1
+    assert policy_status(policy)["active_requests"] == 0
+
+
+def test_recovery_status_and_metrics_are_authenticated_and_payload_free(policy):
+    for path in ("/_spark/recovery", "/metrics"):
+        assert requests.get(policy["url"] + path, timeout=5).status_code == 401
+    assert chat(policy["url"], model="local-auto", messages=[{"role": "user", "content": "SECRET-PROMPT"}]).status_code == 200
+    headers = {"Authorization": "Bearer " + KEY}
+    metrics = requests.get(policy["url"] + "/metrics", headers=headers, timeout=5).text
+    labels = '{alias="local-auto",backend="local-fast",mode="fallback"}'
+    assert "spark_gateway_requests_total" + labels + " 1" in metrics
+    assert "spark_gateway_inflight" + labels + " 0" in metrics
+    assert "spark_gateway_time_to_first_token_seconds_count" + labels not in metrics
+    assert "SECRET-PROMPT" not in metrics and KEY not in metrics
+    assert "base_url" not in json.dumps(policy_status(policy))
+    assert chat(policy["url"], model="local-auto", stream=True).status_code == 200
+    metrics = requests.get(policy["url"] + "/metrics", headers=headers, timeout=5).text
+    assert "spark_gateway_time_to_first_token_seconds_count" + labels + " 1" in metrics
+
+
+def test_stream_role_and_heartbeat_are_not_reported_as_generated_token_latency(policy):
+    policy["backend"].stream_content = b': heartbeat\n\ndata: {"choices":[{"delta":{"role":"assistant"}}]}\n\n'
+    response = chat(policy["url"], model="local-auto", stream=True)
+    assert response.status_code == 200 and "data: [DONE]" in response.text
+    metrics = requests.get(policy["url"] + "/metrics", headers={"Authorization": "Bearer " + KEY}, timeout=5).text
+    assert 'spark_gateway_time_to_first_token_seconds_count{alias="local-auto"' not in metrics
+
+
+def test_interrupted_stream_is_counted_as_error_without_replay(policy):
+    policy["backend"].incomplete_stream = True
+    response = chat(policy["url"], model="local-auto", stream=True)
+    assert "upstream_stream_interrupted" in response.text and "data: [DONE]" not in response.text
+    assert len(policy["backend"].received) == 1
+    assert policy_status(policy)["active_requests"] == 0
+    metrics = requests.get(policy["url"] + "/metrics", headers={"Authorization": "Bearer " + KEY}, timeout=5).text
+    assert 'spark_gateway_errors_total{alias="local-auto",backend="local-fast",mode="fallback"} 1' in metrics
+
+
+def test_policy_upstream_context_error_is_not_compacted_or_replayed(policy):
+    policy["backend"].context_error = True
+    response = chat(policy["url"], model="local-auto")
+    assert response.status_code == 400
+    assert len(policy["backend"].received) == 1
+    assert policy_status(policy)["active_requests"] == 0
+
+
+def test_policy_transition_selects_only_the_explicit_new_backend(policy):
+    second = ThreadingHTTPServer(("127.0.0.1", 0), Backend)
+    second.received = []
+    second.model_alias = "local-coder"
+    second.model_root = "/cache/coder"
+    second.strict_tokenizer_model = "local-coder"
+    worker = threading.Thread(target=second.serve_forever, daemon=True)
+    worker.start()
+    try:
+        assert chat(policy["url"], model="local-auto").status_code == 200
+        base = f"http://127.0.0.1:{second.server_port}"
+        route = deepcopy(policy["state"]["route"])
+        route.update(base_url=base + "/v1", tokenizer_base_url=base, health_url=base + "/health",
+                     upstream_model="local-coder", model_root="/cache/coder", deployment_digest="b" * 64)
+        route["capabilities"]["tools"] = True
+        policy_publish(policy, generation=2, route=route)
+        response = chat(policy["url"], model="local-auto",
+                        tools=[{"type": "function", "function": {"name": "work", "parameters": {"type": "object"}}}])
+        assert response.status_code == 200, response.text
+        assert response.json()["model"] == "local-coder"
+        assert response.headers["X-Spark-Deployment"] == "b" * 64
+        assert len(policy["backend"].received) == len(second.received) == 1
+        assert second.tokenizer_payload["tools"] == second.received[0]["payload"]["tools"]
+        second.available = False
+        assert chat(policy["url"], model="local-auto").status_code == 503
+        assert len(policy["backend"].received) == len(second.received) == 1
+    finally:
+        second.shutdown()
+        second.server_close()
+        worker.join()
+
+
+def test_policy_unchanged_lease_cannot_outlive_monotonic_deadline(policy, monkeypatch):
+    from types import SimpleNamespace
+    assert policy_status(policy)["fresh"]
+    observed_wall = time.time()
+    deadline = policy["server"].recovery.lease_deadline
+    monkeypatch.setattr(recovery_routes, "time", SimpleNamespace(time=lambda: observed_wall, monotonic=lambda: deadline + 1))
+    assert chat(policy["url"], model="local-auto").status_code == 503
+    assert not policy_status(policy)["fresh"]
+    assert not policy["backend"].received
+
+
+def test_policy_lease_extension_without_new_heartbeat_is_rejected(policy):
+    assert policy_status(policy)["fresh"]
+    state = deepcopy(policy["state"])
+    state["expires_at"] += 10
+    recovery_routes.write_state(policy["path"], state, gateway.validate_registry)
+    assert chat(policy["url"], model="local-auto").status_code == 503
+    assert not policy["backend"].received
+
+
+@pytest.mark.parametrize("changes", [
+    {"version": True}, {"unknown": 1}, {"generation": True},
+    {"generation": 0}, {"accepting": "true"}, {"authority": "bad\\nauthority"},
+    {"issued_at": float("nan")}, {"route": None},
+])
+def test_invalid_policy_state_is_rejected_without_static_alias_bypass(policy, changes):
+    state = deepcopy(policy["state"])
+    state.update(changes)
+    policy["path"].write_text(json.dumps(state))
+    response = chat(policy["url"], model="local-auto")
+    assert response.status_code == 503
+    assert not policy["backend"].received
+
+
+def test_policy_route_publication_and_fence_are_private_and_durable(policy):
+    assert policy_status(policy)["fresh"]
+    fence = policy["path"].with_name("route.json.fence.json")
+    assert policy["path"].stat().st_mode & 0o777 == 0o600
+    assert fence.stat().st_mode & 0o777 == 0o600
+    persisted = json.loads(fence.read_text())
+    assert (persisted["authority"], persisted["generation"]) == ("authority-one", 1)
+    assert persisted["issued_at"] == policy["state"]["issued_at"]
+    fence.write_text('{"partial":')
+    server = policy["server"]
+    server.shutdown()
+    server.server_close()
+    with pytest.raises(ValueError):
+        gateway.serve(server.registry_path, "127.0.0.1", 0, KEY, recovery_state=policy["path"])
+
+
+@pytest.mark.parametrize("field,value", [
+    ("deployment_digest", "b" * 64),
+    ("context_tokens", 4096),
+    ("max_output_tokens", 128),
+    ("tokenizer_timeout_s", 30),
+])
+def test_policy_strict_alias_requires_entire_pinned_route(policy, field, value):
+    path = policy["server"].registry_path
+    registry = json.loads(path.read_text())
+    registry["routes"]["local-fast"][field] = value
+    save_json(path, registry)
+    response = chat(policy["url"], model="local-fast")
+    assert response.status_code == 503
+    assert not policy["backend"].received
+    assert policy_status(policy)["active_requests"] == 0
+    models = requests.get(policy["url"] + "/v1/models",
+        headers={"Authorization": "Bearer " + KEY}, timeout=5).json()["data"]
+    assert {model["id"] for model in models} == {"local-auto"}
+    assert chat(policy["url"], model="local-auto").status_code == 200
+    assert policy["backend"].received[-1]["payload"]["model"] == "local-fast"
+
+
+def test_closed_policy_does_not_fence_provider_or_ordinary_gateway(policy, running, monkeypatch):
+    path = policy["server"].registry_path
+    registry = json.loads(path.read_text())
+    provider = deepcopy(registry["routes"]["local-fast"])
+    provider["upstream_key_env"] = "TEST_PROVIDER_KEY"
+    registry["routes"]["provider-chat"] = provider
+    save_json(path, registry)
+    monkeypatch.setenv("TEST_PROVIDER_KEY", "provider-only-secret")
+    policy_publish(policy, generation=2, accepting=False)
+    assert chat(policy["url"], model="local-fast").status_code == 503
+    response = chat(policy["url"], model="provider-chat", max_tokens=4096)
+    assert response.status_code == 200 and response.json()["model"] == "local-fast"
+    assert policy["backend"].received[-1]["authorization"] == "Bearer provider-only-secret"
+    assert policy["backend"].received[-1]["payload"]["max_tokens"] == 256
+    assert policy_status(policy)["active_requests"] == 0
+    models = requests.get(policy["url"] + "/v1/models",
+        headers={"Authorization": "Bearer " + KEY}, timeout=5).json()["data"]
+    assert {model["id"] for model in models} == {"provider-chat"}
+    # A separately configured ordinary gateway retains its pre-policy contract.
+    ordinary = chat(running[0], max_tokens=4096)
+    assert ordinary.status_code == 200 and ordinary.json()["model"] == "local-fast"
+    assert policy["backend"].received[-1]["authorization"] is None
+    assert policy["backend"].received[-1]["payload"]["max_tokens"] == 256
+
+
+def test_policy_global_drain_counts_strict_stream_and_auto_request(policy):
+    backend = policy["backend"]
+    backend.stream_entered = threading.Event()
+    backend.stream_unblock = threading.Event()
+    backend.unblock = threading.Event()
+    with ThreadPoolExecutor() as pool:
+        strict = pool.submit(chat, policy["url"], model="local-fast", stream=True)
+        assert backend.stream_entered.wait(3)
+        backend.entered = threading.Event()
+        automatic = pool.submit(chat, policy["url"], model="local-auto")
+        try:
+            assert backend.entered.wait(3)
+            policy_publish(policy, generation=2, accepting=False)
+            status = policy_status(policy)
+            assert status["generation"] == 2 and not status["accepting"]
+            assert status["active_requests"] == 2
+            for alias in ("local-fast", "local-auto"):
+                assert chat(policy["url"], model=alias).status_code == 503
+            backend.unblock.set()
+            assert automatic.result(timeout=5).status_code == 200
+            assert policy_status(policy)["active_requests"] == 1
+        finally:
+            backend.unblock.set()
+            backend.stream_unblock.set()
+        response = strict.result(timeout=5)
+    assert response.status_code == 200 and "data: [DONE]" in response.text
+    assert len(backend.received) == 2
+    assert policy_status(policy)["active_requests"] == 0
+
+
+@pytest.mark.parametrize("close_at", ["tokenizer", "summary", None])
+def test_strict_compaction_obeys_policy_lease(policy, close_at):
+    backend = policy["backend"]
+    policy["server"].config.keep_last_messages = 1
+    history = [{"role": "user", "content": "earlier"},
+               {"role": "assistant", "content": "earlier answer"},
+               {"role": "user", "content": "continue"}]
+    backend.token_count = lambda body: 8000 if body["messages"] == history else 10
+    backend.tokenizer_entered = threading.Event()
+    backend.tokenizer_unblock = threading.Event()
+    backend.entered = threading.Event()
+    backend.unblock = threading.Event()
+    with ThreadPoolExecutor() as pool:
+        future = pool.submit(chat, policy["url"], model="local-fast", messages=history)
+        try:
+            assert backend.tokenizer_entered.wait(3)
+            assert policy_status(policy)["active_requests"] == 1
+            if close_at == "tokenizer":
+                policy_publish(policy, generation=2, accepting=False)
+            backend.tokenizer_unblock.set()
+            if close_at != "tokenizer":
+                assert backend.entered.wait(3)
+                assert policy_status(policy)["active_requests"] == 1
+                if close_at == "summary":
+                    policy_publish(policy, generation=2, accepting=False)
+            backend.unblock.set()
+            response = future.result(timeout=5)
+        finally:
+            backend.tokenizer_unblock.set()
+            backend.unblock.set()
+    assert response.status_code == (200 if close_at is None else 503)
+    assert len(backend.received) == {None: 2, "summary": 1, "tokenizer": 0}[close_at]
+    if close_at is None:
+        final = backend.received[-1]["payload"]
+        assert final["model"] == "local-fast"
+        assert final["messages"] != history
+        assert final["messages"][-1] == history[-1]
+    assert policy_status(policy)["active_requests"] == 0
+
+
+def test_strict_alias_rebinding_selects_exact_fallback_placement(policy):
+    second = ThreadingHTTPServer(("127.0.0.1", 0), Backend)
+    second.received = []
+    worker = threading.Thread(target=second.serve_forever, daemon=True)
+    worker.start()
+    try:
+        assert chat(policy["url"], model="local-fast").status_code == 200
+        base = f"http://127.0.0.1:{second.server_port}"
+        route = deepcopy(policy["state"]["route"])
+        route.update(base_url=base + "/v1", tokenizer_base_url=base, health_url=base + "/health",
+                     deployment_digest="b" * 64)
+        policy_publish(policy, generation=2, accepting=False)
+        path = policy["server"].registry_path
+        registry = json.loads(path.read_text())
+        registry["routes"]["local-fast"] = route
+        recovery_routes.atomic_json(path, registry)
+        assert chat(policy["url"], model="local-fast").status_code == 503
+        policy_publish(policy, generation=3, route=route, accepting=True)
+        strict = chat(policy["url"], model="local-fast")
+        assert strict.status_code == 200 and strict.json()["model"] == "local-fast"
+        assert strict.headers["X-Spark-Deployment"] == "b" * 64
+        assert strict.headers["X-Spark-Generation"] == "3"
+        assert len(policy["backend"].received) == len(second.received) == 1
+        models = requests.get(policy["url"] + "/v1/models",
+            headers={"Authorization": "Bearer " + KEY}, timeout=5).json()["data"]
+        assert {model["id"] for model in models} == {"local-auto", "local-fast"}
+        assert all(model["deployment_digest"] == "b" * 64 for model in models)
+    finally:
+        second.shutdown()
+        second.server_close()
+        worker.join()

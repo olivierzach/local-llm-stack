@@ -253,7 +253,7 @@ def test_failed_retry_does_not_stop_existing_deployment(planned, tmp_path, monke
     actions = []
     def call(p, n, action):
         actions.append(action)
-        if action == "status": return {"reservation": {"owner": p["owner"]}}
+        if action == "status": return {"reservation": {"owner": p["owner"], "digest": p["digest"]}}
         if action == "reserve": return {"existing": True}
         raise RuntimeError("lost connection")
     monkeypatch.setattr(cli, "call", call)

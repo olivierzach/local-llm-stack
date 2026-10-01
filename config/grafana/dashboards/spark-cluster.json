@@ -1,0 +1,1321 @@
+{
+  "uid": "spark-cluster",
+  "title": "Spark cluster: service, memory, fabric and recovery",
+  "schemaVersion": 39,
+  "version": 1,
+  "tags": [
+    "spark",
+    "read-only",
+    "recovery"
+  ],
+  "timezone": "browser",
+  "refresh": "10s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "editable": true,
+  "annotations": {
+    "list": []
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "DS_PROMETHEUS",
+        "label": "Prometheus",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {},
+        "options": []
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Target health: both nodes, engines and optional feeds",
+      "type": "stat",
+      "description": "0 means this target could not be collected. Other targets remain independent. Missing optional feeds do not stop the exporter.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "spark_monitor_target_up",
+          "legendFormat": "{{kind}} {{target}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unavailable",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Snapshot and target freshness",
+      "type": "timeseries",
+      "description": "Old samples are not live readings. Scrapes never trigger SSH.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "spark_monitor_snapshot_age_seconds",
+          "legendFormat": "snapshot age",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "time() - spark_monitor_target_last_success_timestamp_seconds",
+          "legendFormat": "{{kind}} {{target}} last success",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unavailable",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "GPU utilization (supported only)",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 6
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "spark_gpu_busy_ratio",
+          "legendFormat": "{{node}} GPU {{gpu}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "Unavailable",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "System/unified memory availability",
+      "type": "timeseries",
+      "description": "Linux system memory is the shared/unified pool on Spark. Do not add GPU framebuffer values to system RAM. Unsupported NVML memory fields are absent.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 6
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "spark_host_memory_available_bytes",
+          "legendFormat": "{{node}} available",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "spark_host_memory_total_bytes",
+          "legendFormat": "{{node}} total",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "noValue": "Unavailable",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "GPU memory (when driver supports it)",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "spark_gpu_memory_used_bytes",
+          "legendFormat": "{{node}} GPU {{gpu}} used",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "spark_gpu_memory_total_bytes",
+          "legendFormat": "{{node}} GPU {{gpu}} total",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "noValue": "Unavailable",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "GPU temperature and power availability",
+      "type": "timeseries",
+      "description": "Separate units indicated in legend; missing driver fields are unavailable, never zero.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "spark_gpu_temperature_celsius",
+          "legendFormat": "{{node}} \u00b0C",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "spark_gpu_power_watts",
+          "legendFormat": "{{node}} W",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unavailable",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "CPU busy fraction",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 22
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "1 - sum by(node)(rate(spark_host_cpu_seconds_total{mode=\"idle\"}[$__rate_interval])) / sum by(node)(rate(spark_host_cpu_seconds_total[$__rate_interval]))",
+          "legendFormat": "{{node}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "Unavailable",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "title": "Disk/cache space available",
+      "type": "timeseries",
+      "description": "Root and cache may share a filesystem; do not sum them.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 22
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "spark_disk_available_bytes",
+          "legendFormat": "{{node}} {{mount}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "noValue": "Unavailable",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "title": "Engine active / waiting requests",
+      "type": "timeseries",
+      "description": "One TP2 group is one deployment/replica, not two replicas. Native engine dimensions are retained, never summed into synthetic capacity.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 30
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "vllm:num_requests_running",
+          "legendFormat": "{{deployment}} engine {{engine}} active",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "vllm:num_requests_waiting",
+          "legendFormat": "{{deployment}} engine {{engine}} waiting",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unavailable",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "title": "Engine KV cache fraction",
+      "type": "timeseries",
+      "description": "Metric name depends on pinned vLLM release; unsupported series remain absent.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 30
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "vllm:kv_cache_usage_perc or vllm:gpu_cache_usage_perc",
+          "legendFormat": "{{deployment}} engine {{engine}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "Unavailable",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 11,
+      "title": "Engine TTFT p95",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 38
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by(deployment,engine,engine_id,le)(rate(vllm:time_to_first_token_seconds_bucket[$__rate_interval])))",
+          "legendFormat": "{{deployment}} engine {{engine}}{{engine_id}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unavailable",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 12,
+      "title": "Actual engine token rates",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 38
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(vllm:prompt_tokens_total[$__rate_interval])",
+          "legendFormat": "{{deployment}} engine {{engine}} prefill tokens/s",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "rate(vllm:generation_tokens_total[$__rate_interval])",
+          "legendFormat": "{{deployment}} engine {{engine}} generated tokens/s",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "noValue": "Unavailable",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 13,
+      "title": "Ingress observed TTFT / full request duration",
+      "type": "timeseries",
+      "description": "TTFT includes ingress time through actual first generated SSE token; absent for nonstream responses. Duration includes complete streaming response.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 46
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(spark_gateway_time_to_first_token_seconds_sum[$__rate_interval]) / rate(spark_gateway_time_to_first_token_seconds_count[$__rate_interval])",
+          "legendFormat": "{{alias}} {{backend}} {{mode}} SSE TTFT mean",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "rate(spark_gateway_request_duration_seconds_sum[$__rate_interval]) / rate(spark_gateway_request_duration_seconds_count[$__rate_interval])",
+          "legendFormat": "{{alias}} {{backend}} {{mode}} duration mean",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unavailable",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 14,
+      "title": "Ingress active requests and failures",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 46
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "spark_gateway_inflight",
+          "legendFormat": "{{alias}} {{backend}} {{mode}} active",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "rate(spark_gateway_errors_total[$__rate_interval])",
+          "legendFormat": "{{alias}} {{backend}} {{mode}} failures/s",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unavailable",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 15,
+      "title": "Physical cable TX / RX (RDMA per-rail fallback)",
+      "type": "timeseries",
+      "description": "Physical rates use mlx5 external-port tx_bytes_phy/rx_bytes_phy from one canonical NIC and one stable endpoint per cable. TX is that endpoint to its peer; RX is the reverse direction, never a sum. RX includes Ethernet header and FCS. Two valid samples are required; resets leave gaps. If physical rates are unavailable, separately labeled RDMA per-rail rates are shown, not cable totals. Neither view is a bandwidth benchmark.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 54
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "spark_fabric_physical_bits_per_second",
+          "legendFormat": "{{physical_link}} physical endpoint={{node}} peer={{peer}} {{direction}}",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "spark_fabric_observed_bits_per_second{transport=\"rdma\"} unless on(physical_link,direction) spark_fabric_physical_bits_per_second",
+          "legendFormat": "{{physical_link}} FALLBACK RDMA only {{node}} {{interface}} {{direction}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bps",
+          "noValue": "Unavailable",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 16,
+      "title": "Negotiated physical cable capacity (not observed throughput)",
+      "type": "timeseries",
+      "description": "One canonical NIC at one stable endpoint per mapped cable. Negotiated 200 Gb/s is capacity, not measured achievable throughput; two PCIe views never imply 400 Gb/s. Compare TX and RX separately, not their sum.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 54
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "spark_fabric_negotiated_bits_per_second",
+          "legendFormat": "{{physical_link}} {{node}} {{interface}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bps",
+          "noValue": "Unavailable",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 17,
+      "title": "Physical counter availability and logical-path mapping",
+      "type": "table",
+      "description": "Physical port availability requires both external-port byte counters. Cable availability describes the selected stable endpoint, never a sum of PCIe paths or peer endpoints. 0 means unsupported, inaccessible or missing; counters/rates are omitted rather than fabricated as zero. Availability does not guarantee a rate yet: two valid samples are required.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 62
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "spark_fabric_mapping_info",
+          "legendFormat": "{{physical_link}} {{node}} {{interface}} / {{rdma}} -> {{peer}}",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "spark_fabric_aggregation_available",
+          "legendFormat": "{{physical_link}} selected endpoint physical counters available",
+          "range": true
+        },
+        {
+          "refId": "C",
+          "expr": "spark_physical_port_available",
+          "legendFormat": "{{physical_link}} {{node}} {{interface}} physical counters available",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unavailable",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 18,
+      "title": "Physical port and RDMA errors / discards / link downs",
+      "type": "timeseries",
+      "description": "Physical counters describe the external port; RDMA counters remain separate. Each node is shown explicitly. Do not sum peer observations as cable errors.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 62
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(spark_rdma_rx_errors_total[$__rate_interval])",
+          "legendFormat": "{{node}} {{rdma}} RX errors/s",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "rate(spark_rdma_tx_discards_total[$__rate_interval])",
+          "legendFormat": "{{node}} {{rdma}} TX discards/s",
+          "range": true
+        },
+        {
+          "refId": "C",
+          "expr": "rate(spark_rdma_local_ack_timeout_err_total[$__rate_interval])",
+          "legendFormat": "{{node}} {{rdma}} ACK timeout/s",
+          "range": true
+        },
+        {
+          "refId": "D",
+          "expr": "rate(spark_physical_port_rx_crc_errors_total[$__rate_interval])",
+          "legendFormat": "{{node}} {{physical_link}} physical CRC errors/s",
+          "range": true
+        },
+        {
+          "refId": "E",
+          "expr": "rate(spark_physical_port_rx_discards_total[$__rate_interval])",
+          "legendFormat": "{{node}} {{physical_link}} physical RX discards/s",
+          "range": true
+        },
+        {
+          "refId": "F",
+          "expr": "rate(spark_physical_port_link_down_events_total[$__rate_interval])",
+          "legendFormat": "{{node}} {{physical_link}} physical link downs/s",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "noValue": "Unavailable",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 19,
+      "title": "Collective transport traffic (not NCCL attribution)",
+      "type": "timeseries",
+      "description": "Hardware port traffic includes all RDMA users; these read-only counters cannot isolate NCCL from other traffic. Not a synthetic benchmark or claimed link saturation.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 70
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(spark_rdma_tx_bytes_total[$__rate_interval]) * 8",
+          "legendFormat": "{{node}} {{rdma}} TX",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "rate(spark_rdma_rx_bytes_total[$__rate_interval]) * 8",
+          "legendFormat": "{{node}} {{rdma}} RX",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bps",
+          "noValue": "Unavailable",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 20,
+      "title": "RDMA congestion / link readiness",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 70
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(spark_rdma_np_ecn_marked_roce_packets_total[$__rate_interval])",
+          "legendFormat": "{{node}} {{rdma}} ECN packets/s",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "rate(spark_rdma_out_of_buffer_total[$__rate_interval])",
+          "legendFormat": "{{node}} {{rdma}} out-of-buffer/s",
+          "range": true
+        },
+        {
+          "refId": "C",
+          "expr": "spark_rdma_active",
+          "legendFormat": "{{node}} {{rdma}} active",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unavailable",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 21,
+      "title": "Recovery phase",
+      "type": "stat",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 78
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "spark_recovery_phase_info",
+          "legendFormat": "{{policy}} {{phase}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unavailable",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 22,
+      "title": "Recovery freshness and ingress lease remaining",
+      "type": "timeseries",
+      "description": "Negative lease remaining is expired, not permission to release GPU ownership.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 78
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "time() - spark_recovery_updated_timestamp_seconds",
+          "legendFormat": "{{policy}} summary age",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "spark_gateway_recovery_expires_at - time()",
+          "legendFormat": "ingress lease remaining",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unavailable",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 23,
+      "title": "Recovery events / transitions",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 86
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "increase(spark_recovery_events_total[$__range])",
+          "legendFormat": "{{policy}} {{event}}",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "spark_recovery_last_transition_seconds",
+          "legendFormat": "{{policy}} last transition seconds",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unavailable",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 24,
+      "title": "Recovery generation / quarantine / circuit",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 86
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "spark_recovery_generation",
+          "legendFormat": "{{policy}} generation",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "spark_recovery_quarantined_nodes",
+          "legendFormat": "{{policy}} quarantined nodes",
+          "range": true
+        },
+        {
+          "refId": "C",
+          "expr": "spark_recovery_circuit_open",
+          "legendFormat": "{{policy}} circuit open",
+          "range": true
+        },
+        {
+          "refId": "D",
+          "expr": "spark_gateway_recovery_active_requests",
+          "legendFormat": "policy active requests",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unavailable",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 25,
+      "title": "Engine configured capacity (not concurrency guarantees)",
+      "type": "timeseries",
+      "description": "Saved-plan configuration, not proof of a running engine. Check engine target health above. Context/output limits are per request; full-context concurrency requires qualification.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 94
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "spark_engine_configured_max_num_seqs",
+          "legendFormat": "{{deployment}} sequence slots",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "spark_engine_tensor_parallel_shards",
+          "legendFormat": "{{deployment}} TP shards",
+          "range": true
+        },
+        {
+          "refId": "C",
+          "expr": "spark_engine_configured_replica_count",
+          "legendFormat": "{{deployment}} configured replicas",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unavailable",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 26,
+      "title": "Unsupported measurements / collection errors",
+      "type": "table",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 94
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "spark_gpu_metric_available",
+          "legendFormat": "{{node}} GPU {{gpu}} {{metric}} supported",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "spark_monitor_target_error",
+          "legendFormat": "{{kind}} {{target}} {{reason}}",
+          "range": true
+        },
+        {
+          "refId": "C",
+          "expr": "spark_monitor_snapshot_fresh",
+          "legendFormat": "snapshot fresh",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unavailable",
+          "custom": {
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    }
+  ]
+}

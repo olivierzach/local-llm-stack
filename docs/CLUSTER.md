@@ -113,21 +113,33 @@ Attach also supplies the registry/key needed for clients targeting a peer gatewa
 
 ### Controller SSH from either Spark
 
-Initially bootstrap from a machine whose inventory SSH targets already work:
+Start from a machine with working inventory transports and independently verified
+Ed25519 host keys for every member. The trust JSON has
+`{version: 1, nodes: {NODE: {host_key: KEY}}}`; optional per-node `management`
+(`[{alias, address}]`) and `source_addresses` explicitly authorize independent
+paths. Do not manufacture trusted keys from the host being enrolled.
 
 ```bash
-.venv/bin/python scripts/configure-spark-peer-ssh.py
+# Read-only check:
+.venv/bin/python scripts/configure-spark-peer-ssh.py \
+  --inventory "$INVENTORY" --trust "$TRUST"
+# Only after approval to change peer SSH configuration:
+.venv/bin/python scripts/configure-spark-peer-ssh.py \
+  --inventory "$INVENTORY" --trust "$TRUST" --apply
 ```
 
-The two-node bootstrap generates node-local Ed25519 controller keys, installs
-public keys restricted to the fabric source addresses, verifies peer host keys
-through the already trusted SSH sessions, and adds managed peer aliases. It
-allows forwarding only to the peer's loopback port 4110 and disables agent
-forwarding. Private keys remain on their originating machine.
+The N-node bootstrap authenticates each handshake against the supplied host-key
+pin, generates node-local controller keys, installs source-restricted public keys
+and merges managed aliases without replacing unrelated entries. Private keys
+remain on their originating machine. Forwarding is restricted to peer loopback
+port 4110; agent forwarding and multiplex reuse are disabled. Interrupted writes
+retain rollback evidence rather than retrying an ambiguous mutation.
 
-The same inventory can then be used from either Spark. Calls targeting the local
-hostname execute locally; peer calls use direct fabric SSH. A model coordinator
-is a deployment setting, not the controller machine.
+The same inventory can then be used from either Spark. During bootstrap, calls targeting the local
+hostname execute locally after host-key verification; peer calls use explicit
+trusted paths. A model coordinator is a deployment setting, not the controller
+machine. See [SPARK_SCALING_RECOVERY_PLAN.md](SPARK_SCALING_RECOVERY_PLAN.md) for
+reviewed inventory admission/removal and separate peer trust revocation.
 
 ## Independent single-node inference
 

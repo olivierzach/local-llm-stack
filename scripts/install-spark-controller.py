@@ -14,7 +14,8 @@ import shutil
 import subprocess
 import sys
 
-COMMANDS = ('sparkctl', 'spark-gateway', 'spark-client', 'spark-loop', 'spark-vector')
+COMMANDS = ('sparkctl', 'spark-gateway', 'spark-client', 'spark-loop', 'spark-vector',
+            'spark-recover', 'spark-monitor', 'spark-node', 'spark-services')
 MARKER = {'format': 1, 'managed_by': 'install-spark-controller'}
 
 
@@ -26,6 +27,21 @@ def atomic_json(path, value):
     temporary = path.with_name(path.name + '.tmp')
     temporary.write_text(json.dumps(value, indent=2, sort_keys=True) + '\n')
     temporary.replace(path)
+
+
+def source_hashes(release):
+    """Receipt for the immutable Python/CLI payload, not mutable controller state."""
+    paths = subprocess.check_output(
+        ['git', '-C', str(release), 'ls-files', '-z', '--', 'scripts', 'tools'])
+    result = {}
+    for name in paths.decode().split('\0'):
+        if not name:
+            continue
+        path = release / name
+        if path.is_symlink() or not path.is_file():
+            raise RuntimeError('release payload must contain only regular files')
+        result[name] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return result
 
 
 def smoke(release):
@@ -52,6 +68,8 @@ def verify_release(release, revision, state):
     lock_hash = hashlib.sha256((release / 'tools/controller-requirements.lock').read_bytes()).hexdigest()
     if receipt.get('requirements_sha256') != lock_hash:
         raise RuntimeError('existing release dependency receipt does not match')
+    if 'source_sha256' in receipt and receipt['source_sha256'] != source_hashes(release):
+        raise RuntimeError('existing release payload has changed')
     smoke(release)
 
 
@@ -81,6 +99,7 @@ def prepare_release(bundle, revision, release, state):
             'format': 1, 'revision': revision,
             'requirements_sha256': hashlib.sha256(lock.read_bytes()).hexdigest(),
             'python': subprocess.check_output([str(python), '--version'], text=True).strip(),
+            'source_sha256': source_hashes(release),
         })
     except BaseException:
         shutil.rmtree(release)

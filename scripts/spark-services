@@ -1,0 +1,17 @@
+#!/usr/bin/env python3
+"""Host the private recovery stack independently of an interactive terminal."""
+from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
+from spark_cluster.services import main
+
+if __name__ == '__main__':
+    try:
+        raise SystemExit(main())
+    except KeyboardInterrupt:
+        raise SystemExit(130) from None
+    except Exception:
+        # Runtime exceptions can include supplied credentials or response bodies.
+        print('spark-services: operation refused or failed; check private configuration, release pins and service ownership', file=sys.stderr)
+        raise SystemExit(1) from None

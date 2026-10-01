@@ -151,6 +151,16 @@ def main(req):
             return {"authenticated": True, "models": [m["id"] for m in models["data"]]}
         if req["action"] != "up": raise RuntimeError("unknown gateway operation")
         definition = {k: req[k] for k in ("files", "port", "image")}
+        recovery_args = []
+        if req.get("recovery_state") is not None:
+            route_path = Path(req["recovery_state"])
+            if not route_path.is_absolute() or route_path.resolve() != route_path or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", route_path.name):
+                raise RuntimeError("recovery state requires a canonical absolute path")
+            info = route_path.parent.stat()
+            if info.st_uid != os.getuid() or info.st_mode & 0o077:
+                raise RuntimeError("recovery state directory must be private and owned by the gateway user")
+            definition["recovery_state"] = str(route_path)
+            recovery_args = ["--recovery-state", "/recovery/" + route_path.name]
         digest = hashlib.sha256(json.dumps(definition, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         name = "spark-gateway-" + digest[:12]
         if saved and saved["digest"] != digest:
@@ -162,7 +172,7 @@ def main(req):
         if (ROOT / "api-key").exists() and (ROOT / "api-key").read_text().strip() != req["api_key"]:
             raise RuntimeError("controller key differs from installed gateway; use the original credential file")
         run(["docker", "image", "inspect", req["image"], "--format", "{{.Id}}"])
-        allowed = {"scripts/context-guard-proxy.py", "tools/spark_cluster/gateway.py", "tools/spark_cluster/config.py", "tools/spark_cluster/__init__.py"}
+        allowed = {"scripts/context-guard-proxy.py", "tools/spark_cluster/gateway.py", "tools/spark_cluster/recovery_routes.py", "tools/spark_cluster/config.py", "tools/spark_cluster/__init__.py"}
         if set(req["files"]) != allowed: raise RuntimeError("unexpected gateway source files")
         source = ROOT / digest
         for path, content in req["files"].items(): write(source / path, content, 0o644)
@@ -174,14 +184,19 @@ def main(req):
             write(state, json.dumps(saved))
         c = checked(saved)
         if not c:
+            mounts = []
+            if recovery_args:
+                mounts = ["--user", f"{os.getuid()}:{os.getgid()}",
+                          "--mount", f"type=bind,src={route_path.parent},dst=/recovery"]
             identity = run(["docker", "create", "--name", name, "--label", "io.spark.gateway=" + digest,
                 "--network", "host", "--init", "--restart", "unless-stopped",
                 "--log-opt", "max-size=10m", "--log-opt", "max-file=3",
                 "--env-file", str(ROOT / "gateway.env"), "-e", "PYTHONPATH=/workspace/tools",
                 "--mount", f"type=bind,src={source},dst=/workspace,readonly",
                 "--mount", f"type=bind,src={ROOT / 'config'},dst=/registry,readonly",
+                *mounts,
                 "--entrypoint", "python", req["image"], "-m", "spark_cluster.gateway",
-                "--registry", "/registry/registry.json", "--port", str(req["port"])])
+                "--registry", "/registry/registry.json", "--port", str(req["port"]), *recovery_args])
             saved["id"] = identity
             write(state, json.dumps(saved))
         run(["docker", "start", saved["name"]])

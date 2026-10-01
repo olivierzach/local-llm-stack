@@ -1,0 +1,13 @@
+#!/usr/bin/env python3
+"""Read-only node, engine, fabric and recovery monitoring."""
+from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+from spark_cluster.monitor import main
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except (OSError, ValueError):
+        raise SystemExit("spark-monitor: invalid configuration or inaccessible input") from None

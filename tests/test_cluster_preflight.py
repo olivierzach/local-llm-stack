@@ -20,7 +20,10 @@ def setup(tmp_path, monkeypatch):
     (snapshot/'config.json').write_text('{}')
     (snapshot/'model.safetensors').write_bytes(b'fixture')
     report = {'reservation':None, 'research_window':'released', 'gpu_processes':[], 'gpu_containers':[],
-              'memory_mib':{'MemAvailable':120000}, 'fabric':[]}
+              'memory_mib':{'MemAvailable':120000},
+              'fabric':[dict(rail, carrier='1', mtu='1500',
+                             addresses=[{'addr_info':[{'family':'inet','local':rail['ip']}]}])
+                        for rail in req['node']['fabric']]}
     monkeypatch.setattr(node, 'STATE', tmp_path/'state')
     monkeypatch.setattr(node, 'verify_host', lambda n:None)
     monkeypatch.setattr(node, 'doctor', lambda n:copy.deepcopy(report))

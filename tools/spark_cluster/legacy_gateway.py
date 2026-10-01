@@ -27,7 +27,11 @@ class LegacyGatewayHandler(gateway.GatewayHandler):
             return guard.ContextGuardHandler.incoming_headers(self)
         return super().incoming_headers()
 
-    def do_POST(self):
+    def _dispatch_chat(self):
+        # Run under GatewayHandler's request lifecycle: initialize once before
+        # peeking at the cached body, then retain it for either dispatch path.
+        self._legacy = False
+        self.__dict__.pop('_registry_snapshot', None)
         if self.parsed_path() != '/v1/chat/completions':
             self._legacy = True
             return guard.ContextGuardHandler.do_POST(self)
@@ -50,7 +54,7 @@ class LegacyGatewayHandler(gateway.GatewayHandler):
         if alias not in self._registry_snapshot['routes']:
             self._legacy = True
             return guard.ContextGuardHandler.do_POST(self)
-        return super().do_POST()
+        return super()._dispatch_chat()
 
     def do_GET(self):
         # Preserve legacy endpoints and virtual-key behavior. Only the master
@@ -103,11 +107,8 @@ def serve(registry_path, host, port, key, config):
     if not isinstance(key, str) or len(key) < 24:
         raise ValueError('registry overrides require the existing LiteLLM master key (at least 24 characters)')
     gateway.validate_registry(gateway.read(registry_path))
-    server = guard.ContextGuardServer((host, port), LegacyGatewayHandler, config)
-    server.registry_path = Path(registry_path)
-    server.api_key = key
-    server.replica_pool = gateway.ReplicaPool()
-    return server
+    return gateway.GatewayServer((host, port), LegacyGatewayHandler, config,
+                                 registry_path=registry_path, key=key)
 
 
 def main():
