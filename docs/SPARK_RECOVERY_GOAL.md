@@ -165,6 +165,19 @@ No production SSH, model requests, service installation, routing changes or work
 restarts were performed for this readiness review. The September 16 observations
 below remain historical evidence, not a fresh claim about today's running service.
 
+## PR #1 review follow-up
+
+The older PR overwrote startup artifacts before checking GPU reservation ownership.
+The recovery branch already rejects an output directory containing a different
+exact plan before writing artifacts or contacting nodes. A retained regression now
+checks that rejected reuse preserves the original plan, Compose files and ready
+endpoint byte-for-byte. The targeted controller and recovery CLI suite passed
+**85 tests**. An isolated actual CLI entrypoint smoke returned failure for the
+conflicting plan, preserved every artifact and made zero remote calls.
+
+This verifies the local artifact-preservation contract, not physical two-node
+failover or permission to enable recovery. No Spark workers or routing were changed.
+
 ## Verified local evidence — September 16, 2026
 
 - Final worktree gate: `.venv/bin/python -m pytest` — **656 passed, 4 skipped**

@@ -249,6 +249,32 @@ def test_start_failure_rolls_back_new_reservation(planned, tmp_path, monkeypatch
     assert not (tmp_path / "endpoint.json").exists()
 
 
+def test_rejected_plan_preserves_existing_recovery_artifacts(inputs, planned, tmp_path, monkeypatch):
+    artifacts = {
+        "plan.json": planned,
+        "endpoint.json": {**planned["endpoint"], "ready": True, "owner": planned["owner"],
+                          "digest": planned["digest"]},
+        **{f"compose-{node_id}.json": compose for node_id, compose in planned["compose"].items()},
+    }
+    before = {}
+    for name, value in artifacts.items():
+        content = json.dumps(value, indent=2).encode()
+        (tmp_path / name).write_bytes(content)
+        before[name] = content
+    inv, recipe, deployment = copy.deepcopy(inputs)
+    deployment.update(nodes=["66f1"], coordinator="66f1")
+    replacement = config.plan(inv, recipe, deployment)
+
+    def refuse_transport(*args, **kwargs):
+        pytest.fail("conflicting output must be rejected before contacting any node")
+
+    monkeypatch.setattr(cli, "call", refuse_transport)
+    with pytest.raises(config.ConfigError):
+        cli.up(replacement, 10, tmp_path)
+    assert {path.name: path.read_bytes() for path in tmp_path.iterdir()} == before
+    config.validate_saved_plan(config.read(tmp_path / "plan.json"))
+
+
 def test_failed_retry_does_not_stop_existing_deployment(planned, tmp_path, monkeypatch):
     actions = []
     def call(p, n, action):
