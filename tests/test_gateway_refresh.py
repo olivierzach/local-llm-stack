@@ -7,8 +7,14 @@ from pathlib import Path
 import stat
 import sys
 from types import SimpleNamespace
+from contextlib import contextmanager
+from http.server import ThreadingHTTPServer
+import threading
 
 import pytest
+import requests
+
+from test_cluster_gateway import Backend, KEY
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('gateway_refresh', ROOT / 'scripts/refresh-spark-gateway-policy.py')
@@ -30,7 +36,7 @@ def tree(path):
 
 @pytest.fixture
 def setup_refresh(tmp_path, monkeypatch):
-    def setup(*, policy=False, old_helper=False):
+    def setup(*, policy=False, old_helper=False, real_sources=False):
         base, release, installed = (tmp_path / name for name in ('base', 'release', 'installed'))
         old = {
             refresh.FILES[0]: 'PROXY = "old"\r\n',
@@ -45,11 +51,19 @@ def setup_refresh(tmp_path, monkeypatch):
                refresh.GATEWAY: 'from .recovery_routes import TOKEN\nfrom .config import VERSION\n',
                'tools/spark_cluster/config.py': 'VERSION = "new-config"\n',
                refresh.FILES[0]: 'PROXY = "new"\n'}
-        for name, source in new.items():
+        base_old = {**old, refresh.LEGACY: '# pre-recovery legacy adapter\n'}
+        base_new = {**new, refresh.LEGACY: '# matching legacy adapter\n'}
+        if real_sources:
+            historical = ROOT / 'tests/fixtures/pre_recovery_gateway'
+            new = {name: (ROOT / name).read_text() for name in refresh.FILES}
+            old = dict(new)
+            base_old = {**old, refresh.LEGACY: (historical / 'legacy_gateway.py').read_text()}
+            base_new = {**new, refresh.LEGACY: (ROOT / refresh.LEGACY).read_text()}
+        for name, source in base_new.items():
             put(release / name, source.encode())
         for name in refresh.BASE_FILES:
-            if name in old:
-                put(base / name, old[name].encode(), 0o640)
+            if name in base_old:
+                put(base / name, base_old[name].encode(), 0o640)
         definition = {'files': old, 'port': 4110, 'image': 'python:test'}
         recovery = None
         if policy:
@@ -82,7 +96,7 @@ def setup_refresh(tmp_path, monkeypatch):
                      'HostConfig': {'NetworkMode': 'host', 'Init': True, 'RestartPolicy': {'Name': 'unless-stopped'}}}
         containers = {name: container}
         events = []
-        runtime = SimpleNamespace(fail_ready=False, base_restarts=[])
+        runtime = SimpleNamespace(fail_ready=False, base_restarts=[], on_base_restart=None)
 
         def docker(argv):
             events.append(argv)
@@ -93,6 +107,8 @@ def setup_refresh(tmp_path, monkeypatch):
                     {'Type': 'bind', 'Source': str(base / 'tools/spark_cluster'), 'Destination': '/app/spark_cluster'}]}])
             if argv == ['docker', 'restart', 'base-container']:
                 runtime.base_restarts.append(tree(base))
+                if runtime.on_base_restart:
+                    runtime.on_base_restart()
                 return 'base-container'
             if argv[:3] == ['docker', 'image', 'inspect']:
                 return 'sha256:actual-image'
@@ -139,7 +155,8 @@ def setup_refresh(tmp_path, monkeypatch):
             open=lambda *a, **kw: io.BytesIO(b'{"data": []}')))
         monkeypatch.setattr(refresh.subprocess, 'run', lambda *a, **kw: SimpleNamespace(returncode=0))
         args = SimpleNamespace(root=base, output=tmp_path / 'receipt', apply=True,
-                               expected_source_sha256=refresh.sha(old[refresh.GATEWAY].encode()), expected_module_sha256={})
+                               expected_source_sha256=refresh.sha(old[refresh.GATEWAY].encode()),
+                               expected_module_sha256={refresh.LEGACY: refresh.sha(base_old[refresh.LEGACY].encode())})
         node = {'hostname': installer.platform.node(), 'architecture': installer.platform.machine()}
         return SimpleNamespace(base=base, release=release, installed=installed, old=old, new=new,
                                digest=digest, args=args, node=node, events=events, containers=containers,
@@ -147,20 +164,161 @@ def setup_refresh(tmp_path, monkeypatch):
     return setup
 
 
-def load_gateway(snapshot, monkeypatch):
-    """Exercise relative imports from the on-disk bundle, not the controller modules."""
-    package_path = snapshot / 'tools/spark_cluster'
-    package = importlib.util.spec_from_file_location('refresh_test_package', package_path / '__init__.py',
-                                                   submodule_search_locations=[str(package_path)])
-    module = importlib.util.module_from_spec(package)
-    monkeypatch.setitem(sys.modules, package.name, module)
-    package.loader.exec_module(module)
-    for name in ('config', 'recovery_routes', 'gateway'):
-        spec = importlib.util.spec_from_file_location(package.name + '.' + name, package_path / (name + '.py'))
-        module = importlib.util.module_from_spec(spec)
-        monkeypatch.setitem(sys.modules, spec.name, module)
-        spec.loader.exec_module(module)
-    return module
+@contextmanager
+def running_legacy(base, registry, monkeypatch):
+    """Load the installed ingress payload afresh, as a container restart does."""
+    with monkeypatch.context() as isolated:
+        isolated.setattr(sys, 'dont_write_bytecode', True)
+        isolated.setitem(sys.modules, 'spark_legacy_guard', sys.modules.get('spark_legacy_guard'))
+        package_path = base / 'tools/spark_cluster'
+        spec = importlib.util.spec_from_file_location('refresh_test_package', package_path / '__init__.py',
+                                                     submodule_search_locations=[str(package_path)])
+        package = importlib.util.module_from_spec(spec)
+        isolated.setitem(sys.modules, spec.name, package)
+        spec.loader.exec_module(package)
+        for name in ('config', 'recovery_routes', 'gateway', 'legacy_gateway'):
+            path = package_path / (name + '.py')
+            if not path.exists():
+                continue
+            spec = importlib.util.spec_from_file_location(package.__name__ + '.' + name, path)
+            module = importlib.util.module_from_spec(spec)
+            isolated.setitem(sys.modules, spec.name, module)
+            spec.loader.exec_module(module)
+            setattr(package, name, module)
+        guard = package.legacy_gateway.guard
+        config = guard.build_config(guard.parser().parse_args([]))
+        config.headroom_tokens = 128
+        config.discover_model_context = False
+        server = package.legacy_gateway.serve(registry, '127.0.0.1', 0, KEY, config)
+        with running_http(server) as url:
+            yield url
+
+
+@contextmanager
+def running_http(server):
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f'http://127.0.0.1:{server.server_port}'
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+
+@pytest.fixture
+def routed_backend(tmp_path):
+    backend = ThreadingHTTPServer(('127.0.0.1', 0), Backend)
+    backend.received = []
+    backend.strict_tokenizer_model = 'physical-model'
+    with running_http(backend) as url:
+        registry = tmp_path / 'base-registry.json'
+        put(registry, json.dumps({'version': 1, 'routes': {'local-fast': {
+            'base_url': url + '/v1', 'upstream_model': 'physical-model',
+            'health_url': url + '/health', 'tokenizer_base_url': url,
+            'context_tokens': 4096, 'max_output_tokens': 256,
+            'capabilities': {'text': True, 'vision': False, 'tools': False, 'streaming': True},
+        }}}).encode())
+        yield backend, registry
+
+
+def assert_migrated_chat(base, registry, backend, monkeypatch, stream=False):
+    before = len(backend.received)
+    with running_legacy(base, registry, monkeypatch) as url:
+        assert requests.get(url + '/health', timeout=5).status_code == 200
+        response = requests.post(url + '/v1/chat/completions',
+                                 headers={'Authorization': 'Bearer ' + KEY},
+                                 json={'model': 'local-fast', 'messages': [{'role': 'user', 'content': 'hello'}],
+                                       'max_tokens': 128, 'stream': stream}, timeout=5)
+        assert response.status_code == 200, response.text
+        assert response.headers['X-Context-Limit'] == '4096'
+        assert response.headers['X-Context-Input-Tokens'] == '10'
+        if stream:
+            assert 'data: [DONE]' in response.text
+        else:
+            assert response.json()['choices'][0]['message']['content'] == 'ready'
+    assert len(backend.received) == before + 1
+    assert backend.received[-1]['payload']['model'] == 'physical-model'
+    assert backend.received[-1]['authorization'] is None
+    assert backend.tokenizer_model == 'physical-model'
+
+def assert_mixed_ingress_failure(base, registry, backend, monkeypatch):
+    """The historical adapter still serves health while routed chats disconnect."""
+    before = list(backend.received)
+    with running_legacy(base, registry, monkeypatch) as url:
+        assert requests.get(url + '/health', timeout=5).status_code == 200
+        with pytest.raises(requests.ConnectionError):
+            requests.post(url + '/v1/chat/completions', headers={'Authorization': 'Bearer ' + KEY},
+                          json={'model': 'local-fast', 'messages': [{'role': 'user', 'content': 'hello'}],
+                                'max_tokens': 128}, timeout=5)
+    assert backend.received == before
+
+
+
+@pytest.mark.parametrize('stream', [False, True])
+def test_refresh_migrates_pre_recovery_base_ingress(setup_refresh, routed_backend, monkeypatch, stream):
+    case = setup_refresh(real_sources=True)
+    backend, registry = routed_backend
+    before = tree(case.base)
+    assert_mixed_ingress_failure(case.base, registry, backend, monkeypatch)
+    case.runtime.on_base_restart = lambda: assert_migrated_chat(case.base, registry, backend, monkeypatch, stream)
+    report = refresh.refresh(case.args, 'test', case.node)
+    assert report['passed']
+    for name, (source, mode) in before.items():
+        assert (case.args.output / 'base-before' / name).read_bytes() == source
+        assert stat.S_IMODE((case.base / name).stat().st_mode) == mode
+    assert refresh.LEGACY not in report['managed_source_sha256']
+    assert refresh.sha((case.base / refresh.LEGACY).read_bytes()) == report['base_sources'][refresh.LEGACY]['after_sha256']
+
+
+def test_failed_refresh_restores_pre_recovery_base_ingress(setup_refresh, routed_backend, monkeypatch):
+    case = setup_refresh(real_sources=True)
+    backend, registry = routed_backend
+    before = tree(case.base)
+    assert_mixed_ingress_failure(case.base, registry, backend, monkeypatch)
+
+    def restarted():
+        if len(case.runtime.base_restarts) == 1:
+            assert_migrated_chat(case.base, registry, backend, monkeypatch)
+        else:
+            assert_mixed_ingress_failure(case.base, registry, backend, monkeypatch)
+
+    case.runtime.on_base_restart = restarted
+    case.runtime.fail_ready = True
+    with pytest.raises(RuntimeError, match='injected mid-restart'):
+        refresh.refresh(case.args, 'test', case.node)
+    assert tree(case.base) == before
+    assert json.loads((case.args.output / 'refresh.json').read_bytes())['rolled_back']
+    assert_mixed_ingress_failure(case.base, registry, backend, monkeypatch)
+
+
+def test_partial_base_write_failure_restores_all_dependencies(setup_refresh, monkeypatch):
+    case = setup_refresh()
+    before = tree(case.base)
+    original_put = refresh.put
+
+    def fail_legacy_write(path, value):
+        if path == case.base / refresh.LEGACY:
+            raise OSError('injected legacy source write failure')
+        return original_put(path, value)
+
+    monkeypatch.setattr(refresh, 'put', fail_legacy_write)
+    with pytest.raises(OSError, match='injected legacy source write'):
+        refresh.refresh(case.args, 'test', case.node)
+    assert tree(case.base) == before
+    assert not case.runtime.base_restarts
+    assert json.loads((case.args.output / 'refresh.json').read_bytes())['rolled_back']
+
+
+def test_unreviewed_legacy_adapter_is_not_overwritten(setup_refresh):
+    case = setup_refresh()
+    case.args.expected_module_sha256 = {}
+    before = tree(case.base)
+    with pytest.raises(RuntimeError, match='base source changed'):
+        refresh.refresh(case.args, 'test', case.node)
+    assert tree(case.base) == before
+    assert not case.args.output.exists()
+    assert not case.runtime.base_restarts
 
 
 def test_refresh_stages_complete_sources_before_restart(setup_refresh, monkeypatch):
@@ -170,8 +328,7 @@ def test_refresh_stages_complete_sources_before_restart(setup_refresh, monkeypat
     snapshot = case.installed / saved['digest']
     for name, source in case.new.items():
         assert (snapshot / name).read_bytes() == source.encode()
-    assert load_gateway(snapshot, monkeypatch).TOKEN == 'new-helper'
-    assert load_gateway(case.base, monkeypatch).VERSION == 'new-config'
+    assert refresh.LEGACY not in report['managed_source_sha256']
     assert case.runtime.base_restarts[0][refresh.HELPER][0] == case.new[refresh.HELPER].encode()
     assert stat.S_IMODE((case.base / refresh.GATEWAY).stat().st_mode) == 0o640
     assert not (case.installed / case.digest / refresh.HELPER).exists()
@@ -197,7 +354,6 @@ def test_mid_restart_failure_restores_sources_and_fencing(setup_refresh, monkeyp
     assert {name: refresh.capture(case.installed / name) for name in before_controls} == before_controls
     saved = json.loads((case.installed / 'state.json').read_bytes())
     rollback = case.installed / saved['digest']
-    assert load_gateway(rollback, monkeypatch).VERSION == 'old'
     assert {name: (rollback / name).read_bytes() for name in case.old} == {name: value.encode() for name, value in case.old.items()}
     assert (rollback / refresh.HELPER).is_file()
     receipt = json.loads((case.args.output / 'refresh.json').read_bytes())
@@ -226,7 +382,7 @@ def test_policy_refresh_keeps_private_mount_identity_and_lifecycle(setup_refresh
     assert tree(case.recovery.parent) == before
 
 
-@pytest.mark.parametrize('name', [refresh.GATEWAY, refresh.HELPER, 'tools/spark_cluster/config.py'])
+@pytest.mark.parametrize('name', refresh.BASE_FILES)
 def test_stale_base_source_is_not_overwritten(setup_refresh, name):
     case = setup_refresh()
     put(case.base / name, b'UNRELATED = "user work"\n', 0o600)
@@ -242,7 +398,7 @@ def test_stale_base_source_is_not_overwritten(setup_refresh, name):
 def test_reviewed_dependency_hash_allows_explicit_change(setup_refresh):
     case = setup_refresh()
     put(case.base / refresh.HELPER, b'TOKEN = "reviewed-existing-helper"\n')
-    case.args.expected_module_sha256 = {refresh.HELPER: refresh.sha((case.base / refresh.HELPER).read_bytes())}
+    case.args.expected_module_sha256[refresh.HELPER] = refresh.sha((case.base / refresh.HELPER).read_bytes())
     report = refresh.refresh(case.args, 'test', case.node)
     assert (case.base / refresh.HELPER).read_bytes() == case.new[refresh.HELPER].encode()
     assert report['base_sources'][refresh.HELPER]['before_sha256'] == case.args.expected_module_sha256[refresh.HELPER]

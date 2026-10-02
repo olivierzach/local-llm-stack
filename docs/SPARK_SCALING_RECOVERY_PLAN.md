@@ -172,7 +172,14 @@ Inventory removal uses `spark-node remove --inventory "$OLD" --node "$NODE"
 unknown ownership is refused. Peer trust revocation is a separate approved
 `configure-spark-peer-ssh.py --inventory "$OLD" --trust "$TRUST" --remove "$NODE"
 --apply`, performed while the old inventory and trusted peer paths remain available.
-Do not delete the old inventory/trust first.
+The command acquires the target's durable GPU workload admission lease before
+checking idleness and holds it across every peer revocation. It prints a
+`removal_id` and exact `removal_guard` to stderr before acquisition; preserve that
+intent and the final receipt. Only acknowledged completion releases the lease.
+After a partial/ambiguous failure, inspect the retained results and resume with
+the same inventory, trust and public key plus `--removal-id "$REMOVAL_ID"`.
+Do not manually release the retained guard, discard the old inventory/trust, or
+try a new operation ID before reconciling the interrupted revocation.
 
 Local regressions cover N-peer merge/remove preservation, pinned handshakes,
 rollback and lost replies, candidate admission, missing tools, offline peers and

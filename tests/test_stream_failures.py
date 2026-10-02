@@ -14,7 +14,7 @@ import requests
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
-from spark_cluster import gateway, legacy_gateway
+from spark_cluster import gateway, legacy_gateway, recovery_routes
 
 KEY = 'synthetic-routing-key-0000000000000000'
 DELTA = b'data: {"choices":[{"delta":{"content":"partial"}}]}\n\n'
@@ -69,6 +69,9 @@ class Backend(BaseHTTPRequestHandler):
                 self.server.unblock.wait(3)
             elif mode == 'gated':
                 self.server.unblock.wait(3)
+                self.wfile.write(FINISH + DONE)
+            elif mode == 'draining':
+                self.server.unblock.wait()
                 self.wfile.write(FINISH + DONE)
             elif mode == 'cancel':
                 # A later write detects the client's TCP reset and lets us
@@ -322,6 +325,148 @@ def test_close_without_recovery_does_not_wait_for_active_stream(stack):
             closer.join(5)
         assert b'[DONE]' in b'\n'.join(lines)
     await_released(stack)
+
+
+@pytest.fixture
+def recovery_stack(tmp_path):
+    backend = ThreadingHTTPServer(('127.0.0.1', 0), Backend)
+    backend.mode = 'draining'
+    backend.available = True
+    backend.received = []
+    backend.unblock = threading.Event()
+    backend.closed = threading.Event()
+    base = f'http://127.0.0.1:{backend.server_port}'
+    route = {'base_url': base + '/v1', 'health_url': base + '/health',
+             'tokenizer_base_url': base, 'deployment_digest': 'a' * 64,
+             'upstream_model': 'local-fast', 'model_root': '/cache/test',
+             'context_tokens': 8192, 'max_output_tokens': 128,
+             'capabilities': {'text': True, 'tools': True, 'vision': False, 'streaming': True}}
+    registry_path = tmp_path / 'registry.json'
+    registry_path.write_text(json.dumps({'version': 1, 'routes': {'local-fast': route}}))
+    state_path = tmp_path / 'recovery' / 'route.json'
+    server = gateway.serve(registry_path, '127.0.0.1', 0, KEY, recovery_state=state_path)
+    server.config.timeout_s = 10
+    input_started, body_started = threading.Event(), threading.Event()
+    handlers, connections = [], []
+
+    class ObservedHandler(gateway.GatewayHandler):
+        def handle_one_request(self):
+            handlers.append(threading.current_thread())
+            connections.append(self.connection)
+            input_started.set()
+            return super().handle_one_request()
+
+        def read_body(self):
+            body_started.set()
+            return super().read_body()
+
+    server.RequestHandlerClass = ObservedHandler
+    workers = [threading.Thread(target=s.serve_forever, daemon=True) for s in (backend, server)]
+    for worker in workers:
+        worker.start()
+    now = time.time()
+    recovery_routes.write_state(state_path, {
+        'version': 1, 'policy': 'agent', 'authority': 'authority-one', 'generation': 1,
+        'alias': 'local-auto', 'accepting': True, 'route': route, 'mode': 'fallback',
+        'reason': 'qualified single', 'issued_at': now, 'expires_at': now + 30,
+    }, gateway.validate_registry)
+    yield SimpleNamespace(gateway=server, first=backend, path=state_path,
+                          url=f'http://127.0.0.1:{server.server_port}',
+                          input_started=input_started, body_started=body_started,
+                          handlers=handlers)
+    backend.unblock.set()
+    # Also clean up deterministically against the pre-fix implementation.
+    for connection in connections:
+        try:
+            connection.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+    for s in (server, backend):
+        s.shutdown()
+        s.server_close()
+    for worker in workers + handlers:
+        worker.join(5)
+        assert not worker.is_alive()
+
+
+def close_recovery_gateway(stack):
+    closing, closed = threading.Event(), threading.Event()
+
+    def close():
+        stack.gateway.shutdown()
+        closing.set()
+        stack.gateway.server_close()
+        closed.set()
+
+    worker = threading.Thread(target=close, daemon=True)
+    worker.start()
+    return worker, closing, closed
+
+
+@pytest.mark.parametrize('incomplete', ['idle', 'headers', 'body'])
+def test_recovery_shutdown_cancels_incomplete_input_and_releases_singleton(recovery_stack, incomplete):
+    stack = recovery_stack
+    client = socket.create_connection(('127.0.0.1', stack.gateway.server_port), timeout=3)
+    closer = None
+    try:
+        if incomplete == 'headers':
+            client.sendall(b'POST /v1/chat/completions HTTP/1.1\r\nHost: localhost\r\n')
+        elif incomplete == 'body':
+            client.sendall(
+                f'POST /v1/chat/completions HTTP/1.1\r\nHost: localhost\r\n'
+                f'Authorization: Bearer {KEY}\r\nContent-Length: 1000\r\n\r\n{{'.encode())
+            assert stack.body_started.wait(3)
+        assert stack.input_started.wait(3)
+        assert stack.gateway.recovery.active == 0
+        closer, closing, closed = close_recovery_gateway(stack)
+        assert closing.wait(3)
+        assert closed.wait(3)
+        assert not stack.first.received
+        replacement = recovery_routes.RecoveryRoutes(stack.path, gateway.validate_registry)
+        replacement.close()
+    finally:
+        client.close()
+        if closer is not None:
+            closer.join(5)
+            assert not closer.is_alive()
+    for handler in stack.handlers:
+        handler.join(3)
+        assert not handler.is_alive()
+
+
+def test_recovery_shutdown_drains_admitted_stream_before_releasing_singleton(recovery_stack):
+    stack = recovery_stack
+    closer = None
+    try:
+        with post(stack, streaming_client=True) as response:
+            lines = response.iter_lines(chunk_size=1)
+            assert next(lines) == DELTA.splitlines()[0]
+            assert stack.gateway.recovery.active == 1
+            closer, closing, closed = close_recovery_gateway(stack)
+            assert closing.wait(3)
+            deadline = time.monotonic() + 3
+            while stack.gateway.socket.fileno() != -1 and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert stack.gateway.socket.fileno() == -1
+            assert not closed.is_set()
+            assert stack.gateway.recovery.active == 1
+            with pytest.raises(BlockingIOError):
+                recovery_routes.RecoveryRoutes(stack.path, gateway.validate_registry)
+            stack.first.unblock.set()
+            remainder = b'\n'.join(lines)
+            assert b'finish_reason' in remainder and b'[DONE]' in remainder
+        assert closed.wait(3)
+        assert stack.gateway.recovery.active == 0
+        replacement = recovery_routes.RecoveryRoutes(stack.path, gateway.validate_registry)
+        replacement.close()
+    finally:
+        stack.first.unblock.set()
+        if closer is not None:
+            closer.join(5)
+            assert not closer.is_alive()
+    for handler in stack.handlers:
+        handler.join(3)
+        assert not handler.is_alive()
 
 
 def test_older_transport_fallback_preserves_stream():

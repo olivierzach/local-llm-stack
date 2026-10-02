@@ -240,7 +240,7 @@ def fence(request):
     processes = set(run(["nvidia-smi", "--query-compute-apps=pid", "--format=csv,noheader"]).splitlines())
     owned_pids = set()
     for item in items:
-        if item["State"]["Status"] == "running":
+        if item["State"]["Status"] in ("running", "paused"):
             owned_pids.update(line.strip() for line in run(["docker", "top", item["Id"], "-eo", "pid"]).splitlines()[1:])
     if processes - owned_pids:
         raise RuntimeError("unowned GPU process prevents fencing")

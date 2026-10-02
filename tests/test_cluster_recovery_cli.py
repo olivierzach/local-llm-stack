@@ -134,6 +134,69 @@ def test_isolation_receipt_must_cover_every_exact_plan_and_private_registry(rig,
         adapter.isolation(c.refs())
 
 
+def test_runbook_adopts_isolation_before_qualification(rig, tmp_path, monkeypatch):
+    original, nodes, clock, _, _ = rig
+    staging = recovery.load_artifact(original.policy["preferred"]["qualification"])["staging"]
+    policy = copy.deepcopy(original.policy)
+    for ref in [policy["preferred"], *policy["fallbacks"]]:
+        ref["qualification"] = None
+    policy_path = tmp_path / "runbook-policy.json"
+    directory = tmp_path / "runbook-authority"
+    recovery.recovery_routes.atomic_json(policy_path, policy)
+    recovery.main(["init", "--policy", str(policy_path), "--state-dir", str(directory), "--apply"])
+
+    def controller():
+        loaded = recovery.load_policy(policy_path)
+        nodes.policy = loaded
+        journal = recovery.Journal(directory, loaded, clock=clock.wall)
+        return recovery.Controller(loaded, journal, nodes, wall=clock.wall,
+                                   monotonic=clock.mono, sleep=clock.advance)
+
+    current = controller()
+    current.publish(None, False, "preparing-qualification")
+    before = {key: current.s[key] for key in ("authority", "epoch", "generation")}
+
+    def isolation(refs):
+        adapter = recovery.RealAdapter(current.policy, directory)
+        monkeypatch.setattr(adapter, "gateway_status", nodes.gateway_status)
+        return adapter.isolation(refs)
+
+    monkeypatch.setattr(nodes, "isolation", isolation)
+    monkeypatch.setattr(nodes, "session", lambda: nullcontext(None), raising=False)
+
+    class InferenceReached(Exception):
+        pass
+
+    def chat(*args):
+        raise InferenceReached
+
+    output = directory / "qualification.json"
+    with pytest.raises(config.ConfigError):
+        recovery.qualify(current, current.policy["preferred"], staging, output, chat=chat)
+    assert not output.exists()
+    receipt = {"version": 1, "policy": policy["id"], "gateway_url": policy["gateway"]["url"],
+               "registry": policy["gateway"]["registry"], "route_state": policy["gateway"]["route_state"],
+               "plan_sha256": [ref["sha256"] for ref in current.refs()], "exclusive_ingress": True,
+               "legacy_endpoints_blocked": True, "independent_management": True,
+               "independent_serving": True, "approved_by": "test-operator",
+               "evidence": list(staging.values())}
+    isolation_path = directory / "approved-isolation.json"
+    recovery.recovery_routes.atomic_json(isolation_path, receipt)
+    policy["gateway"]["isolation"] = {"path": str(isolation_path),
+                                     "sha256": recovery.digest_file(isolation_path)}
+    recovery.recovery_routes.atomic_json(policy_path, policy)
+    recovery.main(["init", "--policy", str(policy_path), "--state-dir", str(directory),
+                   "--adopt-receipts", "--apply"])
+    current = controller()
+    assert {key: current.s[key] for key in before} == before
+    with pytest.raises(InferenceReached):
+        recovery.qualify(current, current.policy["preferred"], staging, output, chat=chat)
+    assert not current.s["enabled"] and not current.s["route"]["accepting"]
+    assert not recovery.load_artifact({"path": str(output),
+                                      "sha256": recovery.digest_file(output)})["checks"]["text"]
+    assert nodes.events == []
+
+
 def test_qualification_rejects_wrong_tool_arguments_and_retains_failed_receipt(rig, monkeypatch):
     c, nodes, clock, _, _ = rig
     c.s["enabled"] = False
@@ -371,11 +434,7 @@ def test_selected_single_disappearing_during_start_uses_other_qualified_survivor
     assert c.s["retry_count"] == 1
 
 
-@pytest.mark.parametrize("failure", [None, "startup", "preparation"])
-def test_trusted_coordinator_switch_restores_exact_target_or_exact_previous(rig, failure, monkeypatch, capsys):
-    c, nodes, clock, _, policy_path = rig
-    monkeypatch.setattr(recovery.time, "time", clock.wall)
-    c.tick()
+def coordinator_target(c):
     original = recovery.load_plan(c.s["preferred"])
     deployment = {**original["deployment"], "coordinator": "66f1", "name": "approved-coordinator-66f1"}
     target = config.plan({"version": 1, "nodes": original["nodes"]}, original["recipe"], deployment)
@@ -385,8 +444,68 @@ def test_trusted_coordinator_switch_restores_exact_target_or_exact_previous(rig,
     receipt.update(plan_sha256=config.plan_sha256(target), deployment_digest=target["digest"], route=recovery.route_for(target))
     receipt_path = c.journal.directory / "approved-coordinator-qualification.json"
     recovery.recovery_routes.atomic_json(receipt_path, receipt)
-    ref = {"path": str(target_path), "sha256": config.plan_sha256(target),
-           "qualification": {"path": str(receipt_path), "sha256": recovery.digest_file(receipt_path)}}
+    return {"path": str(target_path), "sha256": config.plan_sha256(target),
+            "qualification": {"path": str(receipt_path), "sha256": recovery.digest_file(receipt_path)}}
+
+
+@pytest.mark.parametrize("current", ["preferred", "fallback"])
+def test_receipt_adoption_preserves_switched_coordinator_and_selected_fallback(rig, current):
+    c, nodes, clock, _, policy_path = rig
+    recovery.initialize(c.policy, c.journal.directory)
+    c.tick()
+    target = coordinator_target(c)
+    request = recovery.queue_command(c.journal.directory, c.policy, "switch-coordinator", preferred=target)
+    step(c, clock)
+    assert c.s["commands"][request]["state"] == "applied"
+    assert c.s["current"] == target and c.s["preferred"] == target
+    if current == "fallback":
+        nodes.offline.add("66f1")
+        step(c, clock)
+        assert c.s["current"] == c.s["selected_fallback"]
+        assert c.s["current"]["node"] == "e8f1"
+    recovery.queue_command(c.journal.directory, c.policy, "disable")
+    step(c, clock)
+    before = copy.deepcopy(c.s)
+    events = list(nodes.events)
+
+    enriched = copy.deepcopy(c.policy)
+    for index, ref in enumerate([enriched["preferred"], *enriched["fallbacks"]]):
+        receipt = recovery.load_artifact(ref["qualification"])
+        receipt["completed_at"] = clock.wall()
+        path = c.journal.directory / f"enriched-qualification-{index}.json"
+        recovery.recovery_routes.atomic_json(path, receipt)
+        ref["qualification"] = {"path": str(path), "sha256": recovery.digest_file(path)}
+    recovery.recovery_routes.atomic_json(policy_path, enriched)
+    enriched = recovery.load_policy(policy_path)
+    recovery.initialize(enriched, c.journal.directory, adopt_policy=True)
+    journal = recovery.Journal(c.journal.directory, enriched, clock=clock.wall)
+    saved = journal.value
+
+    expected = copy.deepcopy(before)
+    expected["policy_hash"] = recovery.hash_value(enriched)
+    if current == "fallback":
+        qualification = enriched["fallbacks"][0]["qualification"]
+        expected["current"]["qualification"] = qualification
+        expected["selected_fallback"]["qualification"] = qualification
+    assert saved == expected
+    assert nodes.events == events
+    restarted = recovery.Controller(enriched, journal, nodes, wall=clock.wall, monotonic=clock.mono, sleep=clock.advance)
+    recovery.queue_command(c.journal.directory, enriched, "enable")
+    step(restarted, clock)
+    assert restarted.s["preferred"] == target
+    assert restarted.s["current"]["sha256"] == before["current"]["sha256"]
+    assert restarted.s["route"]["accepting"]
+    assert not [event for event in nodes.events[len(events):] if event[0] in ("start", "stop")]
+
+
+@pytest.mark.parametrize("failure", [None, "startup", "preparation"])
+def test_trusted_coordinator_switch_restores_exact_target_or_exact_previous(rig, failure, monkeypatch, capsys):
+    c, nodes, clock, _, policy_path = rig
+    monkeypatch.setattr(recovery.time, "time", clock.wall)
+    c.tick()
+    original = recovery.load_plan(c.s["preferred"])
+    ref = coordinator_target(c)
+    target = recovery.load_plan(ref)
     original_hash = c.s["preferred"]["sha256"]
     if failure == "startup":
         nodes.fail_start.add(ref["sha256"])

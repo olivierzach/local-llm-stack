@@ -548,3 +548,147 @@ def test_foreign_engine_receipt_cannot_publish_saved_plan_metrics(inventory):
     snapshot = monitor.Collector(inventory, [plan], host_reader=host, engine_reader=foreign_engine, timeout=.1).collect()
     assert "vllm:num_requests_running" not in snapshot.metrics
     assert f'spark_monitor_target_up{{kind="engine",target="{plan["owner"]}"}} 0' in snapshot.metrics
+
+
+@pytest.fixture
+def shared_engine_plans():
+    from spark_cluster import config
+    inv, recipe, deployment = config.load(ROOT, ROOT / "cluster/inventory.json",
+                                         ROOT / "cluster/deployments/coder-e8f1.json")
+    for index, node in enumerate(inv["nodes"].values(), 1):
+        node["serving"] = {"address": f"192.0.2.{index}", "interface": "eth0"}
+    recipe["parallelism"] = ["single", "tensor"]
+    fallback = config.plan(inv, recipe, deployment)
+    preferred = config.plan(inv, recipe, {**deployment, "name": "coder-tp2-e8f1",
+        "nodes": ["e8f1", "66f1"], "mode": "tensor", "tensor_parallel": 2, "master_port": 29500})
+    independent = config.plan(inv, recipe, {**deployment, "name": "coder-independent",
+                                           "port": deployment["port"] + 1})
+    return inv, preferred, fallback, independent
+
+
+def select_engine(path, plan):
+    path.write_text(json.dumps({"version": 1, "policy": "local-auto",
+                               "phase": "single_serving", "selected_plan_digest": plan["digest"]}))
+
+
+def engine_receipt(plan):
+    return {"owner": plan["owner"], "digest": plan["digest"],
+            "metrics": "vllm:num_requests_running 7\n"}
+
+
+def test_shared_endpoint_tracks_selected_plan_without_counting_alternatives(shared_engine_plans, tmp_path):
+    inv, preferred, fallback, independent = shared_engine_plans
+    state, calls = tmp_path / "status.json", []
+    def engine(plan):
+        calls.append(plan["digest"])
+        return engine_receipt(plan)
+    collector = monitor.Collector(inv, [preferred, fallback, independent], host_reader=host,
+                                  engine_reader=engine, recovery_state=state, timeout=1)
+    for selected, inactive in ((preferred, fallback), (fallback, preferred), (preferred, fallback)):
+        select_engine(state, selected)
+        calls.clear()
+        snapshot = collector.collect()
+        assert snapshot.healthy
+        assert sorted(calls) == sorted([selected["digest"], independent["digest"]])
+        samples = metric_samples(snapshot.metrics, "vllm:num_requests_running")
+        assert {(labels["plan_digest"], value) for labels, value in samples} == {
+            (selected["digest"], 7), (independent["digest"], 7)}
+        assert len(samples) == 2
+        engine_status = {row["target"]: row for row in json.loads(snapshot.status)["targets"]
+                         if row["kind"] == "engine"}
+        assert engine_status[selected["owner"]]["up"]
+        assert not engine_status[inactive["owner"]]["up"]
+        assert engine_status[inactive["owner"]]["error"] == "not_selected"
+        assert dict((labels["deployment"], value) for labels, value in
+                    metric_samples(snapshot.metrics, "spark_engine_configured_replica_count")) == {
+            selected["owner"]: 1, inactive["owner"]: 0, independent["owner"]: 1}
+        assert {labels["deployment"] for labels, _ in
+                metric_samples(snapshot.metrics, "spark_engine_configured_max_num_seqs")} == {
+            selected["owner"], independent["owner"]}
+
+
+@pytest.mark.parametrize("selection", ["missing", "unknown", "unselected", "invalid"])
+def test_shared_endpoint_requires_known_recovery_selection(shared_engine_plans, tmp_path, selection):
+    inv, preferred, fallback, independent = shared_engine_plans
+    state, calls = tmp_path / "status.json", []
+    if selection == "unknown":
+        select_engine(state, {"digest": "0" * 64})
+    elif selection == "unselected":
+        select_engine(state, {"digest": None})
+    elif selection == "invalid":
+        state.write_text("{")
+    def engine(plan):
+        calls.append(plan["digest"])
+        return engine_receipt(plan)
+    snapshot = monitor.Collector(inv, [preferred, fallback, independent], host_reader=host,
+        engine_reader=engine, recovery_state=state, timeout=1).collect()
+    assert not snapshot.healthy
+    assert calls == [independent["digest"]]
+    assert {labels["plan_digest"] for labels, _ in
+            metric_samples(snapshot.metrics, "vllm:num_requests_running")} == {independent["digest"]}
+    assert {row["target"] for row in json.loads(snapshot.status)["targets"]
+            if row["kind"] == "engine" and row["up"]} == {independent["owner"]}
+    assert {labels["deployment"] for labels, _ in
+            metric_samples(snapshot.metrics, "spark_engine_configured_replica_count")} == {independent["owner"]}
+
+
+def test_shared_endpoint_rejects_wrong_live_identity(shared_engine_plans, tmp_path):
+    inv, preferred, fallback, _ = shared_engine_plans
+    state = tmp_path / "status.json"
+    select_engine(state, fallback)
+    snapshot = monitor.Collector(inv, [preferred, fallback], host_reader=host,
+        engine_reader=lambda plan: engine_receipt(preferred), recovery_state=state, timeout=1).collect()
+    assert not snapshot.healthy
+    assert metric_samples(snapshot.metrics, "vllm:num_requests_running") == []
+    assert all(not row["up"] for row in json.loads(snapshot.status)["targets"] if row["kind"] == "engine")
+
+
+def test_shared_endpoint_drops_samples_when_selection_changes_during_scrape(shared_engine_plans, tmp_path):
+    inv, preferred, fallback, _ = shared_engine_plans
+    state, calls = tmp_path / "status.json", []
+    select_engine(state, preferred)
+    def engine(plan):
+        calls.append(plan["digest"])
+        select_engine(state, fallback)
+        return engine_receipt(plan)
+    collector = monitor.Collector(inv, [preferred, fallback], host_reader=host,
+                                  engine_reader=engine, recovery_state=state, timeout=1)
+    snapshot = collector.collect()
+    assert not snapshot.healthy
+    assert calls == [preferred["digest"]]
+    assert metric_samples(snapshot.metrics, "vllm:num_requests_running") == []
+    snapshot = collector.collect()
+    assert snapshot.healthy
+    assert {labels["plan_digest"] for labels, _ in
+            metric_samples(snapshot.metrics, "vllm:num_requests_running")} == {fallback["digest"]}
+
+
+def test_shared_endpoint_pending_scrape_blocks_new_identity(shared_engine_plans, tmp_path):
+    inv, preferred, fallback, _ = shared_engine_plans
+    state, calls, release = tmp_path / "status.json", [], threading.Event()
+    select_engine(state, preferred)
+    def engine(plan):
+        calls.append(plan["digest"])
+        if plan["digest"] == preferred["digest"]:
+            release.wait(2)
+        return engine_receipt(plan)
+    collector = monitor.Collector(inv, [preferred, fallback], host_reader=host,
+                                  engine_reader=engine, recovery_state=state, timeout=.1)
+    try:
+        assert not collector.collect().healthy
+        assert calls == [preferred["digest"]]
+        select_engine(state, fallback)
+        snapshot = collector.collect()
+        assert not snapshot.healthy
+        assert calls == [preferred["digest"]]
+        assert metric_samples(snapshot.metrics, "vllm:num_requests_running") == []
+        release.set()
+        for thread, _ in collector.pending.values():
+            thread.join(timeout=2)
+        snapshot = collector.collect()
+        assert snapshot.healthy
+        assert {labels["plan_digest"] for labels, _ in
+                metric_samples(snapshot.metrics, "vllm:num_requests_running")} == {fallback["digest"]}
+    finally:
+        release.set()
+        collector.stop()

@@ -275,6 +275,24 @@ def publish_snapshot(path, value):
         require(not path.is_symlink() and read(path) == value, "concurrent immutable snapshot differs")
 
 
+def preflight_outputs(snapshots=(), evidence=None):
+    """Reject known publication failures before staging or publishing snapshots."""
+    from .config import read, require
+    paths = [path for path, _ in snapshots if path is not None]
+    if evidence is not None:
+        paths.append(evidence)
+    require(len({path.resolve() for path in paths}) == len(paths), "output paths must differ")
+    if evidence is not None:
+        require(not evidence.exists() and not evidence.is_symlink(), "evidence output already exists")
+    for path, value in snapshots:
+        require(path is None or (not path.is_symlink() and
+                (not path.exists() or read(path) == value)), "existing immutable snapshot differs")
+    for path in paths:
+        if not path.exists():
+            require(path.parent.is_dir(), "output parent must be an existing directory")
+            require(os.access(path.parent, os.W_OK | os.X_OK), "output parent must be writable")
+
+
 def approve(inventory, expected, addresses):
     from .config import require
     require(expected == digest(inventory), "explicit inventory SHA-256 approval is required")
@@ -338,6 +356,8 @@ def main(argv=None):
     elif args.action in ("check", "prepare"):
         require(args.action != "prepare" or p is not None, "prepare requires a selected deployment")
         require(not args.apply or args.pull_image or args.model_manifest, "prepare --apply requires selected artifact operations")
+        if args.apply:
+            preflight_outputs(evidence=args.evidence_output)
         result = inspect_candidates(inventory, p, selected=selected, timeout=args.timeout,
                                     apply=args.apply, pull_image=args.pull_image,
                                     model_manifest=read(args.model_manifest) if args.model_manifest else None,
@@ -357,14 +377,7 @@ def main(argv=None):
         if args.apply:
             require(args.output is not None, "apply requires a new --output inventory path")
             approve(inventory, args.approve_inventory_sha256, args.approve_stable_address)
-            # Check all destinations before either exclusive publication.
-            for path, value in [(args.output, result_inventory), (args.plan_output, p)]:
-                require(path is None or (not path.is_symlink() and
-                        (not path.exists() or read(path) == value)), "existing immutable snapshot differs")
-            require(args.evidence_output is None or (not args.evidence_output.exists() and
-                    not args.evidence_output.is_symlink()), "evidence output already exists")
-            require(len({str(path.absolute()) for path in [args.output, args.plan_output, args.evidence_output] if path}) ==
-                    len([path for path in [args.output, args.plan_output, args.evidence_output] if path]), "output paths must differ")
+            preflight_outputs([(args.output, result_inventory), (args.plan_output, p)], args.evidence_output)
             if args.plan_output:
                 publish_snapshot(args.plan_output, p)
                 result["plan_sha256"] = digest(p)
@@ -379,10 +392,18 @@ def main(argv=None):
         if args.apply:
             require(args.approve_inventory_sha256 == digest(inventory), "removal requires current inventory SHA-256 approval")
             require(args.output is not None, "remove requires new --output inventory")
+            preflight_outputs([(args.output, result_inventory)], args.evidence_output)
             publish_snapshot(args.output, result_inventory)
     result["observed_at"] = time.time()
     if args.evidence_output:
-        save_exclusive(args.evidence_output, result)
+        try:
+            save_exclusive(args.evidence_output, result)
+        except Exception as exc:
+            # Staging/publication may already have succeeded. Keep its receipts
+            # visible without leaking exception text or replaying any mutation.
+            result.update(ok=False, evidence_error=type(exc).__name__, requires_reconciliation=True)
+            emit(result)
+            return 1
     emit(result)
     return 1 if args.action in ("check", "prepare") and not result.get("prepared") else 0
 

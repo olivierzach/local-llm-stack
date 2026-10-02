@@ -16,7 +16,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
-from spark_cluster import config, services
+from spark_cluster import config, recovery, services
 
 
 class FakeLaunchctl:
@@ -111,6 +111,46 @@ def manage(setup, action, apply=True):
     return services.manage(cfg, action, apply, controller=controller, launch_dir=launch_dir)
 
 
+@pytest.fixture
+def pending_loaded_install(service_setup, monkeypatch):
+    cfg, controller, launch_dir = service_setup
+    original = services.replace_plist
+
+    def fail_after_real_plist(path, value):
+        original(path, value)
+        if path.suffix == '.plist':
+            raise OSError('interrupted after first plist')
+
+    with monkeypatch.context() as patch:
+        patch.setattr(services, 'replace_plist', fail_after_real_plist)
+        with pytest.raises(OSError):
+            manage(service_setup, 'install')
+    path = launch_dir / (services.label(cfg, 'gateway') + '.plist')
+    assert plistlib.loads(path.read_bytes())['RunAtLoad'] is True
+    controller.start(path)  # The next login loads the pending LaunchAgent.
+    return service_setup
+
+@pytest.fixture
+def pending_service_initialization(service_setup, monkeypatch):
+    cfg, _, _ = service_setup
+    policy_snapshot = cfg['state_dir'] / 'policy.json'
+    original = recovery.recovery_routes.atomic_json
+
+    def fail_before_policy_snapshot(path, value):
+        if path == policy_snapshot:
+            raise OSError('interrupted before policy snapshot')
+        original(path, value)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(recovery.recovery_routes, 'atomic_json', fail_before_policy_snapshot)
+        with pytest.raises(OSError):
+            manage(service_setup, 'install')
+    assert (cfg['state_dir'] / 'journal.json').exists()
+    assert not policy_snapshot.exists()
+    return service_setup
+
+
+
 def test_rendered_foreground_gateway_authenticates_and_stays_closed(service_setup):
     cfg, controller, launch_dir = service_setup
     manage(service_setup, 'install')
@@ -201,6 +241,63 @@ def test_install_start_stop_uninstall_preserve_secrets_and_highwaters(service_se
     assert key_path.stat().st_mode & 0o777 == 0o600
 
 
+def test_install_retry_finishes_policy_snapshot_and_allows_receipt_adoption(pending_service_initialization):
+    cfg, controller, _ = pending_service_initialization
+    journal_path = cfg['state_dir'] / 'journal.json'
+    journal = json.loads(journal_path.read_text())
+    journal.update(epoch=77, generation=93)
+    save(journal_path, journal)
+    saved_journal = journal_path.read_bytes()
+    manage(pending_service_initialization, 'install')
+    assert journal_path.read_bytes() == saved_journal
+    assert json.loads((cfg['state_dir'] / 'policy.json').read_text()) == cfg['policy_data']
+    assert not controller.jobs
+
+    policy = json.loads(cfg['policy'].read_text())
+    ref = policy['preferred']
+    plan = recovery.load_plan(ref)
+    staging = {}
+    for node in plan['nodes']:
+        path = cfg['config'].parent / ('staging-' + node + '.json')
+        save(path, {'node': node, 'verified_weights': True})
+        staging[node] = {'path': str(path), 'sha256': recovery.digest_file(path)}
+    receipt = {
+        'version': 1, 'policy': policy['id'], 'plan_sha256': ref['sha256'],
+        'deployment_digest': plan['digest'], 'nodes': sorted(plan['nodes']),
+        'gateway_url': policy['gateway']['url'], 'route': recovery.route_for(plan),
+        'checks': dict.fromkeys(recovery.CHECKS, True), 'completed_at': 1700000000,
+        'staging': staging,
+    }
+    if not recovery.independent_serving(plan):
+        receipt['checks']['independent_serving'] = 'not-applicable-distributed'
+    receipt_path = cfg['config'].parent / 'qualified.json'
+    save(receipt_path, receipt)
+    ref['qualification'] = {'path': str(receipt_path), 'sha256': recovery.digest_file(receipt_path)}
+    save(cfg['policy'], policy)
+    enriched = recovery.load_policy(cfg['policy'])
+    result = recovery.initialize(enriched, cfg['state_dir'], adopt_policy=True)
+    adopted = json.loads(journal_path.read_text())
+    assert result['authority'] == journal['authority']
+    assert (adopted['epoch'], adopted['generation']) == (77, 93)
+    assert adopted['preferred']['qualification'] == enriched['preferred']['qualification']
+
+
+def test_install_retry_refuses_mismatched_policy_snapshot(pending_service_initialization):
+    cfg, controller, launch_dir = pending_service_initialization
+    journal_path = cfg['state_dir'] / 'journal.json'
+    saved_journal = journal_path.read_bytes()
+    policy = json.loads(cfg['policy'].read_text())
+    policy['timings']['prepare_interval'] = 123
+    save(cfg['policy'], policy)
+    cfg = services.load_config(cfg['config'])
+    with pytest.raises(config.ConfigError):
+        manage((cfg, controller, launch_dir), 'install')
+    assert journal_path.read_bytes() == saved_journal
+    assert not (cfg['state_dir'] / 'policy.json').exists()
+    assert not list(launch_dir.glob('*.plist'))
+    assert not controller.jobs
+
+
 def test_foreign_labels_and_modified_plists_are_never_stopped_or_replaced(service_setup):
     cfg, controller, launch_dir = service_setup
     label = services.label(cfg, 'gateway')
@@ -264,6 +361,21 @@ def test_service_validation_rejects_timings_monitor_cannot_run(service_setup, se
     raw['monitor'] = settings
     save(cfg['config'], raw)
     with pytest.raises(ValueError):
+        services.load_config(cfg['config'])
+    assert not cfg['service_dir'].exists()
+    assert not controller.jobs
+
+
+@pytest.mark.parametrize('bind', ['127.0.0.1', '0.0.0.0'])
+def test_service_validation_rejects_ipv6_policy_for_ipv4_listener(service_setup, bind):
+    cfg, controller, _ = service_setup
+    policy = json.loads(cfg['policy'].read_text())
+    policy['gateway']['url'] = 'http://[::1]:' + str(cfg['gateway']['port'])
+    save(cfg['policy'], policy)
+    raw = json.loads(cfg['config'].read_text())
+    raw['gateway'] = {'bind': bind}
+    save(cfg['config'], raw)
+    with pytest.raises(ValueError, match='IPv4.*IPv6'):
         services.load_config(cfg['config'])
     assert not cfg['service_dir'].exists()
     assert not controller.jobs
@@ -365,29 +477,83 @@ def test_interrupted_plist_transaction_restores_ownership(service_setup, monkeyp
         assert not list(launch_dir.glob('*.plist'))
 
 
-def test_pending_plist_repair_preserves_unknown_user_edits(service_setup, monkeypatch):
-    cfg, _, launch_dir = service_setup
-    original = services.replace_plist
+@pytest.mark.parametrize('action', ['install', 'stop', 'uninstall'])
+def test_pending_loaded_install_recovers_owned_job(pending_loaded_install, action):
+    cfg, controller, launch_dir = pending_loaded_install
+    key_path = Path(cfg['policy_data']['gateway']['key_file'])
+    journal_path = cfg['state_dir'] / 'journal.json'
+    key, journal = key_path.read_bytes(), journal_path.read_bytes()
+    manage(pending_loaded_install, action)
+    assert controller.stops == [services.label(cfg, 'gateway')]
+    assert not controller.jobs
+    assert not (cfg['service_dir'] / '.services-transaction.json').exists()
+    assert key_path.read_bytes() == key
+    assert journal_path.read_bytes() == journal
+    status = manage(pending_loaded_install, 'status')
+    assert status['installed'] is (action == 'install')
+    if action == 'install':
+        manage(pending_loaded_install, 'start')
+        assert set(controller.jobs) == {services.label(cfg, role) for role in services.roles(cfg)}
+    else:
+        assert not list(launch_dir.glob('*.plist'))
 
-    def fail_after_real_plist(path, value):
-        original(path, value)
-        if path.suffix == '.plist':
-            raise OSError('interrupted after first plist')
 
-    with monkeypatch.context() as patch:
-        patch.setattr(services, 'replace_plist', fail_after_real_plist)
-        with pytest.raises(OSError):
-            manage(service_setup, 'install')
+def test_pending_loaded_install_preserves_foreign_job(pending_loaded_install):
+    cfg, controller, launch_dir = pending_loaded_install
+    foreign = services.label(cfg, 'monitor')
+    controller.jobs[foreign] = {'path': '/unrelated/monitor.plist', 'pid': 987}
+    jobs = dict(controller.jobs)
+    _, files = services.plist_snapshot(cfg, launch_dir)
+    transaction = cfg['service_dir'] / '.services-transaction.json'
+    saved_transaction = transaction.read_bytes()
+    with pytest.raises(ValueError, match='foreign loaded service'):
+        manage(pending_loaded_install, 'uninstall')
+    assert controller.jobs == jobs
+    assert not controller.stops
+    assert services.plist_snapshot(cfg, launch_dir)[1] == files
+    assert transaction.read_bytes() == saved_transaction
+
+
+def test_pending_loaded_install_refuses_changed_process_identity(pending_loaded_install, monkeypatch):
+    cfg, controller, launch_dir = pending_loaded_install
+    gateway = services.label(cfg, 'gateway')
+    original = controller.inspect
+    inspected = False
+
+    def replace_job_after_inspection(name):
+        nonlocal inspected
+        if name == gateway:
+            if inspected:
+                controller.jobs[name] = {**controller.jobs[name], 'pid': 987}
+            inspected = True
+        return original(name)
+
+    monkeypatch.setattr(controller, 'inspect', replace_job_after_inspection)
+    _, files = services.plist_snapshot(cfg, launch_dir)
+    transaction = cfg['service_dir'] / '.services-transaction.json'
+    saved_transaction = transaction.read_bytes()
+    with pytest.raises(ValueError, match='identity changed'):
+        manage(pending_loaded_install, 'stop')
+    assert controller.jobs[gateway]['pid'] == 987
+    assert not controller.stops
+    assert services.plist_snapshot(cfg, launch_dir)[1] == files
+    assert transaction.read_bytes() == saved_transaction
+
+
+def test_pending_plist_repair_preserves_unknown_user_edits(pending_loaded_install):
+    cfg, controller, launch_dir = pending_loaded_install
     path = launch_dir / (services.label(cfg, 'gateway') + '.plist')
     path.write_bytes(path.read_bytes() + b'\\n<!-- independent user change -->\\n')
     saved = path.read_bytes()
     transaction = cfg['service_dir'] / '.services-transaction.json'
     saved_transaction = transaction.read_bytes()
-    with pytest.raises(ValueError, match='unknown file'):
-        manage(service_setup, 'uninstall')
+    with pytest.raises(ValueError):
+        manage(pending_loaded_install, 'uninstall')
     assert path.read_bytes() == saved
     assert transaction.read_bytes() == saved_transaction
     assert not (cfg['service_dir'] / 'installed.json').exists()
+    assert set(controller.jobs) == {services.label(cfg, 'gateway')}
+    assert not controller.stops
 
 
 @pytest.mark.parametrize('argv', [

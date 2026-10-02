@@ -26,9 +26,10 @@ from spark_cluster.config import read, validate_inventory
 
 GATEWAY = 'tools/spark_cluster/gateway.py'
 HELPER = 'tools/spark_cluster/recovery_routes.py'
+LEGACY = 'tools/spark_cluster/legacy_gateway.py'
 FILES = ('scripts/context-guard-proxy.py', GATEWAY, HELPER,
          'tools/spark_cluster/config.py', 'tools/spark_cluster/__init__.py')
-BASE_FILES = FILES[1:]
+BASE_FILES = (*FILES, LEGACY)
 
 
 def sha(data):
@@ -150,6 +151,7 @@ def refresh(args, node_id, node):
     if sha(json.dumps(definition, sort_keys=True, separators=(',', ':')).encode()) != saved['digest']:
         raise RuntimeError('managed snapshot sources or runtime differ from their recorded digest')
     replacement = {name: capture(ROOT / name)[0].decode('utf-8') for name in FILES}
+    base_replacement = {**replacement, LEGACY: capture(ROOT / LEGACY)[0].decode('utf-8')}
     rollback_files = dict(old)
     additions = {}
     if HELPER not in old:
@@ -169,7 +171,7 @@ def refresh(args, node_id, node):
     changes = {}
     sources = {}
     for name, previous in before.items():
-        new = replacement[name].encode('utf-8')
+        new = base_replacement[name].encode('utf-8')
         old_hash = sha(previous[0]) if previous else None
         required = (args.expected_source_sha256 if name == GATEWAY else
                     expected.get(name, sha(old[name].encode()) if name in old else None))

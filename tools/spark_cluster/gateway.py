@@ -248,9 +248,66 @@ class GatewayServer(guard.ContextGuardServer):
         # Only recovery ingress must drain handlers before releasing its singleton
         # lock. Ordinary/legacy servers retain ThreadingHTTPServer's daemon lifecycle.
         self.daemon_threads = recovery is None
+        self._inbound_lock = threading.Lock()
+        self._inbound = {}
+        self._closing = False
         super().__init__(server_address, handler_class, config)
 
+    def process_request(self, request, client_address):
+        if self.recovery is None:
+            return super().process_request(request, client_address)
+        # Register before starting the handler so close cannot miss a socket
+        # accepted just before the listener stops.
+        with self._inbound_lock:
+            if self._closing:
+                self.shutdown_request(request)
+                return
+            self._inbound[request] = False
+            try:
+                super().process_request(request, client_address)
+            except BaseException:
+                self._inbound.pop(request, None)
+                raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            if self.recovery is not None:
+                with self._inbound_lock:
+                    self._inbound.pop(request, None)
+
+    def request_body_complete(self, request):
+        if self.recovery is None:
+            return
+        # Input completion and shutdown share one fence: a cancelled reader
+        # cannot subsequently acquire a route lease. Once input is complete,
+        # preserve the entire response (including provider streams).
+        with self._inbound_lock:
+            if self._closing:
+                raise ConnectionAbortedError("gateway is shutting down")
+            self._inbound[request] = True
+
+    def request_finished(self, request):
+        if self.recovery is None:
+            return False
+        with self._inbound_lock:
+            self._inbound[request] = False
+            return self._closing
+
     def server_close(self):
+        if self.recovery is not None:
+            with self._inbound_lock:
+                self._closing = True
+                for request, complete in self._inbound.items():
+                    if not complete:
+                        # close() alone does not wake a handler's buffered read.
+                        # Never shutdown an admitted stream's socket: its relay
+                        # also watches that socket for client cancellation.
+                        try:
+                            request.shutdown(socket.SHUT_RDWR)
+                        except OSError:
+                            pass
         try:
             super().server_close()
         finally:
@@ -260,6 +317,15 @@ class GatewayServer(guard.ContextGuardServer):
 
 class GatewayHandler(guard.ContextGuardHandler):
     heartbeat_interval_s = 15
+
+    def handle_one_request(self):
+        try:
+            return super().handle_one_request()
+        finally:
+            # The base handler has flushed the response. Do not let a completed
+            # keep-alive request become another unbounded read during shutdown.
+            if self.server.request_finished(self.connection):
+                self.close_connection = True
 
     def send_response(self, code, message=None):
         self._response_code = code
@@ -408,6 +474,7 @@ class GatewayHandler(guard.ContextGuardHandler):
     def read_body(self):
         if not hasattr(self, "_body"):
             self._body = super().read_body()
+            self.server.request_body_complete(self.connection)
         return self._body
 
     def do_GET(self):

@@ -432,6 +432,10 @@ def healthy(p, observations):
     return True
 
 
+class StaleObservation(RuntimeError):
+    """Observation evidence expired before it could authorize admission."""
+
+
 class Controller:
     def __init__(self, policy, journal, adapter, *, wall=time.time, monotonic=time.monotonic, sleep=time.sleep):
         self.policy, self.journal, self.adapter = policy, journal, adapter
@@ -443,6 +447,7 @@ class Controller:
         self.prepared_at = None
         self.prepared = False
         self.extra_refs = []
+        self.observation_started = None
         route_path = Path(policy["gateway"]["route_state"])
         if route_path.exists():
             route = recovery_routes.private_json(route_path)
@@ -470,6 +475,8 @@ class Controller:
         self.journal.save()
 
     def publish(self, ref, accepting, reason):
+        if accepting:
+            self.require_fresh_observation()
         route = route_for(load_plan(ref)) if ref else None
         mode = ("preferred" if ref["sha256"] == self.s["preferred"]["sha256"] else "fallback") if ref else "unavailable"
         previous = self.s["route"]
@@ -522,8 +529,25 @@ class Controller:
             self.sleep(min(self.t["heartbeat"], max(0, deadline - self.monotonic())))
             self.publish(self.s["current"], False, reason)
 
+    def require_fresh_observation(self):
+        # Wall time catches suspend on platforms whose monotonic clock pauses.
+        # Keep the acquisition deadline through fencing and lease publication.
+        if self.observation_started is not None:
+            wall, mono = self.observation_started
+            wall_elapsed, mono_elapsed = self.wall() - wall, self.monotonic() - mono
+            bound = self.t["observe"] + self.t["heartbeat"]
+            if (0 <= wall_elapsed <= bound and 0 <= mono_elapsed <= bound and
+                    abs(wall_elapsed - mono_elapsed) <= self.t["heartbeat"]):
+                return
+        self.publish(self.s["current"], False, "stalled-observation")
+        self.s["stable_since"] = None
+        self.journal.phase("unavailable")
+        raise StaleObservation("fresh observation required before admission")
+
     def observations(self):
+        self.observation_started = self.wall(), self.monotonic()
         result = self.adapter.observe()
+        self.require_fresh_observation()
         preferred = load_plan(self.s["preferred"])
         changed = False
         for node, identity in preferred["nodes"].items():
@@ -555,6 +579,7 @@ class Controller:
             changed = True
         if changed:
             self.journal.save()
+        self.require_fresh_observation()
         return result
 
     def stop_owned(self, observations):
@@ -595,7 +620,10 @@ class Controller:
             if not fence or not fence.get("active") or fence.get("generation") != self.s["epoch"]:
                 self.journal.receipt("reopen-fence:" + node,
                                      self.adapter.fence(ref, node, self.context(), sorted({load_plan(r)["digest"] for r in self.refs()})))
-        self.publish(ref, True, "reconciled")
+        try:
+            self.publish(ref, True, "reconciled")
+        except StaleObservation:
+            return False
         try:
             acknowledged = self.ack() and self.adapter.endpoint(load_plan(ref))
         except Exception:
@@ -633,7 +661,10 @@ class Controller:
                 self.s["intent"] = None
                 self.journal.save()
                 if previous:
-                    observations = self.observations()
+                    try:
+                        observations = self.observations()
+                    except StaleObservation:
+                        return
                     if healthy(load_plan(previous), observations):
                         self.open_healthy(previous, observations)
                 return
@@ -660,6 +691,7 @@ class Controller:
                         o = observations[node]
                         require(o["reservation"] is None and not o["gpu_containers"] and not o["gpu_processes"], "partial start requires reconciliation before retry")
                     self.journal.receipt("before-start", {"plan_sha256": target["sha256"], "epoch": self.s["epoch"], "operation_id": intent["id"]})
+                    self.require_fresh_observation()
                     result = self.adapter.start(target, self.context())
                     self.journal.receipt("start", result)
                     observations = self.observations()
@@ -672,6 +704,9 @@ class Controller:
                     self.s["last_transition_seconds"] = max(0, self.wall() - intent["started_at"])
                     self.s["intent"] = None
                     self.journal.save()
+        except StaleObservation:
+            # Preserve the exact pending stage; a fresh cycle reconciles it.
+            return
         except Exception as exc:
             # Persist failure BEFORE cleanup; a lost response never triggers a
             # blind repetition. Next cycle freshly reconciles durable ownership.
@@ -773,13 +808,9 @@ class Controller:
             self.publish(self.s["current"], False, "paused" if self.s["paused"] else "disabled")
             self.journal.phase("paused" if self.s["paused"] else "disabled")
             return
-        start = self.monotonic()
-        observations = self.observations()
-        # A stalled observer cannot renew an accepting lease from stale evidence.
-        if self.monotonic() - start > self.t["observe"] + self.t["heartbeat"]:
-            self.publish(self.s["current"], False, "stalled-observation")
-            self.s["stable_since"] = None
-            self.journal.phase("unavailable")
+        try:
+            observations = self.observations()
+        except StaleObservation:
             return
         if self.s["intent"]:
             target = self.s["intent"]["target"]
@@ -986,10 +1017,15 @@ def initialize(policy, directory, *, adopt_policy=False):
                 return p
             require(without_receipts(old_policy) == without_receipts(policy), "only qualification/isolation receipt enrichment is allowed")
             saved["policy_hash"] = hash_value(policy)
-            saved["preferred"] = policy["preferred"]
-            for key in ("current", "selected_fallback"):
-                if saved.get(key):
-                    saved[key] = next(r for r in [policy["preferred"], *policy["fallbacks"]] if r["sha256"] == saved[key]["sha256"])
+            # A queued coordinator switch is durable authority state, not a
+            # policy edit. Enrich known receipts without reverting that choice.
+            for key in ("preferred", "current", "selected_fallback"):
+                ref = saved.get(key)
+                if ref:
+                    replacement = next((r for r in [policy["preferred"], *policy["fallbacks"]]
+                                        if r["sha256"] == ref["sha256"]), None)
+                    if replacement:
+                        ref["qualification"] = replacement["qualification"]
             recovery_routes.atomic_json(path, saved)
         journal = Journal(directory, policy)
         recovery_routes.atomic_json(directory / "policy.json", policy)

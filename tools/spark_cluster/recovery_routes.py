@@ -132,6 +132,15 @@ class RecoveryRoutes:
                     raise ValueError("invalid persisted gateway digest")
                 if any(type(f[k]) not in (int, float) or not 0 < f[k] <= 2**53 - 1 for k in ("issued_at", "expires_at")) or not 0 < f["expires_at"] - f["issued_at"] <= 60:
                     raise ValueError("invalid persisted gateway lease")
+            # Neither a durable fence nor an unaccepted startup route is a new heartbeat,
+            # even if the wall clock regressed below its timestamp across restart.
+            self.restart_heartbeat = max(self.started_at, self.fence["issued_at"] if self.fence else 0)
+            try:
+                startup_state = validate_state(private_json(self.path), self.validate_registry)
+            except (OSError, ValueError, TypeError, KeyError):
+                pass
+            else:
+                self.restart_heartbeat = max(self.restart_heartbeat, startup_state["issued_at"])
         except Exception:
             self.process_lock.close()
             raise
@@ -168,7 +177,7 @@ class RecoveryRoutes:
             # A wall-clock jump backwards cannot extend an already observed lease.
             self.lease_deadline = monotonic + max(0, state["expires_at"] - now)
             self.lease = lease
-        if state["issued_at"] <= self.started_at:
+        if state["issued_at"] <= self.restart_heartbeat:
             raise RouteUnavailable("gateway restart requires a fresh authority heartbeat")
         if now >= state["expires_at"] or monotonic >= self.lease_deadline:
             raise RouteUnavailable("route lease expired")

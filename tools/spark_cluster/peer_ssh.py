@@ -155,13 +155,21 @@ def peer_block(text, hostname):
     return "".join(lines[:a] + lines[b:]), "".join(lines[a:b])
 
 
-def removable(report, peer):
+def removable(report, peer, guard=None):
     if not isinstance(report, dict) or any(report.get(k) != peer[k] for k in ("hostname", "architecture")):
         raise RuntimeError("removal requires verified peer identity")
     required = ("reservation", "recovery_fence", "containers", "gpu_containers", "gpu_processes")
     if any(k not in report or k in report.get("errors", {}) for k in required):
         raise RuntimeError("unknown ownership/fence prevents removal")
-    if report["reservation"] is not None or any(report[k] is None for k in required[2:]):
+    saved = report["reservation"]
+    if guard is None:
+        reserved = saved is not None
+    else:
+        reserved = (not isinstance(guard, dict) or set(guard) != {"owner", "digest"} or
+                    not isinstance(saved, dict) or
+                    any(saved.get(k) != guard[k] for k in ("owner", "digest")) or
+                    saved.get("phase") != "workload" or saved.get("container_ids") != [])
+    if reserved or any(report[k] is None for k in required[2:]):
         raise RuntimeError("reserved or unknown peer prevents removal")
     gate = report["recovery_fence"]
     if gate is not None and (not isinstance(gate, dict) or gate.get("active") is not False):
@@ -225,7 +233,10 @@ def changes(directory, req, before, resolve=None):
     if auth_matches and (len(auth_matches) != 1 or not auth_matches[0].endswith(" " + pub + " " + marker)):
         raise RuntimeError("controller public key already has different ownership")
     if req["action"] == "remove":
-        removable(req.get("removal"), peer)
+        guard = req.get("removal_guard")
+        if guard is None:
+            raise RuntimeError("trust revocation requires an admission guard")
+        removable(req.get("removal"), peer, guard)
         block = ""
         if matches:
             known = "".join(line for line in known.splitlines(keepends=True) if line.rstrip("\r\n") != record)

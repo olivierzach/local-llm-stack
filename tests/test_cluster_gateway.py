@@ -684,6 +684,83 @@ def test_policy_restart_requires_fresh_heartbeat_and_persists_highwater(policy):
         worker.join()
 
 
+@pytest.mark.parametrize("baseline", ["persisted", "no-fence", "unaccepted-newer", "missing-route"])
+def test_policy_restart_clock_catchup_requires_new_heartbeat(tmp_path, monkeypatch, baseline):
+    from types import SimpleNamespace
+    clock = SimpleNamespace(wall=999.0, monotonic=10.0)
+    monkeypatch.setattr(recovery_routes, "time", SimpleNamespace(
+        time=lambda: clock.wall, monotonic=lambda: clock.monotonic))
+    path = tmp_path / "route.json"
+    base = "http://127.0.0.1:8000"
+    route = {
+        "base_url": base + "/v1", "upstream_model": "local-fast", "health_url": base + "/health",
+        "tokenizer_base_url": base, "context_tokens": 8192, "max_output_tokens": 256,
+        "capabilities": {"text": True, "vision": False, "tools": False, "streaming": True},
+        "model_root": "/cache/test", "deployment_digest": "a" * 64,
+    }
+    state = {"version": 1, "policy": "agent", "authority": "authority-one", "generation": 1,
+             "alias": "local-auto", "accepting": True, "route": route,
+             "mode": "fallback", "reason": "qualified single", "issued_at": 1000.0,
+             "expires_at": 1030.0}
+    if baseline == "no-fence":
+        recovery_routes.write_state(path, state, gateway.validate_registry)
+    else:
+        original = recovery_routes.RecoveryRoutes(path, gateway.validate_registry)
+        try:
+            clock.wall = 1000.0
+            recovery_routes.write_state(path, state, gateway.validate_registry)
+            assert original.status()["fresh"]
+        finally:
+            original.close()
+        if baseline == "unaccepted-newer":
+            # The authority published again, but the prior gateway never observed it.
+            state.update(issued_at=1005.0, expires_at=1035.0)
+            recovery_routes.write_state(path, state, gateway.validate_registry)
+        elif baseline == "missing-route":
+            path.unlink()
+
+    clock.wall = 900.0
+    clock.monotonic = 20.0
+    replacement = recovery_routes.RecoveryRoutes(path, gateway.validate_registry)
+    try:
+        if baseline == "missing-route":
+            recovery_routes.write_state(path, state, gateway.validate_registry)
+        assert not replacement.status()["fresh"]
+        # Catching up to an unchanged, still wall-valid lease cannot revive its authority.
+        clock.wall = state["issued_at"] + 0.1
+        clock.monotonic = 125.1
+        assert not replacement.status()["fresh"]
+        with pytest.raises(recovery_routes.RouteUnavailable):
+            replacement.acquire()
+
+        # A real heartbeat may renew the same generation and route after restart.
+        clock.wall = 1006.0
+        clock.monotonic = 126.0
+        state.update(issued_at=clock.wall, expires_at=clock.wall + 30)
+        recovery_routes.write_state(path, state, gateway.validate_registry)
+        assert replacement.status()["fresh"]
+        admitted = replacement.acquire()
+        try:
+            assert admitted["generation"] == 1
+            replacement.check(admitted)
+        finally:
+            replacement.release()
+
+        # A closed generation still receives a fresh ACK without granting admission.
+        clock.wall = 1007.0
+        clock.monotonic = 127.0
+        state.update(generation=2, accepting=False, issued_at=clock.wall, expires_at=clock.wall + 30)
+        recovery_routes.write_state(path, state, gateway.validate_registry)
+        status = replacement.status()
+        assert status["fresh"] and not status["accepting"]
+        assert status["generation"] == status["highest_generation"] == 2
+        assert status["active_requests"] == 0
+        with pytest.raises(recovery_routes.RouteUnavailable):
+            replacement.acquire()
+    finally:
+        replacement.close()
+
+
 def test_policy_single_ingress_lock_excludes_second_process(policy):
     with pytest.raises(BlockingIOError):
         gateway.serve(policy["server"].registry_path, "127.0.0.1", 0, KEY, recovery_state=policy["path"])

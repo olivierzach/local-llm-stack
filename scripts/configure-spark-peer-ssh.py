@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Check or explicitly apply incremental, independently pinned peer SSH trust."""
 import argparse
+import hashlib
 import json
 import math
 import os
 from pathlib import Path
+import re
 import platform
 import shlex
 import socket
@@ -12,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
@@ -127,6 +130,7 @@ def main(argv=None):
     parser.add_argument("--trust", type=Path, help="independently approved version1 host keys and stable management addresses")
     parser.add_argument("--node", action="append", help="add/check only edges involving these node IDs; default all")
     parser.add_argument("--remove", metavar="NODE", help="revoke an idle node on every remaining peer")
+    parser.add_argument("--removal-id", help="resume a retained removal lease using its receipt ID")
     parser.add_argument("--apply", action="store_true", help="allow key generation and SSH file changes")
     args = parser.parse_args(argv)
     inv = read(args.inventory)
@@ -137,6 +141,9 @@ def main(argv=None):
     require(selected <= nodes.keys(), "unknown selected node")
     require(not args.remove or args.remove in nodes, "unknown removal node")
     require(not (args.remove and args.node), "remove and node selection are mutually exclusive")
+    require(not args.removal_id or (args.remove and args.apply), "removal-id requires remove and apply")
+    require(args.removal_id is None or re.fullmatch(r"[a-f0-9]{32}", args.removal_id),
+            "removal-id must be the 32-character receipt ID")
     require(not args.apply or args.trust is not None, "apply requires independently approved --trust; discovery is not trust")
     trusted = trust_records(read(args.trust), inv) if args.trust else None
     helper = ROOT / "tools/spark_cluster/peer_ssh.py"
@@ -154,7 +161,7 @@ def main(argv=None):
             require(public(prepared[key]["host_key"]) == public(trusted[key]["host_key"]),
                     "observed host key differs from independent trust: " + key)
     removal = None
-    if args.remove:
+    if args.remove and not args.apply:
         removal = call(args.remove, {"action": "observe", "node": nodes[args.remove]}, NODE_SOURCE, timeout=15)
         removable(removal, nodes[args.remove])
     if not args.apply:
@@ -168,33 +175,61 @@ def main(argv=None):
                 prepared[key] = call(key, {"action": "prepare", "node": node, "apply": True})
                 require(public(prepared[key]["host_key"]) == public(trusted[key]["host_key"]), "host key changed")
     results = []
-    for key, node in nodes.items():
-        for peer_id, peer in nodes.items():
-            if key == peer_id:
-                continue
-            if args.remove:
-                if peer_id != args.remove:
+    guard = None
+    guard_request = None
+    removal_id = None
+    key = peer_id = None
+    try:
+        if args.remove:
+            require(prepared[args.remove]["public_key"] is not None,
+                    "missing controller public key; nothing can be safely revoked")
+            removal_id = args.removal_id or uuid.uuid4().hex
+            # Bind an explicit retry to the same complete revocation scope and keys.
+            scope = {"inventory": inv, "trust": trusted, "node": args.remove,
+                     "public_key": public(prepared[args.remove]["public_key"])}
+            guard = {"owner": "peer-removal-" + removal_id,
+                     "digest": hashlib.sha256(json.dumps(scope, sort_keys=True, separators=(",", ":")).encode()).hexdigest()}
+            guard_request = {"node": nodes[args.remove], **guard}
+            # Publish ownership before the first mutation, including a lost acquire reply.
+            print(json.dumps({"remove": args.remove, "removal_id": removal_id,
+                              "removal_guard": guard, "requires_reconciliation": True}, sort_keys=True),
+                  file=sys.stderr, flush=True)
+            call(args.remove, {**guard_request, "action": "reserve-workload"}, NODE_SOURCE)
+        for key, node in nodes.items():
+            for peer_id, peer in nodes.items():
+                if key == peer_id:
                     continue
-                # Re-observe immediately before each revocation. Missing transport is not idle.
-                removal = call(peer_id, {"action": "observe", "node": peer}, NODE_SOURCE, timeout=15)
-                removable(removal, peer)
-            elif key not in selected and peer_id not in selected:
-                continue
-            require(prepared[peer_id]["public_key"] is not None, "missing controller public key; nothing can be safely revoked")
-            request = {"action": "remove" if args.remove else "configure", "apply": True,
-                       "node": node, "peer": peer, "peer_public_key": prepared[peer_id]["public_key"],
-                       "peer_host_key": prepared[peer_id]["host_key"],
-                       "trusted_host_key": trusted[peer_id]["host_key"],
-                       "management": trusted[peer_id].get("management", []),
-                       "source_addresses": trusted[peer_id].get("source_addresses", []), "removal": removal}
-            try:
+                if args.remove:
+                    if peer_id != args.remove:
+                        continue
+                    # The durable workload lease excludes manual and recovery admission.
+                    # Re-observation also refuses native/unmanaged activity and unknown state.
+                    removal = call(peer_id, {"action": "observe", "node": peer}, NODE_SOURCE, timeout=15)
+                    removable(removal, peer, guard)
+                elif key not in selected and peer_id not in selected:
+                    continue
+                require(prepared[peer_id]["public_key"] is not None, "missing controller public key; nothing can be safely revoked")
+                request = {"action": "remove" if args.remove else "configure", "apply": True,
+                           "node": node, "peer": peer, "peer_public_key": prepared[peer_id]["public_key"],
+                           "peer_host_key": prepared[peer_id]["host_key"],
+                           "trusted_host_key": trusted[peer_id]["host_key"],
+                           "management": trusted[peer_id].get("management", []),
+                           "source_addresses": trusted[peer_id].get("source_addresses", []),
+                           "removal": removal, "removal_guard": guard}
                 results.append({"node": key, **call(key, request)})
-            except Exception as exc:
-                print(json.dumps({"ok": False, "apply": True, "results": results, "failed_node": key,
-                                  "failed_peer": peer_id, "error": type(exc).__name__,
-                                  "requires_reconciliation": True}, sort_keys=True))
-                return 1
-    print(json.dumps({"apply": True, "results": results, "recovery_enrolled": False}, sort_keys=True))
+        if guard is not None:
+            call(args.remove, {**guard_request, "action": "release-workload"}, NODE_SOURCE)
+    except Exception as exc:
+        # Never release on failure: even a lost reply may have revoked trust.
+        print(json.dumps({"ok": False, "apply": True, "results": results, "failed_node": key,
+                          "failed_peer": peer_id, "error": type(exc).__name__,
+                          "remove": args.remove, "removal_id": removal_id, "removal_guard": guard,
+                          "guard_release_confirmed": False,
+                          "requires_reconciliation": True}, sort_keys=True))
+        return 1
+    print(json.dumps({"apply": True, "results": results, "recovery_enrolled": False,
+                      "remove": args.remove, "removal_id": removal_id, "removal_guard": guard,
+                      "guard_release_confirmed": guard is not None}, sort_keys=True))
     return 0
 
 

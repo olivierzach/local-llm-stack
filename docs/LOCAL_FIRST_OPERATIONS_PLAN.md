@@ -382,24 +382,67 @@ scripts/spark-recover enable --policy "$POLICY" --state-dir "$STATE" \
   --apply --approve automatic-recovery
 ```
 
-Qualification does not stage or start workers. During approved maintenance, start
-the exact admitted plan, then exercise its real text, tool arguments/continuation,
-streaming completion and authenticated identity through the dedicated gateway:
+Qualification does not stage or start workers. **Isolation must be approved,
+recorded and adopted before the first qualification request**, even though null
+receipts are permitted during initial policy preparation:
 
-```bash
-scripts/spark-recover qualify --policy "$POLICY" --state-dir "$STATE" \
-  --plan "$PLAN" --plan-sha256 "$PLAN_SHA256" --staging "$STAGING_REFERENCES" \
-  --output "$NEW_QUALIFICATION_RECEIPT" --rounds 1 --apply --approve-inference
-```
+1. Install/start the approved dedicated gateway and disabled authority. Verify its
+   authenticated `/_spark/recovery` endpoint and closed admission. Independently
+   verify management/serving reachability, exclude every legacy/direct bypass, and
+   retain the exact registry/network configuration needed to undo that exclusion.
+   This is a maintenance operation, not something a CPU fixture or operator name proves.
+2. Retain private JSON evidence for those checks, with absolute paths and raw-file
+   SHA-256 hashes. Create an independently reviewed isolation receipt with exactly:
 
-`STAGING_REFERENCES` maps each plan node to an independently trusted `{path, sha256}`
-artifact. Qualification requires a disabled authority, excludes concurrent gateway
-consumers, and finishes with ingress closed. A failed receipt is retained but is
-ineligible. A legacy fabric-bound distributed preferred plan records independent
-serving as not applicable; single-node fallback must actually pass that gate.
-After updating only qualification/isolation references in the same policy, explicit
-`init --adopt-receipts --apply` enriches the disabled journal without resetting its
-authority or highwaters. It refuses deployment, network, timing or ingress changes.
+   | Field | Value |
+   | --- | --- |
+   | `version`, `policy` | `1` and the policy's `id`. |
+   | `gateway_url`, `registry`, `route_state` | The policy's exact origin and resolved absolute paths. |
+   | `plan_sha256` | Canonical full-plan hashes of preferred, both fallbacks, and any separately admitted coordinator target. |
+   | `exclusive_ingress`, `legacy_endpoints_blocked` | `true` only after verifying the dedicated ingress and exclusion of all bypasses. |
+   | `independent_management`, `independent_serving` | `true` only after verifying the approved non-collective paths. |
+   | `approved_by` | The named approving operator; not an automatically supplied test identity. |
+   | `evidence` | Nonempty list of `{path, sha256}` references to the actual private JSON evidence. |
+
+   Do not manufacture passing booleans, omit a bypass, or reuse simulated receipts.
+   Hash the receipt's **file bytes**, update only `gateway.isolation` in the private
+   policy, then adopt it while the journal is disabled and reconciled:
+
+   ```bash
+   "$PY" "$RELEASE/scripts/spark-recover" validate --policy "$POLICY"
+   "$PY" "$RELEASE/scripts/spark-recover" init --policy "$POLICY" \
+     --state-dir "$STATE" --adopt-receipts --apply
+   ```
+
+3. Prepare and verify each exact plan's pinned image, model and runtime artifacts.
+   Retain successful producer receipts, not merely a list of paths. Approved
+   `spark-node prepare --apply --evidence-output NEW` produces an aggregate receipt;
+   require its successful exit and `prepared: true`. An evidence write failure is
+   non-success and emits the actual result with `requires_reconciliation: true`;
+   preserve that output rather than repeating an ambiguous mutation blindly.
+4. Build `STAGING_REFERENCES` as a JSON object whose keys are **exactly the saved
+   plan's node IDs**. Each value is `{path: ABSOLUTE_RECEIPT_PATH, sha256: RAW_FILE_HASH}`.
+   An aggregate receipt may be referenced by each node it actually verified.
+   Do not pass the aggregate receipt itself as `--staging`. Structural preflight
+   alone does not replace checkpoint SHA-256 verification.
+5. During approved maintenance, start the exact admitted plan if it is not already
+   running. Exercise real text, tool arguments/continuation, streaming completion
+   and authenticated identity through the dedicated gateway:
+
+   ```bash
+   "$PY" "$RELEASE/scripts/spark-recover" qualify --policy "$POLICY" --state-dir "$STATE" \
+     --plan "$PLAN" --plan-sha256 "$PLAN_SHA256" --staging "$STAGING_REFERENCES" \
+     --output "$NEW_QUALIFICATION_RECEIPT" --rounds 1 --apply --approve-inference
+   ```
+
+6. Qualification requires a disabled authority, excludes concurrent gateway
+   consumers, and finishes with ingress closed. Retained failed receipts are
+   ineligible. A legacy fabric-bound distributed preferred plan records independent
+   serving as not applicable; single-node fallback must actually pass that gate.
+   Update only the matching qualification references and repeat disabled
+   `init --adopt-receipts --apply`. This preserves authority/highwaters and an
+   already approved switched coordinator; it refuses deployment, network, timing
+   or ingress changes. Only then can an explicitly approved enable command succeed.
 
 ### Mac service hosting
 
@@ -463,8 +506,9 @@ topology limits are detailed in [SPARK_SCALING_RECOVERY_PLAN.md](SPARK_SCALING_R
 
 Setup: inventory/trust → pinned controller/runtime prerequisites → independent
 management/serving checks → pre-staged image/model/overlays → immutable plans →
-per-node qualification receipts → stable gateway/auth → disabled policy → dry-run
-reconciliation → approved canary/enable. Prepare pinned launchd service packaging
+dedicated gateway and disabled policy → isolation receipt adoption → per-node
+qualification and receipt adoption → dry-run reconciliation → approved canary/enable.
+Prepare pinned launchd service packaging
 on the selected Mac, with durable private state, restricted credentials, logs and
 restart backoff; installation is not yet approved or performed. No service lifetime
 may depend on OMP/VS Code or a terminal session. Awake/power/network availability
@@ -631,8 +675,9 @@ Canary with recovery disabled/shadow decisions first, then explicitly enable one
 policy and a controlled opt-in client cohort in a maintenance window. Observe the
 complete symmetric failure/return matrix; publish measured recovery intervals, not
 an invented RTO. Do not switch existing strict-model clients to `local-auto` silently.
-Disable prevents new automatic transitions but preserves the verified current worker;
-complete/reconcile any in-progress operation safely. Rollback restores the recorded
+Disable closes new ingress admissions and prevents new automatic transitions while
+preserving owned workers; it is not a hold-open serving mode. Complete/reconcile
+any in-progress operation safely. Rollback restores the recorded
 controller release, compatible journal/schema backup, routes and exact saved deployment
 under fencing/drain; never downgrade a journal blindly or delete recovery tombstones.
 
@@ -642,3 +687,177 @@ reviews; a release maintainer owns schema upgrades and restoration drills. Docum
 manual Mac wake/power/connectivity restoration and control-plane reconciliation, and
 periodically rehearse approved hardware recovery. Completion requires both software
 proof and physical receipts; until then label automatic enablement **not qualified**.
+
+## 10. PR #2 rollout preparation and approval boundary
+
+The release package is recorded in the private operation directory
+`data/cluster/operations/pr2-20261002T055115Z/`. Its `rollout.env` binds a full
+40-character committed revision, locally verified Git bundle, immutable installed
+release path, policy, inventory, service config and original saved plan. Use those
+bindings, never a moving branch, `current` symlink or regenerated preferred recipe.
+Plans and evidence under this ignored directory are durable operational inputs;
+retain/back them up rather than deleting them with temporary test artifacts.
+
+Prepared exact full-plan hashes:
+
+| Placement | Canonical full-plan SHA-256 |
+| --- | --- |
+| Original GLM TP2, coordinator e8f1 | `69aa5dc93ea3b1fafe73cf2dfaaed43973dabcca9d01f3c10ff19d5eb4a3cf4e` |
+| Qwen3-4B tools/coder, e8f1 only | `50967eb70c22a133d620965a202e9bd4deada95d07491a8860bee8ee1eaa8e81` |
+| Qwen3-4B tools/coder, 66f1 only | `c1b26f8375af2ac3e94ac925aa2126b240e53312e3858c2f28ebe934ed2d0569` |
+
+The saved GLM plan retains deployment digest
+`b1cf7901f81c861758f5f7c14ba7cea5605519713c4fc4816f1e06af41eb3bb2`
+and its original one-image contract. The branch's newer four-image recipe does not
+replace this restoration handle. Both fallback qualifications and isolation remain
+null: these are validated **candidate inputs**, not physical acceptance receipts.
+
+### Approval A: installation and network/ingress preparation
+
+No installation, inference qualification, worker interruption, fault injection or
+automatic enablement is authorized by preparation of these files. Notify the user
+when each live stage is ready and obtain explicit approval in the current chat.
+Record an operator, start/end time, abort deadline and restoration allowance before
+any disruption. Require an independent restoration supervisor and physical access
+to restore Spark power/cables and Mac wake/connectivity; an LLM reply is not a
+restoration mechanism.
+
+After installation approval, the pinned commands are:
+
+```bash
+OP_DIR="$HOME/projects/local-llm-stack-recovery/data/cluster/operations/pr2-20261002T055115Z"
+source "$OP_DIR/rollout.env"
+python3 "$SOURCE/scripts/install-spark-controller.py" \
+  --bundle "$BUNDLE" --revision "$REVISION" --prefix "$PREFIX"
+"$PY" "$RELEASE/scripts/spark-recover" validate --policy "$POLICY"
+"$PY" "$RELEASE/scripts/spark-services" validate --config "$SERVICE_CONFIG"
+"$PY" "$RELEASE/scripts/spark-services" render --config "$SERVICE_CONFIG"
+"$PY" "$RELEASE/scripts/spark-services" install --config "$SERVICE_CONFIG" --apply
+"$PY" "$RELEASE/scripts/spark-services" start --config "$SERVICE_CONFIG" --apply
+"$PY" "$RELEASE/scripts/spark-services" status --config "$SERVICE_CONFIG"
+"$PY" "$RELEASE/scripts/spark-recover" status --policy "$POLICY" --state-dir "$STATE"
+```
+
+The installer creates a venv and installs locked dependencies. The service config
+requests a dedicated loopback gateway on 19842, monitor on 9842, and an explicitly
+approved awake agent. Installation initializes recovery **disabled**. Do not start
+if the ports have other owners or immutable release verification fails.
+
+Read-only preparation found Mac `en0` at `10.10.10.1`, independent wired Spark
+addresses `10.10.10.2`/`10.10.10.3` on `enP7s7`, and separate collective rails
+`10.10.20.0/24` and `10.10.21.0/24`. The Mac route to the saved preferred endpoint
+`10.10.20.2:8125` currently uses its ordinary default gateway, not the independent
+Spark Ethernet link. This is **not a proven serving path**. A candidate host route,
+requiring separate network approval and a fresh before-snapshot, is:
+
+```bash
+sudo route -n add -host 10.10.20.2 10.10.10.3
+```
+
+Verify actual reachability and host ownership afterward; a successful route command
+is not endpoint qualification. Also verify address persistence across the intended
+faults. Before any qualification, enumerate and snapshot both Sparks' legacy
+4010/4110 ingress, their private gateway registries/lifecycle state, existing client
+forwarders, and direct 8125/8101 access. Approve and prove exclusion of every bypass,
+including IPv6 and SSH forwards. No generic firewall flush, guessed container stop,
+or unreviewed registry replacement is an acceptable isolation procedure.
+Until these site-specific checks and exact reversals are recorded, the installation
+package is prepared but **live failover testing is not ready**.
+
+### Approval B: qualification, then the symmetric canary
+
+Follow the isolation-first receipt/adoption sequence in section 8. Qualify the exact
+preferred plan and each single-node fallback, retaining real text/tool/continuation/
+SSE and identity results. Qualification requires its own explicit inference and
+GPU-maintenance approval and finishes with ingress closed. Only after all receipts
+are valid may an approved canary enqueue:
+
+```bash
+"$PY" "$RELEASE/scripts/spark-recover" enable --policy "$POLICY" --state-dir "$STATE" \
+  --apply --approve automatic-recovery
+"$PY" "$RELEASE/scripts/spark-recover" status --policy "$POLICY" --state-dir "$STATE"
+```
+
+The returned command ID must have `commands[ID].state == "applied"`; enqueue success
+is not activation. Observe preferred service through `local-auto` before injecting
+anything. Then lose 66f1, verify automatic coder startup on e8f1, restore the failed
+node/fabric and verify automatic GLM TP2 startup. Repeat in reverse. The exact fault
+mechanism must be named in the approval: stopping one worker while both hosts remain
+healthy is not proof of node-loss failover. Physical power/cable restoration requires
+the operator; automatic model startup begins only after the required resources return.
+Mac sleep/power and physical cable removal require separately identified approvals.
+
+Candidate timing bounds are a 5-second heartbeat, 15-second route lease, 120 seconds
+of stable return, 300 seconds minimum dwell, 120-second drain and 900-second startup.
+They are safety/configuration bounds, not measured recovery times. Allow time for
+these gates and retain per-transition timestamps. Abort on foreign ownership,
+ambiguous mutations, stale observations/routes, an unexcluded bypass, invalid receipts,
+repeated startup failure/circuit opening, or insufficient remaining restore time.
+
+### Exact restoration boundary
+
+Default outcome: original GLM service restored and automatic recovery disabled,
+unless continued enablement is explicitly approved after all acceptance gates pass.
+While the authority and gateway are still supervised, close admission and request
+exact-owned cleanup:
+
+```bash
+"$PY" "$RELEASE/scripts/spark-recover" disable --policy "$POLICY" --state-dir "$STATE" \
+  --apply --approve close-ingress
+"$PY" "$RELEASE/scripts/spark-recover" reset --policy "$POLICY" --state-dir "$STATE" \
+  --apply --approve stop-exact-owned-workers
+"$PY" "$RELEASE/scripts/spark-recover" status --policy "$POLICY" --state-dir "$STATE"
+```
+
+Require both command IDs applied, completed drain, disabled state and no pending
+intent. Reset retains node fencing tombstones. Require both nodes reachable with
+empty reservations and no GPU containers/processes; an unreachable node blocks
+restoration rather than authorizing guessed cleanup. Then stop and uninstall only
+the new owned LaunchAgents, preventing login from resurrecting the test authority:
+
+```bash
+"$PY" "$RELEASE/scripts/spark-services" stop --config "$SERVICE_CONFIG" --apply
+"$PY" "$RELEASE/scripts/spark-services" uninstall --config "$SERVICE_CONFIG" --apply
+"$PY" "$RELEASE/scripts/spark-services" status --config "$SERVICE_CONFIG"
+```
+
+Before manual startup, release each still-active node fence through the pinned
+`spark_cluster.cli.call(plan, node, "release-fence", recovery=context,
+transport=policy["management"][node])` primitive while holding `authority.lock`.
+Use the observed **exact** policy/authority/generation, a fresh operation ID, and a
+trusted saved plan whose deployment digest is admitted by that fence. Match the
+authority to the retained journal; reject unknown/newer generations and pending
+commands. Preflight both nodes before the first release and retain every reply.
+The node rechecks idle GPU/reservation state atomically and preserves its highwater.
+There is deliberately no unconditional shell deletion of fences and no public
+unfenced `sparkctl` shortcut. A partial/lost reply requires observation/reconciliation,
+not a new authority or tombstone deletion.
+
+Only after all fences are confirmed inactive and the original workers' resources
+are available, launch the unchanged saved plan under the independent restoration
+supervisor, with a **new** evidence directory:
+
+```bash
+"$PY" "$RELEASE/scripts/sparkctl" up --saved-plan "$ORIGINAL_PLAN" \
+  --plan-sha256 "$ORIGINAL_PLAN_SHA256" --output "$RESTORE_OUTPUT" --timeout 7200
+```
+
+Verify exact deployment/owner, both fresh healthy worker identities and authenticated
+GLM request/stream behavior before restoring the reviewed legacy ingress snapshots.
+Do not restore an incompatible controller journal or overwrite concurrent gateway
+changes. This Mac had no prior installed controller prefix at preparation time;
+rollback removes the new jobs but retains private state, plans, credentials and
+receipts. Older five-command controller releases are installable again, but that is
+not permission to run an older recovery controller against a newer journal.
+
+If this window added the host route, and its destination/next-hop are still exactly
+the recorded owned change, its reversal is:
+
+```bash
+sudo route -n delete -host 10.10.20.2 10.10.10.3
+```
+
+Do not remove a pre-existing or subsequently changed route. Gateway/ACL reversal
+must likewise use the approved before-snapshots and ownership checks. The missing
+site-specific isolation/reversal evidence is a hard pre-fault gate, not a placeholder
+for an improvised maintenance command.

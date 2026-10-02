@@ -337,6 +337,81 @@ def test_stalled_observation_and_sleep_close_until_fresh_reconciliation(rig):
     assert not [e for e in nodes.events if e[0] in ("start", "stop")]
 
 
+@pytest.mark.parametrize("stage", ["start", "open"])
+@pytest.mark.parametrize("delay", ["elapsed", "suspend"])
+def test_pending_transition_rejects_delayed_second_observation(rig, monkeypatch, stage, delay):
+    c, nodes, clock, reopen, _ = rig
+    c.tick()
+    nodes.offline.add("66f1")
+    endpoint = nodes.endpoint
+    if stage == "start":
+        nodes.crash_after = "start"
+        with pytest.raises(Crash):
+            step(c, clock)
+    else:
+        monkeypatch.setattr(nodes, "endpoint", lambda p: False)
+        step(c, clock)
+        monkeypatch.setattr(nodes, "endpoint", endpoint)
+    c = reopen()
+    assert c.s["intent"]["stage"] == stage
+    intent = copy.deepcopy(c.s["intent"])
+    retries = c.s["retry_count"], c.s["retry_at"], c.s["circuit_open"]
+    events = list(nodes.events)
+    observe = nodes.observe
+    calls = 0
+
+    def delayed_snapshot():
+        nonlocal calls
+        calls += 1
+        snapshot = observe()
+        if calls == 2:
+            # The tick's observation was fast; the transition's cached healthy
+            # response arrives only after the actual worker has disappeared.
+            nodes.offline.add("e8f1")
+            if delay == "suspend":
+                clock.now += 3600
+            else:
+                clock.advance(20)
+        return snapshot
+
+    monkeypatch.setattr(nodes, "observe", delayed_snapshot)
+    step(c, clock)
+    route = recovery.recovery_routes.private_json(c.policy["gateway"]["route_state"])
+    assert not route["accepting"]
+    assert all(c.s["intent"][key] == value for key, value in intent.items())
+    assert (c.s["retry_count"], c.s["retry_at"], c.s["circuit_open"]) == retries
+    assert nodes.events == events
+    assert c.s["stable_since"] is None
+
+    monkeypatch.setattr(nodes, "observe", observe)
+    nodes.offline.remove("e8f1")
+    step(c, clock)
+    assert c.s["intent"] is None and c.s["phase"] == "fallback"
+    assert c.s["route"]["accepting"]
+    assert not [event for event in nodes.events[len(events):] if event[0] in ("start", "stop")]
+
+
+def test_reopen_fencing_cannot_outlive_observation(rig, monkeypatch):
+    c, nodes, clock, reopen, _ = rig
+    c.tick()
+    c = reopen()
+    fence = nodes.fence
+
+    def suspended_fence(*args):
+        receipt = fence(*args)
+        clock.now += 3600
+        return receipt
+
+    monkeypatch.setattr(nodes, "fence", suspended_fence)
+    step(c, clock)
+    route = recovery.recovery_routes.private_json(c.policy["gateway"]["route_state"])
+    assert not route["accepting"]
+    assert not [event for event in nodes.events if event[0] in ("start", "stop")]
+    monkeypatch.setattr(nodes, "fence", fence)
+    step(c, clock)
+    assert c.s["route"]["accepting"] and c.s["phase"] == "preferred"
+
+
 def test_missing_qualification_cannot_activate_or_select_single(rig):
     c, nodes, clock, _, _ = rig
     c.s["enabled"] = False

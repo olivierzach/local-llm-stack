@@ -225,6 +225,55 @@ forwarder is not an independently supervised recovery gateway. Monitoring over S
 does not prove that the Mac can serve every saved endpoint. No cable/host/power
 fault was injected, no new recovery services were installed, and no policy was enabled.
 
+## Reviewed software evidence — October 2, 2026
+
+- Draft [PR #2](https://github.com/olivierzach/local-llm-stack/pull/2) replaces the
+  earlier PR as the recovery review target. Exactly **16 reviewers ran in parallel**
+  against its pinned initial head `975aada608724c97b72b842e5d3a1dc964cfd45c`.
+  Their **15 confirmed findings** were addressed before the final integrated gate.
+- Corrections cover complete legacy ingress refresh/rollback, five-command release
+  downgrade compatibility, restarted lease clocks, enrollment evidence preflight,
+  switched-coordinator receipt adoption, mutually exclusive engine monitoring,
+  interrupted loaded LaunchAgent transactions, IPv4/IPv6 listener consistency,
+  interrupted initial policy snapshots, peer-removal admission fencing, paused
+  owned worker PIDs, idle/partial HTTP shutdown, stale transition observations,
+  current-only recovery phase display, and isolation-before-qualification ordering.
+- Full CPU command `bash tests/test.sh -rs --durations=10`: **745 passed, 4 skipped**
+  in 168.71 seconds. Three skips require Linux `/proc` ancestry; one requires Linux
+  rsync protected arguments. Compose validation with every profile and syntax
+  checks of all **12 shell scripts** passed.
+- A temporary archive of the original PR head ran **26 selected new regressions**:
+  all failed there, while the integrated fixed suite passes. Legacy ingress tests
+  additionally exercise the real mixed-version HTTP failure and successful migration/
+  exact rollback. The isolation workflow fixture starts with null receipts, refuses
+  qualification, adopts real-schema simulated evidence through the public CLI,
+  then reaches the inference boundary without resetting authority/highwaters.
+- The dashboard phase target now requests an instant query rather than reducing
+  historical phase series. A local smoke exercised the actual metric producer
+  through preferred → single → preferred and validated the provisioned target.
+  **This revision was not visually checked in Grafana**: Docker Desktop's daemon
+  was stopped and native Grafana/Prometheus binaries were unavailable. The older
+  September screenshots are not proof of this changed panel's rendering.
+- Fresh bounded read-only observations recorded both GLM workers healthy with
+  restart counts zero: `66f1:a2e5e88de809…`, `e8f1:04ecc37d92c7…`. The preserved
+  preferred plan still validates to full-plan hash
+  `69aa5dc93ea3b1fafe73cf2dfaaed43973dabcca9d01f3c10ff19d5eb4a3cf4e`
+  and deployment digest
+  `b1cf7901f81c861758f5f7c14ba7cea5605519713c4fc4816f1e06af41eb3bb2`.
+  Its one-image contract was not regenerated from the branch's newer four-image recipe.
+- Private preparation/evidence is under
+  `data/cluster/operations/pr2-20261002T055115Z/`. Both independent-address coder
+  candidate plans and the null-receipt policy validate locally. No authority was
+  initialized there, no controller/LaunchAgents were installed, no GPU inference
+  or fault was injected, and automatic recovery remains unqualified and disabled.
+- The user explicitly requires a readiness notice and approval **in this chat**
+  before live testing. Section 10 of `LOCAL_FIRST_OPERATIONS_PLAN.md` records the
+  pinned-release installation/restore sequence and remaining network/ingress gates.
+  In particular, the Mac does not yet have a proven route to the saved preferred
+  endpoint, and site-specific isolation plus exact reversal must be approved and
+  recorded before qualification/faults. Prepared inputs are not a claim of live
+  readiness; full completion still requires the physical acceptance receipts.
+
 ## Continuing work without another architecture round
 
 Treat [LOCAL_FIRST_OPERATIONS_PLAN.md](LOCAL_FIRST_OPERATIONS_PLAN.md) as authoritative

@@ -14,7 +14,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
-from spark_cluster import cli, config, enrollment, peer_ssh
+from spark_cluster import cli, config, enrollment, node, peer_ssh
 
 
 def key(number):
@@ -37,6 +37,13 @@ def idle(node):
 def request(number):
     return {"action": "configure", "peer": peer(number), "peer_host_key": key(number),
             "trusted_host_key": key(number), "peer_public_key": key(number + 30)}
+
+
+def guarded_removal(number):
+    guard = {"owner": "peer-removal-" + "a" * 32, "digest": "b" * 64}
+    return {**request(number), "action": "remove", "removal_guard": guard,
+            "removal": {**idle(peer(number)),
+                        "reservation": {**guard, "phase": "workload", "container_ids": []}}}
 
 
 @pytest.fixture
@@ -69,7 +76,7 @@ def test_incremental_peers_preserve_existing_trust_and_removal_is_scoped(ssh_dir
     for name, text in original.items():
         assert text in both[name]
     assert configure(directory, request(2)) == both
-    removal = {**request(3), "action": "remove", "removal": idle(peer(3))}
+    removal = guarded_removal(3)
     removed = configure(directory, removal)
     assert removed == first
     assert configure(directory, removal) == removed
@@ -290,9 +297,18 @@ def test_old_pair_file_migrates_without_losing_first_peer(ssh_directory):
 def test_active_reserved_or_unknown_peer_cannot_be_removed(ssh_directory, change):
     directory, _ = ssh_directory
     before = configure(directory, request(2))
-    req = {**request(2), "action": "remove", "removal": {**idle(peer(2)), **change}}
+    req = guarded_removal(2)
+    req["removal"].update(change)
     with pytest.raises(RuntimeError):
         configure(directory, req)
+    assert peer_ssh.read_files(directory) == before
+
+
+def test_idle_snapshot_without_admission_guard_cannot_revoke_trust(ssh_directory):
+    directory, _ = ssh_directory
+    before = configure(directory, request(2))
+    with pytest.raises(RuntimeError):
+        configure(directory, {**request(2), "action": "remove", "removal": idle(peer(2))})
     assert peer_ssh.read_files(directory) == before
 
 
@@ -450,6 +466,128 @@ def test_lost_staging_receipt_stops_without_replay_or_automatic_enrollment():
     assert not result["prepared"] and not result["eligible_automation"]
 
 
+def prepare_args(evidence):
+    return ["prepare", "--inventory", str(ROOT / "cluster/inventory.json"),
+            "--deployment", str(ROOT / "cluster/deployments/fast-e8f1.json"),
+            "--pull-image", "--apply", "--evidence-output", str(evidence)]
+
+
+def test_prepare_existing_evidence_rejects_before_staging(tmp_path, monkeypatch):
+    evidence = tmp_path / "evidence.json"
+    original = b"original immutable evidence\n"
+    evidence.write_bytes(original)
+    staging = []
+    def remote(*args, **kwargs):
+        staging.append(args)
+        return {"prepared": True}
+    monkeypatch.setattr(cli, "remote", remote)
+    with pytest.raises(config.ConfigError):
+        enrollment.main(prepare_args(evidence))
+    assert staging == []
+    assert evidence.read_bytes() == original
+
+
+@pytest.mark.parametrize("parent_kind", ["missing", "file"])
+def test_prepare_unusable_evidence_parent_rejects_before_staging(tmp_path, monkeypatch, parent_kind):
+    parent = tmp_path / "unusable"
+    if parent_kind == "file":
+        parent.write_bytes(b"not a directory")
+    evidence = parent / "evidence.json"
+    staging = []
+    def remote(*args, **kwargs):
+        staging.append(args)
+        return {"prepared": True}
+    monkeypatch.setattr(cli, "remote", remote)
+    with pytest.raises(config.ConfigError):
+        enrollment.main(prepare_args(evidence))
+    assert staging == []
+    assert not evidence.exists()
+    if parent_kind == "file":
+        assert parent.read_bytes() == b"not a directory"
+
+
+@pytest.mark.parametrize("failure", ["collision", "write"])
+def test_prepare_evidence_publication_failure_reports_actual_receipts(tmp_path, inputs, monkeypatch, capsys, failure):
+    evidence = tmp_path / "evidence.json"
+    concurrent = b"concurrent immutable evidence\n"
+    receipt = {"image": inputs[1]["image"]}
+    staging = []
+    def remote(node, req, source, **kwargs):
+        staging.append(node["hostname"])
+        if failure == "collision":
+            evidence.write_bytes(concurrent)
+        return {"prepared": True, "staging_receipts": receipt,
+                "qualified": False, "eligible_automation": False}
+    monkeypatch.setattr(cli, "remote", remote)
+    if failure == "write":
+        def failed_write(*args):
+            raise OSError("credential=do-not-expose")
+        monkeypatch.setattr(cli, "save_exclusive", failed_write)
+    assert enrollment.main(prepare_args(evidence)) == 1
+    captured = capsys.readouterr()
+    report = json.loads(captured.out)
+    assert staging == [inputs[0]["nodes"]["e8f1"]["hostname"]]
+    assert report["ok"] is False and report["requires_reconciliation"]
+    assert report["prepared"] and report["nodes"]["e8f1"]["staging_receipts"] == receipt
+    assert report["evidence_error"] == ("FileExistsError" if failure == "collision" else "OSError")
+    assert "do-not-expose" not in captured.out + captured.err
+    if failure == "collision":
+        assert evidence.read_bytes() == concurrent
+
+
+@pytest.mark.parametrize("destination", ["existing", "same", "parent-alias"])
+def test_remove_evidence_conflicts_reject_before_inventory_publication(inputs, tmp_path, monkeypatch, destination):
+    output = tmp_path / "removed.json"
+    evidence = tmp_path / "evidence.json"
+    original = b"original immutable evidence\n"
+    if destination == "existing":
+        evidence.write_bytes(original)
+    elif destination == "same":
+        evidence = output
+    else:
+        alias = tmp_path / "alias"
+        alias.symlink_to(tmp_path, target_is_directory=True)
+        evidence = alias / output.name
+    def observer(nodes, **kwargs):
+        return {"nodes": {name: idle(node) for name, node in nodes.items()}}
+    monkeypatch.setattr(cli, "observe", observer)
+    with pytest.raises(config.ConfigError):
+        enrollment.main(["remove", "--inventory", str(ROOT / "cluster/inventory.json"),
+                         "--node", "e8f1", "--output", str(output), "--apply",
+                         "--approve-inventory-sha256", enrollment.digest(inputs[0]),
+                         "--evidence-output", str(evidence)])
+    assert not output.exists()
+    if destination == "existing":
+        assert evidence.read_bytes() == original
+    else:
+        assert not evidence.exists()
+
+
+def test_remove_evidence_failure_reports_published_inventory(inputs, tmp_path, monkeypatch, capsys):
+    output, evidence = tmp_path / "removed.json", tmp_path / "evidence.json"
+    def observer(nodes, **kwargs):
+        return {"nodes": {name: idle(node) for name, node in nodes.items()}}
+    save = cli.save_exclusive
+    def publish(path, value):
+        if path == evidence:
+            raise OSError("credential=do-not-expose")
+        save(path, value)
+    monkeypatch.setattr(cli, "observe", observer)
+    monkeypatch.setattr(cli, "save_exclusive", publish)
+    assert enrollment.main(["remove", "--inventory", str(ROOT / "cluster/inventory.json"),
+                            "--node", "e8f1", "--output", str(output), "--apply",
+                            "--approve-inventory-sha256", enrollment.digest(inputs[0]),
+                            "--evidence-output", str(evidence)]) == 1
+    captured = capsys.readouterr()
+    report = json.loads(captured.out)
+    published = config.read(output)
+    assert set(published["nodes"]) == {"66f1"}
+    assert report["candidate_inventory"] == published and report["removed"] == "e8f1"
+    assert report["ok"] is False and report["requires_reconciliation"]
+    assert report["evidence_error"] == "OSError"
+    assert "do-not-expose" not in captured.out + captured.err
+
+
 def test_staging_requires_approval_and_exact_selected_manifest_before_any_command(inputs, monkeypatch):
     recipe = inputs[1]
     manifest = {"version": 1, "repo": recipe["model"], "revision": "f" * 40,
@@ -486,6 +624,7 @@ class AuthenticatedSSHBoundary:
         self.attempts = []
         self.mutations = []
         self.pin_paths = []
+        self.reservations = {}
 
     def __call__(self, argv, *, input, **kwargs):
         assert argv[0] == "ssh"
@@ -514,8 +653,14 @@ class AuthenticatedSSHBoundary:
         if mutation:
             self.mutations.append((action, target))
             reply = {"configured": True}
+            if action == "reserve-workload":
+                self.reservations[target] = {k: req[k] for k in ("owner", "digest")}
+                self.reservations[target].update(phase="workload", container_ids=[])
+            elif action == "release-workload":
+                self.reservations.pop(target, None)
         elif action == "observe":
             reply = idle(req["node"])
+            reply["reservation"] = self.reservations.get(target)
         return subprocess.CompletedProcess(argv, 0, json.dumps({"ok": True, "result": reply}), "")
 
 
@@ -568,4 +713,147 @@ def test_peer_removal_ownership_observation_uses_independent_handshake_pin(boots
                            "--remove", "e8f1", "--apply"]) == 0
     capsys.readouterr()
     assert ("observe", inv["nodes"]["e8f1"]["ssh"]) in boundary.attempts
-    assert boundary.mutations == [("remove", inv["nodes"]["66f1"]["ssh"])]
+    assert boundary.mutations == [("reserve-workload", inv["nodes"]["e8f1"]["ssh"]),
+                                  ("remove", inv["nodes"]["66f1"]["ssh"]),
+                                  ("release-workload", inv["nodes"]["e8f1"]["ssh"])]
+
+
+@pytest.fixture
+def removal_cluster(bootstrap, inputs, tmp_path, monkeypatch):
+    """Real admission and SSH transactions, with only transport/hardware replaced."""
+    inv = enrollment.merge_candidate(inputs[0], candidate_from(inputs[0]))
+    inventory_path, trust_path = tmp_path / "inventory.json", tmp_path / "trust.json"
+    inventory_path.write_text(json.dumps(inv))
+    trust_path.write_text(json.dumps({"version": 1, "nodes":
+                                    {name: {"host_key": key(1)} for name in inv["nodes"]}}))
+    monkeypatch.setattr(node, "STATE", tmp_path / "node-state")
+    monkeypatch.setattr(node, "verify_host", lambda value: None)
+    monkeypatch.setattr(node, "containers", lambda: [])
+    monkeypatch.setattr(node, "run", lambda *args, **kwargs: "")
+    monkeypatch.setattr(node, "doctor", lambda value:
+                        {"gpu_processes": [], "gpu_containers": [], "memory_mib": {"MemAvailable": 65536}})
+    directories = {}
+    target = inv["nodes"]["e8f1"]
+    trust = {"action": "configure", "peer": target, "peer_host_key": key(1),
+             "trusted_host_key": key(1), "peer_public_key": key(99)}
+    for name in inv["nodes"]:
+        if name != "e8f1":
+            directory = tmp_path / name
+            directory.mkdir()
+            configure(directory, trust)
+            directories[inv["nodes"][name]["hostname"]] = directory
+    state = {"after_observe": None, "fail_peer": None, "lose_acquire_reply": False,
+             "remove_calls": [], "release_calls": 0}
+
+    def transport(host, req, source, host_key, **kwargs):
+        action = req["action"]
+        if action == "identity":
+            return {"host_key": key(1), "public_key": key(99), "transaction_pending": False}
+        if action == "observe":
+            report = {**idle(host), "reservation": node.reservation(),
+                      "recovery_fence": node.recovery_fence()}
+            if state["after_observe"]:
+                state["after_observe"]()
+            return report
+        if action == "remove":
+            state["remove_calls"].append(host["hostname"])
+            if host["hostname"] == state["fail_peer"]:
+                raise cli.AmbiguousMutationError("lost revoke reply")
+            configure(directories[host["hostname"]], req)
+            return {"removed": True}
+        if action == "release-workload":
+            state["release_calls"] += 1
+        result = node.main(req)
+        if action == "reserve-workload" and state["lose_acquire_reply"]:
+            raise cli.AmbiguousMutationError("lost acquire reply")
+        return result
+
+    monkeypatch.setattr(bootstrap, "pinned_remote", transport)
+    plan = config.plan(*inputs)
+    request = cli.request(plan, "e8f1", "reserve-workload")
+    args = ["--inventory", str(inventory_path), "--trust", str(trust_path),
+            "--remove", "e8f1", "--apply"]
+    return bootstrap, args, request, directories, state
+
+
+@pytest.mark.parametrize("action", ["reserve", "reserve-workload", "reserve-batch", "fence"])
+def test_removal_guard_blocks_admission_after_idle_observation(removal_cluster, action):
+    bootstrap, args, req, directories, state = removal_cluster
+    rejected = []
+
+    def race():
+        competing = {**req, "action": action}
+        if action == "fence":
+            competing.update(allowed_digests=[req["digest"]],
+                             recovery={"policy": "local-auto", "authority": "authority-a", "generation": 1})
+        try:
+            node.main(competing)
+        except RuntimeError:
+            rejected.append(action)
+
+    state["after_observe"] = race
+    assert bootstrap.main(args) == 0
+    assert rejected == [action, action]
+    assert node.reservation() is None
+    assert all(key(99) not in peer_ssh.read_files(directory)["authorized_keys"]
+               for directory in directories.values())
+
+
+def test_partial_removal_retains_guard_and_explicit_retry_completes(removal_cluster, capsys):
+    bootstrap, args, req, directories, state = removal_cluster
+    state["fail_peer"] = "spark-third"
+    assert bootstrap.main(args) == 1
+    receipt = json.loads(capsys.readouterr().out)
+    guard = node.reservation()
+    assert guard["owner"] == receipt["removal_guard"]["owner"]
+    assert receipt["requires_reconciliation"] and not receipt["guard_release_confirmed"]
+    assert state["release_calls"] == 0
+    assert key(99) in peer_ssh.read_files(directories["spark-third"])["authorized_keys"]
+    assert any(key(99) not in peer_ssh.read_files(directory)["authorized_keys"]
+               for directory in directories.values())
+    with pytest.raises(RuntimeError):
+        node.main(req)
+    # A fresh invocation cannot steal the retained lease.
+    assert bootstrap.main(args) == 1
+    capsys.readouterr()
+    assert node.reservation() == guard
+    state["fail_peer"] = None
+    assert bootstrap.main([*args, "--removal-id", receipt["removal_id"]]) == 0
+    assert node.reservation() is None and state["release_calls"] == 1
+    assert all(key(99) not in peer_ssh.read_files(directory)["authorized_keys"]
+               for directory in directories.values())
+
+
+def test_lost_removal_guard_reply_retains_reconcilable_ownership(removal_cluster, capsys):
+    bootstrap, args, _, directories, state = removal_cluster
+    state["lose_acquire_reply"] = True
+    assert bootstrap.main(args) == 1
+    captured = capsys.readouterr()
+    receipt, intent = json.loads(captured.out), json.loads(captured.err)
+    assert receipt["removal_guard"] == intent["removal_guard"]
+    assert node.reservation()["owner"] == receipt["removal_guard"]["owner"]
+    assert state["remove_calls"] == [] and state["release_calls"] == 0
+    assert all(key(99) in peer_ssh.read_files(directory)["authorized_keys"]
+               for directory in directories.values())
+    state["lose_acquire_reply"] = False
+    assert bootstrap.main([*args, "--removal-id", receipt["removal_id"]]) == 0
+    assert node.reservation() is None
+
+
+@pytest.mark.parametrize("obstacle", ["reservation", "active-fence", "unknown-fence"])
+def test_removal_does_not_revoke_or_release_foreign_state(removal_cluster, obstacle):
+    bootstrap, args, req, directories, state = removal_cluster
+    if obstacle == "reservation":
+        node.main(req)
+        path = node.STATE / "gpu.json"
+    else:
+        path = node.STATE / "recovery-fence.json"
+        node.atomic(path, None if obstacle == "unknown-fence" else
+                    {"active": True, "policy": "local-auto", "authority": "foreign",
+                     "generation": 1, "allowed_digests": [req["digest"]]})
+    original = path.read_bytes()
+    assert bootstrap.main(args) == 1
+    assert path.read_bytes() == original
+    assert state["remove_calls"] == [] and state["release_calls"] == 0
+    assert all(key(99) in peer_ssh.read_files(directory)["authorized_keys"]
+               for directory in directories.values())

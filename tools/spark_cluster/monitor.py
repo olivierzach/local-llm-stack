@@ -386,7 +386,24 @@ class Collector:
         self.targets = {}
         for node_id, node in inventory["nodes"].items():
             self.targets[("host", node_id)] = lambda n=node: self.host_reader(n)
-        endpoints = set()
+        endpoints = {}
+        endpoint_locks = {}
+        digests = set()
+        def read_state():
+            with Path(recovery_state).open() as stream:
+                body = stream.read(131073)
+            if len(body) > 131072:
+                raise ValueError("recovery summary too large")
+            return json.loads(body)
+
+        def selected_digest(state):
+            if not isinstance(state, dict) or state.get("version") != 1:
+                raise ValueError("invalid recovery summary")
+            selected = state.get("selected_plan_digest")
+            if not isinstance(selected, str) or selected not in digests:
+                raise ValueError("recovery has no known selected deployment")
+            return selected
+
         def read_engine(p):
             coordinator_id = p["deployment"]["coordinator"]
             worker = p["compose"][coordinator_id]["services"]["worker"]
@@ -411,25 +428,36 @@ class Collector:
             address = coordinator.get("serving", {}).get("address", coordinator["fabric"][0]["ip"])
             if url != f"http://{address}:{plan['deployment']['port']}/metrics":
                 raise ValueError("engine endpoint differs from saved coordinator serving address")
-            if url in endpoints:
-                raise ValueError("duplicate engine endpoint: choose one exact plan per serving endpoint")
-            endpoints.add(url)
+            group = endpoints.setdefault(url, set())
+            if plan["digest"] in group:
+                raise ValueError("duplicate engine endpoint: duplicate exact plan")
+            group.add(plan["digest"])
+            digests.add(plan["digest"])
+            lock = endpoint_locks.setdefault(url, threading.Lock())
             labels = {"deployment": plan["owner"], "plan_digest": plan["digest"], "alias": plan["recipe"]["alias"],
                       "coordinator": plan["deployment"]["coordinator"]}
-            def collect_engine(p=plan, l=labels):
-                value = engine_reader(p)
-                if not isinstance(value, dict) or value.get("owner") != p["owner"] or value.get("digest") != p["digest"]:
-                    raise ValueError("engine telemetry identity mismatch")
-                return parse_exposition(value["metrics"], "vllm:", ENGINE_BASES, l)
+            def collect_engine(state=None, p=plan, l=labels, group=group, lock=lock):
+                # Alternatives sharing one socket use the same authority snapshot.
+                # Independent endpoints remain independently observable.
+                shared = len(group) > 1
+                if shared and selected_digest(state) != p["digest"]:
+                    return None
+                if not lock.acquire(blocking=False):
+                    raise ValueError("engine endpoint collection is still pending")
+                try:
+                    value = engine_reader(p)
+                    if not isinstance(value, dict) or value.get("owner") != p["owner"] or value.get("digest") != p["digest"]:
+                        raise ValueError("engine telemetry identity mismatch")
+                    if shared and selected_digest(read_state()) != p["digest"]:
+                        raise ValueError("selected deployment changed during collection")
+                    return parse_exposition(value["metrics"], "vllm:", ENGINE_BASES, l)
+                finally:
+                    lock.release()
             self.targets[("engine", plan["owner"])] = collect_engine
         self.plans = tuple(plans)
+        self.shared_engines = {plan["owner"] for plan in plans
+                               if len(endpoints[endpoint(plan["endpoint"]["base_url"], "/metrics")]) > 1}
         if recovery_state:
-            def read_state():
-                with Path(recovery_state).open() as stream:
-                    body = stream.read(131073)
-                if len(body) > 131072:
-                    raise ValueError("recovery summary too large")
-                return json.loads(body)
             self.targets[("recovery", "authority")] = read_state
         if bool(gateway_url) != bool(gateway_key):
             raise ValueError("gateway URL and private key are required together")
@@ -445,21 +473,34 @@ class Collector:
         with self.collect_lock:
             start = time.monotonic()
             jobs = {}
+            recovery_ready, recovery = threading.Event(), {}
             for key, collect in self.targets.items():
                 previous = self.pending.get(key)
                 if previous and previous[0].is_alive():
                     continue
                 result = queue.Queue(maxsize=1)
-                def run(fn=collect, out=result):
+                def run(fn=collect, out=result, key=key):
                     try:
-                        out.put((True, fn()))
+                        if key[0] == "engine" and key[1] in self.shared_engines:
+                            if not recovery_ready.wait(max(0, self.timeout - (time.monotonic() - start))):
+                                raise ValueError("recovery selection unavailable")
+                            payload = fn(recovery.get("state"))
+                        else:
+                            payload = fn()
+                        if key == ("recovery", "authority"):
+                            recovery["state"] = payload
+                        out.put((True, payload))
                     except Exception:
                         out.put((False, None))
+                    finally:
+                        if key == ("recovery", "authority"):
+                            recovery_ready.set()
                 thread = threading.Thread(target=run, daemon=True, name="spark-monitor-target")
                 self.pending[key] = jobs[key] = (thread, result)
                 thread.start()
             metrics, status, success = Metrics(), [], True
             physical_current = {}
+            inactive, available_engines = set(), set()
             now = time.time()
             for key in sorted(self.targets):
                 kind, target = key
@@ -471,6 +512,9 @@ class Collector:
                         error = "" if ok else "collection_failed"
                     except queue.Empty:
                         pass
+                if not error and kind == "engine" and payload is None:
+                    error = "not_selected"
+                    inactive.add(target)
                 local = Metrics()
                 if not error:
                     try:
@@ -492,6 +536,8 @@ class Collector:
                                 if type(gateway.get(field)) is bool:
                                     local.add("spark_gateway_recovery_" + field, int(gateway[field]))
                         self.last_success[key] = now
+                        if kind == "engine":
+                            available_engines.add(target)
                         if kind == "host":
                             physical_current[target] = payload
                         # Shared TYPE declarations across hosts/engines appear only once.
@@ -509,12 +555,16 @@ class Collector:
                 metrics.add("spark_monitor_target_error", int(bool(error)), {**labels, "reason": error or "none"})
                 metrics.add("spark_monitor_target_last_success_timestamp_seconds", self.last_success.get(key), labels)
                 status.append({**labels, "up": not error, "error": error or None, "last_success": self.last_success.get(key)})
-                success = success and not error
+                success = success and (not error or error == "not_selected")
             physical_link_metrics(metrics, self.mapping, physical_current, self.physical_previous)
             self.physical_previous = physical_current
             for plan in self.plans:
                 labels = {"deployment": plan["owner"], "alias": plan["recipe"]["alias"]}
                 metrics.add("spark_engine_plan_info", 1, {**labels, "target": plan["owner"], "plan_digest": plan["digest"]})
+                if plan["owner"] in self.shared_engines and plan["owner"] not in available_engines:
+                    if plan["owner"] in inactive:
+                        metrics.add("spark_engine_configured_replica_count", 0, labels)
+                    continue
                 for field in ("context_tokens", "max_output_tokens", "max_num_seqs"):
                     metrics.add("spark_engine_configured_" + field, plan["recipe"][field], labels)
                 metrics.add("spark_engine_tensor_parallel_shards", plan["deployment"]["tensor_parallel"], labels)

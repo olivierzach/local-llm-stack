@@ -207,8 +207,9 @@ def load_config(path):
             'local gateway service requires an HTTP origin without credentials')
     cfg['gateway'] = bind_options(raw.get('gateway', {}), {'bind': '127.0.0.1', 'port': url.port or 80})
     require(cfg['gateway']['port'] == (url.port or 80), 'gateway listener and policy ports differ')
+    require(':' not in url.hostname, 'IPv4 gateway listener cannot serve an IPv6 policy URL')
     if ipaddress.ip_address(cfg['gateway']['bind']).is_loopback:
-        require(url.hostname in ('localhost', '127.0.0.1', '::1'), 'loopback gateway requires a local policy URL')
+        require(url.hostname in ('localhost', '127.0.0.1'), 'loopback gateway requires a local policy URL')
     cfg['monitor'] = bind_options(raw.get('monitor', {}),
                                   {'bind': '127.0.0.1', 'port': 9842, 'interval': 10, 'timeout': 8})
     require(cfg['monitor']['port'] != cfg['gateway']['port'], 'listeners must use distinct ports')
@@ -447,12 +448,30 @@ def recover_plists(cfg, launch_dir, controller):
     # user edit merely because a previous installer left a transaction behind.
     require(all(hashes[name] in (tx['before_sha256'][name], tx['after_sha256'][name])
                 for name in names), 'service transaction conflicts with an unknown file; preserved')
+    loaded_jobs = {}
     for role in ROLES:
         loaded = controller.inspect(label(cfg, role))
         if loaded:
-            require(current[role] is not None and loaded['path'] == str(paths[role]) and
-                    tx['before'][role] == tx['after'][role],
-                    'cannot recover a changed or foreign loaded service')
+            require(current[role] is not None and loaded['path'] == str(paths[role]),
+                    'cannot recover a foreign loaded service')
+        loaded_jobs[role] = loaded
+    # RunAtLoad can load an exactly journaled plist after an interrupted install.
+    # Explicit lifecycle actions may stop that job before rolling its file back,
+    # but only after preflighting every file and loaded label.
+    require(plist_snapshot(cfg, launch_dir)[1] == current,
+            'service transaction files changed during recovery; preserved')
+    require(all(controller.inspect(label(cfg, role)) == loaded_jobs[role] for role in ROLES),
+            'loaded service identity changed during recovery; preserved')
+    for role in ('recovery', 'gateway', 'monitor', 'awake'):
+        if loaded_jobs[role] and tx['before'][role] != tx['after'][role]:
+            require(controller.inspect(label(cfg, role)) == loaded_jobs[role],
+                    'loaded service identity changed during recovery; preserved')
+            controller.stop(label(cfg, role))
+            loaded_jobs[role] = None
+    require(plist_snapshot(cfg, launch_dir)[1] == current,
+            'service transaction files changed during recovery; preserved')
+    require(all(controller.inspect(label(cfg, role)) == loaded_jobs[role] for role in ROLES),
+            'loaded service identity changed during recovery; preserved')
     for name in (*ROLES, 'manifest'):
         if current[name] != tx['before'][name]:
             replace_plist(paths[name], tx['before'][name])
@@ -496,7 +515,9 @@ def initialize(cfg):
         atomic(marker, json_bytes(owner_value(cfg)))
     private_dir(ingress)
     private_dir(cfg['state_dir'])
-    if not (cfg['state_dir'] / 'journal.json').exists():
+    # Initialization may persist the authority journal before its policy snapshot.
+    # Resume through Journal validation, never replace an existing authority.
+    if any(not (cfg['state_dir'] / name).exists() for name in ('journal.json', 'policy.json')):
         recovery.initialize(cfg['policy_data'], cfg['state_dir'])
     private_dir(root / 'logs')
     gateway = cfg['policy_data']['gateway']

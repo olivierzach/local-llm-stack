@@ -1025,7 +1025,8 @@
           "refId": "A",
           "expr": "spark_recovery_phase_info",
           "legendFormat": "{{policy}} {{phase}}",
-          "range": true
+          "range": false,
+          "instant": true
         }
       ],
       "fieldConfig": {

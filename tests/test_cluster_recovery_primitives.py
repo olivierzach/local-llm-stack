@@ -90,6 +90,66 @@ def test_foreign_reservation_and_native_gpu_process_prevent_initial_fence(setup,
     assert node.recovery_fence() is None
 
 
+@pytest.fixture
+def paused_worker(setup, monkeypatch):
+    _, req = setup
+    items = [{"Id": "owned-worker", "State": {"Status": "paused"},
+              "HostConfig": {"DeviceRequests": [{"Driver": "nvidia"}]},
+              "Config": {"Labels": {"io.spark.owner": req["owner"], "io.spark.digest": req["digest"]}}}]
+    node.atomic(node.STATE / "gpu.json", {"owner": req["owner"], "digest": req["digest"],
+                                        "phase": "running", "container_ids": ["owned-worker"]})
+    calls = []
+
+    def run(args, **kwargs):
+        calls.append(args)
+        if args[0] == "nvidia-smi":
+            return "1234\n" if items else ""
+        if args[:2] == ["docker", "top"]:
+            return "PID\n1234\n"
+        if args[:3] == ["docker", "rm", "-f"]:
+            items.clear()
+        return ""
+
+    monkeypatch.setattr(node, "containers", lambda: items)
+    monkeypatch.setattr(node, "run", run)
+    monkeypatch.setattr(node.subprocess, "run", lambda args, **kwargs:
+                        node.subprocess.CompletedProcess(args, 0, "", ""))
+    return req, items, calls, run
+
+
+def test_paused_owned_worker_fences_and_cleans_up(paused_worker):
+    req, items, calls, _ = paused_worker
+    assert establish(req)["active"]
+    assert node.main({**req, "action": "stop"})["released"]
+    assert ["docker", "rm", "-f", "owned-worker"] in calls
+    assert not items and node.reservation() is None
+    assert node.recovery_fence()["active"]
+
+
+def test_paused_owned_worker_does_not_hide_foreign_gpu_process(paused_worker, monkeypatch):
+    req, items, calls, run = paused_worker
+    monkeypatch.setattr(node, "run", lambda args, **kwargs:
+                        "1234\n9999\n" if args[0] == "nvidia-smi" else run(args, **kwargs))
+    with pytest.raises(RuntimeError, match="unowned GPU process"):
+        establish(req)
+    assert node.recovery_fence() is None
+    assert node.reservation()["container_ids"] == ["owned-worker"]
+    assert items and not any(args[:3] == ["docker", "rm", "-f"] for args in calls)
+
+
+@pytest.mark.parametrize("changed", ["id", "digest", "owner"])
+def test_paused_worker_identity_must_match_reservation(paused_worker, changed):
+    req, items, _, _ = paused_worker
+    if changed == "id":
+        items[0]["Id"] = "replacement"
+    else:
+        items[0]["Config"]["Labels"]["io.spark." + changed] = "foreign"
+    with pytest.raises(RuntimeError, match="unowned GPU container"):
+        establish(req)
+    assert node.recovery_fence() is None
+    assert node.reservation()["container_ids"] == ["owned-worker"]
+
+
 def test_release_requires_idle_matching_context_and_retains_generation_tombstone(setup):
     _, req = setup
     establish(req)
