@@ -152,7 +152,10 @@ missing tools are reported, not fixed with implicit sudo.
 Discovery can suggest a machine; it must not automatically trust a discovered
 host or start a GPU workload. Observations distinguish detected and prepared state
 from per-deployment GPU qualification. Current version-1 inventory accepts optional
-management/serving policy and validated switched/direct/triangle topology. A plan
+management/serving bindings and per-rail peer/physical-link metadata. It does not
+accept a top-level switched/direct/triangle topology declaration or prove those
+physical layouts merely by validating inventory. Explicit connectivity checks
+and the physical/model acceptance gates still apply. A plan
 rendered from changed inventory is a new plan; the old exact recovery plan remains
 immutable. Stable independent serving addresses require explicit approval; neither
 `.local` discovery nor a currently observed DHCP address proves that stability.

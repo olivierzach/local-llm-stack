@@ -2,7 +2,9 @@
 
 Self-hosted private assistant and fine-tuning lab for this Spark host.
 
-Deep explainers live in [docs/README.md](docs/README.md). For a full reproducible setup, start with [Spark Setup Runbook](docs/spark-setup-runbook.md).
+For end-to-end operation, start with [connections, Internet, Ethernet and trusted SSH](docs/SPARK_CONNECTIONS_RUNBOOK.md), then choose [single-Spark setup](docs/SPARK_SINGLE_NODE_RUNBOOK.md) or [multi-Spark setup](docs/SPARK_MULTI_NODE_RUNBOOK.md). Keep the [offline/emergency recovery playbook](docs/SPARK_RECOVERY_RUNBOOK.md) independently accessible before any disruption.
+
+Component explainers live in [docs/README.md](docs/README.md). The [legacy Compose application setup](docs/spark-setup-runbook.md) covers the UI/router/lab stack after host connectivity is established; it is not a substitute for the connection and recovery playbooks.
 
 For optional interchangeable compute nodes, independent Context Guard gateways,
 and explicit multi-node deployments, see [the Spark cluster runbook](docs/CLUSTER.md).

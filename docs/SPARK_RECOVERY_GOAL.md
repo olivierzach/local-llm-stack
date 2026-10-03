@@ -1,11 +1,13 @@
 # Durable goal: automatic Spark recovery and local-first operations
 
-Status: local software implemented and verified; readiness review updated September 30, 2026. Physical
-deployment/acceptance and automatic recovery enablement require separate approval;
-recovery is not installed, enabled or live-qualified. This document is the durable
+Status updated October 3, 2026: reviewed software is installed on the selected Mac;
+disabled service install/start/stop and a supervised read-only observer passed.
+Test LaunchAgents were subsequently uninstalled while preserving the release,
+configuration and authority state. Recovery remains disabled and not GPU-qualified.
+The live GLM owner changed after the initial snapshot, so that older prepared plan
+must not be used as the current restoration baseline. This document is the durable
 goal record: a native harness `/goal` tool is unavailable, so no native tracker was
-activated. Checked software items below are local evidence, **not** completion of
-the full physical recovery goal.
+activated. Checked software items are evidence, **not** completion of the physical goal.
 
 ## Exact objective
 
@@ -24,9 +26,9 @@ The Mac is a single point of failure, not HA. Sleep, power loss or lost required
 connectivity makes the stable gateway unavailable and suspends recovery; authority
 loss stops route-lease renewal, and expired routes fail closed without releasing
 GPU ownership. Manual wake/power/connectivity restoration may be required before
-services reconcile durable state and actual ownership and resume. This host choice
-does not approve service installation, always-awake/network/trust provisioning,
-hardware faults or activation; those gates remain open.
+services reconcile durable state and actual ownership and resume. Host selection
+alone does not authorize installation, network/trust provisioning, hardware faults
+or activation. The bounded October 3 approval and remaining gates are recorded below.
 
 Use the existing tool-capable coder recipe for the agent fallback, subject to
 per-node qualification. Existing coder acceptance with e8f1 serving through both
@@ -90,8 +92,10 @@ GPU capacity or two-node quorum HA.
 - [ ] Durable launchd services on the selected Mac are independent of OMP/VS Code
   and terminal sessions; awake/power/network dependencies, authority loss/restart
   behavior and manual host-restoration conditions are implemented and documented.
-  Foreground gateway lifecycle and service ownership/crash-repair are locally
-  verified; installed launchd/session-loss proof remains blocked on installation approval.
+  Foreground lifecycle and service ownership/crash-repair are locally verified;
+  installed launchd parenting and an independent read-only completion passed on
+  October 3. Closing sessions, authority restart against live workers and
+  supervised GPU restoration still need acceptance.
 - [x] CPU acceptance covers symmetric loss/return, lease expiry/stale routes,
   concurrent controllers, every crash boundary, dropped replies, partition/flapping,
   drain/startup/rollback failures, missing artifacts and endpoint/auth/capability errors.
@@ -274,6 +278,55 @@ fault was injected, no new recovery services were installed, and no policy was e
   recorded before qualification/faults. Prepared inputs are not a claim of live
   readiness; full completion still requires the physical acceptance receipts.
 
+## Connection and recovery handoff — October 3, 2026
+
+- The user approved bounded software/service interruption only with preserved
+  settings and a reliable restoration path, then requested node-loss simulation
+  without taking hosts offline and a complete connection-level repository handoff.
+  No Mac power/sleep, Spark shutdown or physical cable removal was approved.
+- Added linked [connection](SPARK_CONNECTIONS_RUNBOOK.md),
+  [single-Spark](SPARK_SINGLE_NODE_RUNBOOK.md), [multi-Spark](SPARK_MULTI_NODE_RUNBOOK.md)
+  and [emergency/offline](SPARK_RECOVERY_RUNBOOK.md) playbooks. They cover console
+  access, Internet/Wi-Fi, Ethernet/fabric, routing/DNS, independently verified SSH
+  trust, reboot persistence, pinned installation/artifacts, serving and exact
+  restoration. Site addresses are examples, not undiscovered hardware configuration.
+- Installed controller revision `65b05d5503e6ffefd2f07d07ebe86333917d5086`.
+  All four started launchd roles had parent PID 1. Authenticated admission returned
+  HTTP 200 with `accepting: false` and zero active requests; authority remained
+  disabled at epoch 0. Stop and uninstall subsequently confirmed every role
+  unloaded and every test plist removed, preserving configuration, state and release.
+- A separate one-shot launchd job ran only `sparkctl observe`, completed with exit 0,
+  and was removed. It proved independently supervised read-only completion, **not**
+  the ability to restore GPUs after a real fault.
+- That observation found healthy replacement workers under owner
+  `glm53-tp2-256k-dflash2-e8f1-cuda-log-c8964024b73e`, deployment digest
+  `c8964024b73e24f031d08ee4e17d0992e3c94a089606b97cca0836345c9295ba`,
+  started around 04:54 UTC. This differs from the earlier `b1cf7901…` baseline.
+  The source of that replacement was not established; no GPU start/stop command
+  was issued by this rollout. Both observations are retained. **Preserve the new
+  owner and reconcile the exact current plan with its operator before any test.**
+- All 60 documented repository CLI invocations passed the actual pinned parser
+  without executing operations. All 72 shell blocks passed `bash -n`; four Python
+  heredocs compiled, one JSON heredoc parsed and 152 local documentation links resolved.
+  The cold-manifest producer passed synthetic valid
+  metadata and corrupt-Git-blob rejection checks; no real weights were downloaded.
+  The inspection-only handback procedure correctly refused the occupied GPUs
+  before any fence release.
+- A complete already-installed prefix was backed up and restored at its same
+  absolute path in a disposable location. The actual installer reused it successfully
+  inside a macOS sandbox denying network access, retaining a state sentinel.
+  **Cold offline installation is not supported by that installer:** its isolated
+  pip invocation ignores `PIP_NO_INDEX`/`PIP_FIND_LINKS`. Preserved compatible Python,
+  installed dependencies, private state and cached model artifacts remain necessary;
+  wheels or a Git clone alone are not a disconnected restoration proof.
+- Private evidence is under
+  `data/cluster/operations/pr2-20261002T055115Z/rollout-20261003T044051Z/`.
+  No GPU qualification, fault injection or recovery enablement was performed.
+  Unattended administrator access was unavailable on all three hosts; independent
+  preferred routing and full ingress isolation/reversal remain unproven.
+  An independently accessible recovery packet, a reconciled current baseline,
+  operator network provisioning and the bounded simulation harness are still gates.
+
 ## Continuing work without another architecture round
 
 Treat [LOCAL_FIRST_OPERATIONS_PLAN.md](LOCAL_FIRST_OPERATIONS_PLAN.md) as authoritative
@@ -281,7 +334,7 @@ for policy/state machine, fencing, addressing, request semantics and phase depen
 Use [SPARK_SCALING_RECOVERY_PLAN.md](SPARK_SCALING_RECOVERY_PLAN.md) for physical topology
 and enrollment detail; [CLUSTER_IMPLEMENTATION.md](CLUSTER_IMPLEMENTATION.md) records
 the broader implementation checklist. Existing GLM acceptance remains model evidence,
-not evidence that this recovery service has been installed or physically qualified.
+not proof of automatic recovery or supervised GPU restoration.
 
 Continue reachable local implementation until all software criteria have actual
 proof. Keep one owner for shared schema/journal integration, and parallelize node,

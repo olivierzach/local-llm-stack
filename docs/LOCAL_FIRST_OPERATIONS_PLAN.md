@@ -55,12 +55,14 @@ historical source reconciliation as separate workstreams.
 
 The source-alignment record reported `main` at `c7adb11297f72824d60491580a41eecbc08b1101`
 and installed controllers at `696af2a`; this is historical evidence, not a new remote check.
-Last recorded service: `local-glm53-flash`, TP2/DFlash2, e8f1 coordinator, 66f1 worker;
+Original planning service: `local-glm53-flash`, TP2/DFlash2, e8f1 coordinator, 66f1 worker;
 owner `glm53-tp2-256k-dflash2-e8f1-b1cf7901f81c`, plan on both nodes at
 `~/projects/local-llm-stack-cluster/state/glm53-20260913/e8f1-04/plan.json`.
 Model API: 8125; guards: 4010; managed gateways: 4110. Both GPUs were occupied.
 Caches/overlays: `~/projects/local-llm-stack/data/`; gateway state/credentials:
 `~/.local/state/local-llm-cluster/`. Reconcile exact identities before any activation.
+The October 3 observation later found a different live owner/digest; see section 10.
+This historical plan is not permission to overwrite that newer deployment.
 
 | Existing at planning baseline | Required change; current implementation is described in section 7 |
 | --- | --- |
@@ -690,6 +692,25 @@ proof and physical receipts; until then label automatic enablement **not qualifi
 
 ## 10. PR #2 rollout preparation and approval boundary
 
+The operator path begins with [connections/SSH](SPARK_CONNECTIONS_RUNBOOK.md),
+then [single-Spark](SPARK_SINGLE_NODE_RUNBOOK.md) or
+[multi-Spark](SPARK_MULTI_NODE_RUNBOOK.md) setup. Keep the
+[offline/emergency restoration playbook](SPARK_RECOVERY_RUNBOOK.md) available
+independently of this Mac and the model service.
+
+**October 3 hold:** the approved disabled Mac install/start/stop completed, and its
+test LaunchAgents were then uninstalled with state/configuration preserved.
+A read-only supervised observation found healthy workers owned by
+`glm53-tp2-256k-dflash2-e8f1-cuda-log-c8964024b73e`, digest
+`c8964024b73e24f031d08ee4e17d0992e3c94a089606b97cca0836345c9295ba`,
+instead of the initial baseline below. No GPU start/stop command was issued by
+this rollout. **The following packet and hashes are historical, not a current
+restoration authorization.** Reconcile the new owner's exact plan with its operator
+before qualification, simulation or restoration. Preserve both observations;
+do not regenerate, adopt or stop the replacement deployment implicitly.
+See the [handoff evidence](SPARK_RECOVERY_GOAL.md#connection-and-recovery-handoff--october-3-2026)
+and [current hold point](SPARK_RECOVERY_RUNBOOK.md#8-recorded-installation-and-current-hold-point).
+
 The release package is recorded in the private operation directory
 `data/cluster/operations/pr2-20261002T055115Z/`. Its `rollout.env` binds a full
 40-character committed revision, locally verified Git bundle, immutable installed
@@ -745,7 +766,7 @@ if the ports have other owners or immutable release verification fails.
 
 Read-only preparation found Mac `en0` at `10.10.10.1`, independent wired Spark
 addresses `10.10.10.2`/`10.10.10.3` on `enP7s7`, and separate collective rails
-`10.10.20.0/24` and `10.10.21.0/24`. The Mac route to the saved preferred endpoint
+`10.10.20.0/30` and `10.10.21.0/30`. The Mac route to the saved preferred endpoint
 `10.10.20.2:8125` currently uses its ordinary default gateway, not the independent
 Spark Ethernet link. This is **not a proven serving path**. A candidate host route,
 requiring separate network approval and a fresh before-snapshot, is:

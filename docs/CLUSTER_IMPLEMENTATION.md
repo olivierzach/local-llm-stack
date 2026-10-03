@@ -1,12 +1,21 @@
 # Spark cluster: current implementation and remaining work
 
-Status reviewed September 16, 2026. This is the current checklist; earlier
-chronological notes are preserved in [the historical log](CLUSTER_HISTORY_20260907_10.md).
+Recovery/setup status updated October 3, 2026; model acceptance below retains its
+recorded evidence dates. Earlier chronological notes are preserved in
+[the historical log](CLUSTER_HISTORY_20260907_10.md).
 Use [CLUSTER.md](CLUSTER.md) for current commands,
 [the local-first operations plan](LOCAL_FIRST_OPERATIONS_PLAN.md) for the full
 automatic fallback/failback contract, and
 [the scaling/recovery roadmap](SPARK_SCALING_RECOVERY_PLAN.md) for topology and
 enrollment work that has not yet been implemented or qualified.
+
+For a complete operator handoff, start with [connections](SPARK_CONNECTIONS_RUNBOOK.md),
+then [single-Spark](SPARK_SINGLE_NODE_RUNBOOK.md) or
+[multi-Spark](SPARK_MULTI_NODE_RUNBOOK.md) setup, and keep the
+[disconnected recovery runbook](SPARK_RECOVERY_RUNBOOK.md) available off-host.
+The October 3 observer detected a different live GLM owner/digest after the initial
+rollout snapshot; the older prepared plan is not the current restoration baseline.
+No GPU-disruptive qualification may use it without reconciling the actual deployment.
 
 ## Current serving state
 
@@ -142,9 +151,12 @@ in this session.
 4. **Service packaging, enrollment, setup/reset and recipe expansion — implemented.**
    `spark-services` renders, validates and transactionally installs pinned,
    disabled-default LaunchAgents. Real foreground gateway start/shutdown and
-   crash-repair regressions passed; actual launchd session-loss survival remains
-   untested because installation is not approved. `spark-node` admits/removes
-   reviewed inventory and stages only selected pinned artifacts; N-peer bootstrap
+   crash-repair regressions passed. Approved Mac install/start/stop verified four
+   launchd-parented roles and closed, authenticated admission; a separate supervised
+   read-only observer completed with exit 0. Test LaunchAgents were then uninstalled,
+   preserving the installed release, configuration and disabled authority state.
+   Session-loss, power-loss and actual GPU-restoration acceptance remain untested.
+   `spark-node` admits/removes reviewed inventory and stages only selected pinned artifacts; N-peer bootstrap
    requires independently pinned host keys and preserves unrelated SSH state.
    New physical members and recipes still need hardware qualification.
    Coordinator switching means a qualified full-group restart, not live

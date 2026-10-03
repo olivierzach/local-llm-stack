@@ -10,6 +10,21 @@ The planned context/concurrency experiments for multiple agents are recorded in
 [DEEPSEEK_AGENT_CONCURRENCY_PLAN.md](DEEPSEEK_AGENT_CONCURRENCY_PLAN.md);
 execution is deferred.
 
+## Start from the physical machine, not an assumed working service
+
+| Situation | Playbook |
+| --- | --- |
+| New/disconnected Spark; Internet, cables, addresses or SSH not working | [Connections and console recovery](SPARK_CONNECTIONS_RUNBOOK.md) |
+| One standalone Spark needs a complete serving setup | [Single-Spark setup](SPARK_SINGLE_NODE_RUNBOOK.md) |
+| Two or more Sparks need management/fabric wiring and distributed serving | [Multi-Spark setup](SPARK_MULTI_NODE_RUNBOOK.md) |
+| Preserve setup before a test, or restore without this chat/model | [Emergency and offline recovery](SPARK_RECOVERY_RUNBOOK.md) |
+
+Recorded site addresses are examples with explicit verification gates, not factory
+defaults. Keep the connection/emergency pages and an encrypted recovery packet off
+the machines under test. The original Compose application stack and optional owned
+controller workflows are alternatives to choose deliberately, not commands to run
+together against an already occupied GPU.
+
 There is no permanent main compute node. Each distributed deployment selects
 one coordinator for its API and worker rendezvous; changing that coordinator
 requires restarting that deployment. A Context Guard gateway can live on either
@@ -82,7 +97,7 @@ an independent publisher signature.
 
 The default prefix is `~/projects/local-llm-stack-cluster`:
 
-- `bin/` contains stable commands for all five controller entry points.
+- `bin/` contains the entry points shipped by the selected release: the original five plus monitoring, enrollment, recovery and Mac services in the current release.
 - `releases/FULL_COMMIT_ID/` contains the exact detached checkout and its environment.
 - `current` points to the selected release; `previous` records the prior selection.
 - `state/` contains controller plans, receipts and profiles shared by every release.
@@ -145,6 +160,11 @@ reviewed inventory admission/removal and separate peer trust revocation.
 
 Recipes pin container digests, model commits, context/output limits, capabilities
 and supported parallelism. Deployment files select nodes and ports.
+
+The short examples below illustrate new explicitly selected deployments on admitted
+idle resources. For end-to-end preparation, pinned activation, client qualification
+and cleanup, follow the single-node playbook. Restore existing work from its saved
+plan and trusted canonical hash, not by re-rendering a deployment after recipe changes.
 
 ```bash
 scripts/sparkctl validate --deployment cluster/deployments/fast-e8f1.json

@@ -2,6 +2,15 @@
 
 This is the end-to-end path to reproduce the local LLM stack on the Spark host from a fresh checkout. It covers host prerequisites, Python tooling, Docker images, model downloads, baseline serving, throughput evals, vision serving, and the LoRA adapter demo.
 
+This guide starts **after host connectivity works**. For physical ports/cables,
+Internet/Wi-Fi, management Ethernet, SSH trust and reconnecting from a console,
+start with [the connection playbook](SPARK_CONNECTIONS_RUNBOOK.md). For owned
+standalone or distributed model deployment, choose the
+[single-Spark](SPARK_SINGLE_NODE_RUNBOOK.md) or
+[multi-Spark](SPARK_MULTI_NODE_RUNBOOK.md) path instead of starting this whole
+Compose application stack on an occupied GPU. Prepare the
+[emergency/offline recovery packet](SPARK_RECOVERY_RUNBOOK.md) before disruption.
+
 ## 1. Host Prerequisites
 
 The expected host is an ARM64 Spark/GB10 machine with an NVIDIA driver that supports the pinned container images.
