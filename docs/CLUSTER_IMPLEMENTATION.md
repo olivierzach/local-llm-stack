@@ -1,9 +1,21 @@
 # Spark cluster: current implementation and remaining work
 
-Status reviewed September 16, 2026. This is the current checklist; earlier
-chronological notes are preserved in [the historical log](CLUSTER_HISTORY_20260907_10.md).
-Use [CLUSTER.md](CLUSTER.md) for commands and [the scaling/recovery plan](SPARK_SCALING_RECOVERY_PLAN.md)
-for work that has not yet been implemented or qualified.
+Recovery/setup status updated October 3, 2026; model acceptance below retains its
+recorded evidence dates. Earlier chronological notes are preserved in
+[the historical log](CLUSTER_HISTORY_20260907_10.md).
+Use [CLUSTER.md](CLUSTER.md) for current commands,
+[the local-first operations plan](LOCAL_FIRST_OPERATIONS_PLAN.md) for the full
+automatic fallback/failback contract, and
+[the scaling/recovery roadmap](SPARK_SCALING_RECOVERY_PLAN.md) for topology and
+enrollment work that has not yet been implemented or qualified.
+
+For a complete operator handoff, start with [connections](SPARK_CONNECTIONS_RUNBOOK.md),
+then [single-Spark](SPARK_SINGLE_NODE_RUNBOOK.md) or
+[multi-Spark](SPARK_MULTI_NODE_RUNBOOK.md) setup, and keep the
+[disconnected recovery runbook](SPARK_RECOVERY_RUNBOOK.md) available off-host.
+The October 3 observer detected a different live GLM owner/digest after the initial
+rollout snapshot; the older prepared plan is not the current restoration baseline.
+No GPU-disruptive qualification may use it without reconciling the actual deployment.
 
 ## Current serving state
 
@@ -76,28 +88,114 @@ The following records describe the earlier September 12 maintenance campaign:
   controller source sync. Package parity means the declared functional baseline,
   not downgrading drivers/kernels to make all dpkg versions identical.
 
-## Remaining work, in order
+## Recovery implementation and remaining acceptance
 
-1. Source reconciliation is complete; see its receipt above. Treat the declared system package baseline as optional maintenance for build, audio and diagnostic workflows; it is not a prerequisite for the currently running GLM service.
-2. Schedule 66f1 single-node model, Vector and Loop acceptance after releasing TP2;
-   do not interrupt the user's active OMP testing to run it.
-3. Implement and exercise [the recovery and stable-endpoint plan](SPARK_SCALING_RECOVERY_PLAN.md).
-4. **Deferred at the user's request:** implement automatic node enrollment and
-   network topology generalization once, then add nodes by inventory and
-   deployment data; the proposed enrollment workflow is in the plan above.
-   DeepSeek TP3 is rejected by the pinned model's 64-head
-   partition constraint; a third node can instead run an independent workload.
-5. **Planned; no execution now:** qualify agent concurrency versus context using
-   [the DeepSeek concurrency test plan](DEEPSEEK_AGENT_CONCURRENCY_PLAN.md).
-   The user accepts a smaller context window for multiple simultaneous agents;
-   compare sequence limits 2/4/8 and context ceilings before choosing a profile.
-   Include OMP/gateway compaction latency, cold/cached prefill, retained facts,
-   incremental summaries and interference with other agents. The current 1M
-   no-compaction acceptance does not qualify compaction quality or efficiency.
-   Larger output budgets and remote drafting remain separate optional work.
+The [local-first operations plan](LOCAL_FIRST_OPERATIONS_PLAN.md) now covers the
+full preferred-TP2 → qualified existing single-node fallback → automatic TP2
+failback lifecycle, not only the first observer slice. The continuing
+[implementation goal](SPARK_RECOVERY_GOAL.md) records implementation and local
+verification separately from physical acceptance. Local development does not
+authorize live generation, restarts, route changes or hardware faults; both GPUs
+remain occupied by GLM until separately approved maintenance.
 
-Kubernetes migration is deferred; the [scaling plan](SPARK_SCALING_RECOVERY_PLAN.md)
-records the recommendation, integration costs and conditions for revisiting it.
+The user has selected **this Mac, kept awake**, for the recovery authority/controller
+and stable gateway. Implemented packaging uses launchd-supervised foreground services,
+independent of OMP, VS Code and terminal sessions—not independent of the Mac being
+awake, powered, network-connected and logged into the service user. Linux/systemd is a portability option, not
+a required third host or an unresolved host-selection gate. Installation,
+always-awake/trust/network provisioning and activation still require separate
+approval; no recovery service has been installed or enabled by local development.
+Local CPU/HTTP integration and read-only live monitoring have been exercised;
+automatic enablement remains unqualified and disabled.
+
+The Mac is a single point of failure, not HA. Sleep, power loss or required network
+loss makes the stable gateway unavailable and suspends recovery. Authority loss
+ends route-lease renewal; expired routes fail closed without releasing GPU ownership.
+An operator must restore wake/power/connectivity as needed, after which services
+must reconcile durable state and actual ownership before resuming. Physical
+acceptance must cover these faults and separately prove service survival after
+closing OMP/VS Code/terminal sessions.
+
+Implementation stays on branch `feat/spark-automatic-recovery` in
+`/Users/statsparrot/projects/local-llm-stack-recovery`; the original checkout
+`/Users/statsparrot/projects/local-llm-stack` and its existing edits remain untouched.
+The durable goal document is not a native `/goal` activation: that tool is unavailable
+in this session.
+
+1. **Observer and combined monitoring — locally verified.** `sparkctl observe`
+   provides bounded partial observations without mutation locks. `spark-monitor`
+   collects host/GPU/unified-memory and physical NIC/RDMA counters; exact native
+   engine metrics travel over independent management SSH with container/model
+   identity verification. Actual Prometheus/Grafana queries and plotted host,
+   native engine and physical cable data were exercised read-only. Unsupported
+   values remain unavailable. Two logical interfaces represent one QSFP cable,
+   not two independent cables; no saturation test was run.
+2. **Authority, stable routes and safe recovery — locally verified.**
+   `spark-recover` persists authority epochs, worker fences, transition intents,
+   quarantine, retry/circuit state and exact plans. Real loopback HTTP integration
+   exercised preferred → surviving single → automatic exact preferred failback,
+   strict aliases, authenticated SSE and actual backend/limit reporting, with
+   simulated GPU/SSH state only. Independent serving is separate from collectives;
+   only explicit `local-auto` may substitute recipes. Physical Wi-Fi/fabric
+   independence, node fencing and ingress isolation still require acceptance.
+3. **Scheduled symmetric fallback/failback qualification.** Qualify the chosen
+   existing single-node recipe on each survivor, then exercise either host
+   failing, cable loss/return, both coordinator choices, controller restart,
+   competing owners and dropped replies. Coder tools/SSE evidence with e8f1
+   serving and 66f1 absent is not coder66 acceptance. After stable returned-node
+   and fabric readiness, failback must automatically drain all managed ingress,
+   release fallback resources and restore the exact TP2 plan, with bounded
+   rollback/backoff if restoration fails. Record the service gap; do not claim
+   warm overlap, stream/KV migration or generation/tool replay. Maintenance
+   pause/disable is valid; routine failback is not manual-only.
+4. **Service packaging, enrollment, setup/reset and recipe expansion — implemented.**
+   `spark-services` renders, validates and transactionally installs pinned,
+   disabled-default LaunchAgents. Real foreground gateway start/shutdown and
+   crash-repair regressions passed. Approved Mac install/start/stop verified four
+   launchd-parented roles and closed, authenticated admission; a separate supervised
+   read-only observer completed with exit 0. Test LaunchAgents were then uninstalled,
+   preserving the installed release, configuration and disabled authority state.
+   Session-loss, power-loss and actual GPU-restoration acceptance remain untested.
+   `spark-node` admits/removes reviewed inventory and stages only selected pinned artifacts; N-peer bootstrap
+   requires independently pinned host keys and preserves unrelated SSH state.
+   New physical members and recipes still need hardware qualification.
+   Coordinator switching means a qualified full-group restart, not live
+   rank promotion. The [scaling roadmap](SPARK_SCALING_RECOVERY_PLAN.md) retains
+   topology/enrollment details: DeepSeek TP3 remains rejected by its 64-head
+   partition constraint; a third node may instead run an independent workload.
+   Owned reset leaves recovery disabled and preserves caches, credentials, epochs and
+   history. The runnable approval/command contracts are in section 7 of the
+   [operations plan](LOCAL_FIRST_OPERATIONS_PLAN.md).
+
+### Separate maintenance and deferred acceptance
+
+- Source reconciliation is complete; see its receipt above. The declared
+  system package baseline remains optional maintenance for build, audio and
+  diagnostic workflows, not a prerequisite for the running GLM service.
+- Full 66f1 catalog, Vector and Loop GPU acceptance still needs an idle-GPU
+  window; do not interrupt active OMP testing. The recovery recipe's per-node
+  qualification does not claim completion of these unrelated acceptance items.
+- **Planned; no execution now:** qualify agent concurrency versus context using
+  [the DeepSeek concurrency test plan](DEEPSEEK_AGENT_CONCURRENCY_PLAN.md).
+  The user accepts a smaller context window for multiple simultaneous agents;
+  compare sequence limits 2/4/8 and context ceilings before choosing a profile.
+  Include OMP/gateway compaction latency, cold/cached prefill, retained facts,
+  incremental summaries and interference with other agents. The current 1M
+  no-compaction acceptance does not qualify compaction quality or efficiency.
+  Larger output budgets and remote drafting remain separate optional work.
+
+K3s is an optional later backend/pilot after the two-node recovery foundation,
+not a required migration or a capacity multiplier. The
+[scaling roadmap](SPARK_SCALING_RECOVERY_PLAN.md) records supported-platform
+references, integration costs and conditions for revisiting it.
+
+Standard supervised foreground services, a private atomic journal, immutable plans,
+expiring route leases, rollback and observability address recovery's actual safety
+boundaries. Orchestrator choice changes operations, not GPU capacity or the selected
+Mac's awake/power/network dependency.
 
 The broad interchangeable-node goal remains incomplete until its hardware and
-recovery gaps are closed. GLM is the current service; restore the accepted DeepSeek recipe after releasing GLM with its exact saved plan.
+recovery gaps are closed. GLM is the current preferred service; automatic
+failback restores its saved TP2 plan, not a different historical model. A
+separate approved switch back to accepted DeepSeek likewise requires its exact
+saved plan after owned release of GLM.

@@ -54,6 +54,26 @@ def read(path):
     return json.loads(Path(path).read_text(), object_pairs_hook=unique)
 
 
+def ssh_targets(node):
+    if "management" in node:
+        fields(node["management"], ("ssh_targets",))
+    targets = node.get("management", {}).get("ssh_targets", [node["ssh"]])
+    require(isinstance(targets, list) and 1 <= len(targets) <= 8, "invalid SSH targets")
+    require(all(isinstance(t, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.@-]{0,253}", t)
+                for t in targets), "invalid SSH target")
+    require(len(set(targets)) == len(targets), "duplicate SSH target")
+    return targets
+
+
+def serving_address(node):
+    return node["serving"]["address"] if "serving" in node else node["fabric"][0]["ip"]
+
+
+def plan_sha256(p):
+    """Hash every saved field, including Compose and endpoint, without rendering."""
+    return hashlib.sha256(canonical(p).encode()).hexdigest()
+
+
 def validate_inventory(inv):
     fields(inv, ("version", "nodes"))
     require(inv["version"] == 1, "unsupported inventory version")
@@ -61,11 +81,24 @@ def validate_inventory(inv):
     hosts, ips = set(), set()
     for key, node in inv["nodes"].items():
         name(key)
-        fields(node, ("hostname", "ssh", "architecture", "gpus", "cache", "projects", "fabric"))
+        fields(node, ("hostname", "ssh", "architecture", "gpus", "cache", "projects", "fabric"),
+               ("management", "serving"))
         require(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]*", node["hostname"]), "invalid hostname")
         require(node["hostname"] not in hosts, "duplicate hostname")
         hosts.add(node["hostname"])
         require(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.@-]*", node["ssh"]), "invalid SSH target")
+        if "management" in node:
+            fields(node["management"], ("ssh_targets",))
+        ssh_targets(node)
+        if "serving" in node:
+            fields(node["serving"], ("address", "interface"))
+            require(isinstance(node["serving"]["address"], str), "serving address must be IPv4 text")
+            address = ipaddress.IPv4Address(node["serving"]["address"])
+            require(not address.is_unspecified and not address.is_multicast and not address.is_loopback,
+                    "serving address must identify a reachable host")
+            require(isinstance(node["serving"]["interface"], str) and
+                    re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,14}", node["serving"]["interface"]),
+                    "invalid serving interface")
         require(node["architecture"] in ("aarch64", "x86_64"), "unsupported architecture")
         integer(node["gpus"], 1, 8)
         absolute(node["cache"])
@@ -73,14 +106,29 @@ def validate_inventory(inv):
         require(isinstance(node["fabric"], list) and node["fabric"], "fabric required")
         interfaces = set()
         for rail in node["fabric"]:
-            fields(rail, ("interface", "ip", "rdma"))
-            for key in ("interface", "rdma"):
-                require(re.fullmatch(r"[A-Za-z0-9_]+", rail[key]), "invalid interface")
+            fields(rail, ("interface", "ip", "rdma"), ("physical_link", "peer"))
+            for field in ("physical_link", "peer"):
+                if field in rail:
+                    name(rail[field])
+            if "peer" in rail:
+                require(rail["peer"] != key, "fabric peer cannot be the same node")
+            for interface_key in ("interface", "rdma"):
+                require(re.fullmatch(r"[A-Za-z0-9_]+", rail[interface_key]), "invalid interface")
             ipaddress.IPv4Address(rail["ip"])
             require(rail["ip"] not in ips and rail["interface"] not in interfaces,
                     "duplicate fabric address/interface")
             ips.add(rail["ip"])
             interfaces.add(rail["interface"])
+    serving_ips = {}
+    for key, node in inv["nodes"].items():
+        if "serving" in node:
+            address = node["serving"]["address"]
+            require(address not in serving_ips, "duplicate serving address")
+            serving_ips[address] = key
+    for key, node in inv["nodes"].items():
+        for rail in node["fabric"]:
+            require(rail["ip"] not in serving_ips or serving_ips[rail["ip"]] == key,
+                    "serving address aliases another node's fabric")
 
 
 def validate_recipe(r):
@@ -296,7 +344,7 @@ def plan(inv, recipe, deployment):
     owner = deployment["name"] + "-" + digest[:12]
     result = {"version": 1, "owner": owner, "digest": digest, **identity, "compose": {}}
     for node_id, node in identity["nodes"].items():
-        ip = node["fabric"][0]["ip"]
+        ip = serving_address(node)
         model_path = "/cache/hub/models--" + recipe["model"].replace("/", "--") + "/snapshots/" + recipe["revision"]
         cmd = ["-m", "vllm.entrypoints.openai.api_server", "--model", model_path,
                "--served-model-name", recipe["alias"], "--host", ip,
@@ -424,7 +472,7 @@ def plan(inv, recipe, deployment):
             if node_id != coordinator:
                 service["command"].append("--headless")
             service["environment"].update({
-                "VLLM_HOST_IP": ip, "NCCL_SOCKET_IFNAME": "=" + node["fabric"][0]["interface"],
+                "VLLM_HOST_IP": node["fabric"][0]["ip"], "NCCL_SOCKET_IFNAME": "=" + node["fabric"][0]["interface"],
                 "GLOO_SOCKET_IFNAME": node["fabric"][0]["interface"],
                 "NCCL_IB_HCA": "=" + ",".join(r["rdma"] + ":1" for r in node["fabric"]),
                 "NCCL_IB_GID_INDEX": "3", "NCCL_IB_DISABLE": "0",
@@ -436,21 +484,21 @@ def plan(inv, recipe, deployment):
             service["cap_add"] = ["IPC_LOCK"]
             service["ulimits"] = {"memlock": {"soft": -1, "hard": -1}}
             service["healthcheck"]["test"][-1] = (
-                f"import urllib.request; urllib.request.urlopen('http://{master_ip}:{deployment['port']}/health', timeout=2)")
+                f"import urllib.request; urllib.request.urlopen('http://{serving_address(inv['nodes'][coordinator])}:{deployment['port']}/health', timeout=2)")
         result["compose"][node_id] = {"name": "spark-" + owner, "services": {"worker": service}}
         if recipe.get("runtime_cache"):
             result["compose"][node_id]["volumes"] = {"runtime-cache": {
                 "name": runtime_cache_name(recipe, deployment, node_id, node["architecture"]), "external": True}}
     coordinator = inv["nodes"][deployment["coordinator"]]
     result["endpoint"] = {"alias": recipe["alias"],
-                          "base_url": f"http://{coordinator['fabric'][0]['ip']}:{deployment['port']}/v1",
+                          "base_url": f"http://{serving_address(coordinator)}:{deployment['port']}/v1",
                           "context_tokens": recipe["context_tokens"],
                           "max_output_tokens": recipe["max_output_tokens"],
                           "capabilities": recipe["capabilities"], "ready": False}
     return result
 
 
-def validate_saved_plan(p):
+def validate_saved_plan(p, expected_sha256=None):
     """Validate recovery identity without re-rendering an older deployment.
 
     Saved plans are recovery handles, not signatures. Remote operations still
@@ -478,3 +526,8 @@ def validate_saved_plan(p):
         require(worker["container_name"] == "spark-" + p["owner"] and
                 worker["labels"] == {"io.spark.owner": p["owner"], "io.spark.digest": digest} and
                 worker["image"] == p["recipe"]["image"], "saved worker ownership mismatch")
+        require(worker.get("pull_policy") == "never", "saved worker may not pull an image")
+    if expected_sha256 is not None:
+        require(isinstance(expected_sha256, str) and re.fullmatch(r"[a-f0-9]{64}", expected_sha256),
+                "invalid expected plan SHA-256")
+        require(plan_sha256(p) == expected_sha256, "saved plan full SHA-256 mismatch")

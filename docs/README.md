@@ -2,7 +2,18 @@
 
 This folder explains the local LLM stack component by component.
 
-Start here:
+## Operator starting points
+
+1. [Connections: physical ports, Internet, Ethernet, SSH and reconnecting](SPARK_CONNECTIONS_RUNBOOK.md).
+2. [One Spark: pinned runtime/model, startup, gateway and client acceptance](SPARK_SINGLE_NODE_RUNBOOK.md).
+3. [Multiple Sparks: collective wiring, peer trust, distributed serving and recovery gates](SPARK_MULTI_NODE_RUNBOOK.md).
+4. [Emergency/offline handoff: backups, lost connectivity and exact supervised restoration](SPARK_RECOVERY_RUNBOOK.md).
+
+These distinguish inspection, administrator/network changes, GPU disruption and
+inference. Save offline copies and private recovery artifacts before a test; Git
+does not contain credentials, model weights or the site's runtime journal.
+
+## Component and application guides
 
 0. [Spark Setup Runbook](spark-setup-runbook.md)
 1. [System Overview](system-overview.md)
@@ -30,3 +41,6 @@ Start here:
 23. [GLM-5.3-Flash Two-Spark Recipe](GLM53_TP.md)
 24. [Current Cluster Status And Remaining Work](CLUSTER_IMPLEMENTATION.md)
 25. [Source Reconciliation And Deployment Hygiene](SOURCE_RECONCILIATION.md)
+26. [Local-First Cluster Operations: Full Automatic Fallback And Failback Plan](LOCAL_FIRST_OPERATIONS_PLAN.md)
+27. [Spark Recovery Implementation Goal](SPARK_RECOVERY_GOAL.md)
+28. [Spark Scaling, Topology And Recovery Roadmap](SPARK_SCALING_RECOVERY_PLAN.md)

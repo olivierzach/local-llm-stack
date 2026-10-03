@@ -56,6 +56,7 @@ def main():
     p.add_argument("--plan", type=Path, action="append", default=[])
     p.add_argument("--replicas",action="store_true",help="group identical recipes under one alias with least-in-flight routing")
     p.add_argument("--registry", type=Path)
+    p.add_argument("--recovery-state", type=Path, help="Absolute private route file on the gateway host; enables leased local-auto admission")
     p.add_argument("--merge", action="store_true", help="Upsert routes while preserving other installed aliases")
     p.add_argument("--alias", help="Expose one plan under a distinct client alias")
     p.add_argument("--port", type=int, default=4110)
@@ -63,6 +64,8 @@ def main():
     p.add_argument("--key-file", type=Path, help="private file containing only the provider API key")
     args = p.parse_args()
     if args.merge and args.action != 'routes': p.error('--merge applies only to routes')
+    if args.recovery_state and (args.action != "up" or not args.recovery_state.is_absolute()):
+        p.error("--recovery-state requires up and an absolute gateway-host path")
     if args.alias and (args.action not in ('render', 'up', 'routes') or len(args.plan) != 1 or args.registry or args.replicas):
         p.error('--alias requires exactly one plan without a registry or replicas')
     inv = read(args.inventory)
@@ -71,6 +74,8 @@ def main():
     node = inv["nodes"][args.node]
     output = ROOT / "data/cluster/gateways" / args.node
     request = {"action": args.action, "node": node}
+    if args.recovery_state:
+        request["recovery_state"] = str(args.recovery_state)
     if args.action in ("credential-set", "credential-remove"):
         request["name"] = credential_name(args.name)
         if args.action == "credential-set":
@@ -104,6 +109,7 @@ def main():
             image="sha256:a7ec324e5bb322cfa5e120e3c80a1f425a3aee9295916c260a643580b2024137",
             files={path: (ROOT / path).read_text() for path in (
                 "scripts/context-guard-proxy.py", "tools/spark_cluster/gateway.py",
+                "tools/spark_cluster/recovery_routes.py",
                 "tools/spark_cluster/config.py", "tools/spark_cluster/__init__.py")})
     result = remote(node, request, ROOT / "tools/spark_cluster/gateway_node.py")
     if args.merge:

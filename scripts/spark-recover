@@ -1,0 +1,16 @@
+#!/usr/bin/env python3
+"""Explicit private authority controls and supervised exact-plan recovery."""
+from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+from spark_cluster.recovery import main
+from spark_cluster.config import ConfigError
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except ConfigError as exc:
+        raise SystemExit("spark-recover: " + str(exc)) from None
+    except (OSError, ValueError, RuntimeError, KeyError, TypeError):
+        raise SystemExit("spark-recover: refused unsafe configuration, ownership or unavailable prerequisite; inspect private status/history") from None

@@ -23,10 +23,20 @@ import time
 import urllib.request
 
 STATE = Path.home() / ".local/state/local-llm-cluster"
+DEADLINE = None
+
+
+def remaining(timeout):
+    if DEADLINE is None:
+        return timeout
+    value = min(timeout, DEADLINE - time.monotonic())
+    if value <= 0:
+        raise TimeoutError("observation deadline exceeded")
+    return value
 
 
 def run(args, timeout=30):
-    p = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+    p = subprocess.run(args, capture_output=True, text=True, timeout=remaining(timeout))
     if p.returncode:
         # Do not disclose Docker environment/configuration or command argv.
         raise RuntimeError(f"{args[0]} {args[1] if len(args)>1 else ''} failed ({p.returncode}): {p.stderr[-1500:]}")
@@ -42,9 +52,23 @@ def atomic(path, obj):
             f.flush()
             os.fsync(f.fileno())
         os.replace(temporary, path)
+        fsync_directory(path.parent)
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
+
+
+def fsync_directory(path):
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def durable_unlink(path):
+    path.unlink()
+    fsync_directory(path.parent)
 
 
 @contextlib.contextmanager
@@ -86,6 +110,49 @@ def research_window():
     return json.loads(record.read_text()).get("status", "unresolved")
 
 
+def interface_health(rail):
+    result = dict(rail)
+    path = Path("/sys/class/net") / rail["interface"]
+    errors = {}
+    for key, filename in (("carrier", "carrier"), ("speed_mbps", "speed"), ("mtu", "mtu")):
+        try:
+            result[key] = (path / filename).read_text().strip()
+        except OSError:
+            result[key] = None
+            errors[key] = "unavailable"
+    try:
+        result["addresses"] = json.loads(run(["ip", "-j", "address", "show", "dev", rail["interface"]]))
+    except Exception:
+        result["addresses"] = None
+        errors["addresses"] = "unavailable"
+    expected = rail.get("ip", rail.get("address"))
+    actual = {a.get("local") for item in result["addresses"] or []
+              for a in item.get("addr_info", []) if a.get("family") == "inet"}
+    result.update(available=not errors, ready=result["carrier"] == "1" and expected in actual,
+                  errors=errors)
+    return result
+
+
+def serving_address(node):
+    return node["serving"]["address"] if "serving" in node else node["fabric"][0]["ip"]
+
+
+def network_checks(request, report):
+    required = request["node"]["fabric"] if request["deployment"]["mode"] != "single" or "serving" not in request["node"] else []
+    reported = {r["interface"]: r for r in report.get("fabric", [])}
+    result = []
+    for rail in required:
+        observed = reported.get(rail["interface"], {})
+        actual = {a.get("local") for item in observed.get("addresses") or []
+                  for a in item.get("addr_info", []) if a.get("family") == "inet"}
+        result.append(("fabric-" + rail["interface"],
+                       observed.get("carrier") == "1" and rail["ip"] in actual, observed))
+    if "serving" in request["node"]:
+        observed = report.get("serving") or {}
+        result.append(("serving", observed.get("ready") is True, observed))
+    return result
+
+
 def doctor(node):
     items = containers()
     names = "nvtop nvidia-smi docker git gh codex python3 ffmpeg cmake ninja tmux htop jq rg rsync iperf3 ethtool rdma ibv_devinfo ib_write_bw mpirun numactl".split()
@@ -98,12 +165,9 @@ def doctor(node):
               "tools": {n: shutil.which(n, path=search) for n in names + ["omp", "nvcc"]},
               "gpu": run(["nvidia-smi", "--query-gpu=name,driver_version", "--format=csv,noheader"]),
               "reservation": reservation(), "research_window": research_window(), "fabric": []}
-    for rail in node["fabric"]:
-        path = Path("/sys/class/net") / rail["interface"]
-        result["fabric"].append({**rail, "carrier": (path/"carrier").read_text().strip(),
-                                  "speed_mbps": (path/"speed").read_text().strip(),
-                                  "mtu": (path/"mtu").read_text().strip(),
-                                  "addresses": json.loads(run(["ip", "-j", "address", "show", "dev", rail["interface"]]))})
+    result["fabric"] = [interface_health(rail) for rail in node["fabric"]]
+    if "serving" in node:
+        result["serving"] = interface_health(node["serving"])
     return result
 
 
@@ -112,7 +176,95 @@ def verify_host(node):
         raise RuntimeError("SSH reached a host/architecture different from inventory")
 
 
+def recovery_fence():
+    path = STATE / "recovery-fence.json"
+    if not path.exists():
+        return None
+    gate = json.loads(path.read_text())
+    if not isinstance(gate, dict) or type(gate.get("active")) is not bool or set(gate) - {
+            "policy", "authority", "generation", "operation_id", "active", "allowed_digests"}:
+        raise RuntimeError("invalid persistent recovery fence")
+    recovery_context({"recovery": {k: gate[k] for k in ("policy", "authority", "generation") if k in gate}})
+    if not isinstance(gate.get("allowed_digests"), list) or not gate["allowed_digests"] or not all(
+            isinstance(d, str) and re.fullmatch(r"[a-f0-9]{64}", d) for d in gate["allowed_digests"]):
+        raise RuntimeError("invalid persistent fence admission")
+    return gate
+
+
+def recovery_context(request):
+    context = request.get("recovery")
+    if not isinstance(context, dict) or not {"policy", "authority", "generation"} <= context.keys() or set(context) - {"policy", "authority", "generation", "operation_id"}:
+        raise RuntimeError("recovery context required")
+    for key in ("policy", "authority", "operation_id"):
+        if key in context and (not isinstance(context[key], str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", context[key])):
+            raise RuntimeError("invalid recovery identity")
+    if type(context["generation"]) is not int or not 1 <= context["generation"] <= 2**63 - 1:
+        raise RuntimeError("invalid recovery generation")
+    return context
+
+
+def check_fence(request):
+    gate = recovery_fence()
+    if gate and gate["active"]:
+        context = recovery_context(request)
+        if any(context[key] != gate[key] for key in ("policy", "authority", "generation")):
+            raise RuntimeError("recovery fence identity/generation mismatch")
+        if request["digest"] not in gate["allowed_digests"]:
+            raise RuntimeError("deployment is outside recovery fence")
+    elif request.get("recovery") is not None:
+        raise RuntimeError("recovery fence must be established before mutation")
+
+
+def fence(request):
+    context = recovery_context(request)
+    allowed = request.get("allowed_digests")
+    if not isinstance(allowed, list) or not allowed or len(allowed) != len(set(allowed)) or not all(isinstance(d, str) and re.fullmatch(r"[a-f0-9]{64}", d) for d in allowed):
+        raise RuntimeError("invalid fence digest admission")
+    gate = recovery_fence()
+    if gate:
+        if gate["active"] and any(gate[k] != context[k] for k in ("policy", "authority")):
+            raise RuntimeError("another recovery authority owns this node")
+        if context["generation"] < gate["generation"] or (not gate["active"] and context["generation"] <= gate["generation"]):
+            raise RuntimeError("stale recovery generation")
+        if gate["active"] and context["generation"] == gate["generation"]:
+            if set(allowed) != set(gate["allowed_digests"]):
+                raise RuntimeError("equal generation cannot change admission")
+    saved = reservation()
+    if saved and saved.get("digest") not in allowed:
+        raise RuntimeError("foreign reservation prevents fencing")
+    items = gpu_containers(containers())
+    if any(not saved or (c["Id"] not in saved.get("container_ids", []) and saved.get("phase") != "creating") or
+           (c["Config"].get("Labels") or {}).get("io.spark.digest") != saved["digest"] or
+           (c["Config"].get("Labels") or {}).get("io.spark.owner") != saved["owner"] for c in items):
+        raise RuntimeError("unowned GPU container prevents fencing")
+    processes = set(run(["nvidia-smi", "--query-compute-apps=pid", "--format=csv,noheader"]).splitlines())
+    owned_pids = set()
+    for item in items:
+        if item["State"]["Status"] in ("running", "paused"):
+            owned_pids.update(line.strip() for line in run(["docker", "top", item["Id"], "-eo", "pid"]).splitlines()[1:])
+    if processes - owned_pids:
+        raise RuntimeError("unowned GPU process prevents fencing")
+    if gate and gate["active"] and context["generation"] == gate["generation"]:
+        return gate
+    gate = {**context, "allowed_digests": sorted(allowed), "active": True}
+    atomic(STATE / "recovery-fence.json", gate)
+    return gate
+
+
+def release_fence(request):
+    check_fence(request)
+    gate = recovery_fence()
+    if not gate or not gate["active"]:
+        raise RuntimeError("no active fence to release")
+    if reservation() or gpu_containers(containers()) or run(["nvidia-smi", "--query-compute-apps=pid", "--format=csv,noheader"]).strip():
+        raise RuntimeError("fence release requires empty reservation and idle GPU")
+    gate = {**gate, "active": False}
+    atomic(STATE / "recovery-fence.json", gate)
+    return gate
+
+
 def owned(request):
+    check_fence(request)
     saved = reservation()
     if not saved or saved["owner"] != request["owner"] or saved["digest"] != request["digest"]:
         raise RuntimeError("reservation ownership mismatch; no changes made")
@@ -227,10 +379,8 @@ def preflight(request):
                   {'processes': report['gpu_processes'], 'containers': report['gpu_containers']})
         condition('shared-memory', report['memory_mib']['MemAvailable'] >= recipe['min_available_mib'],
                   {'available_mib': report['memory_mib']['MemAvailable'], 'required_mib': recipe['min_available_mib']})
-        for rail in report['fabric']:
-            actual = {a['local'] for item in rail['addresses'] for a in item['addr_info'] if a['family'] == 'inet'}
-            condition('fabric-' + rail['interface'], rail['carrier'] == '1' and rail['ip'] in actual,
-                      {'carrier': rail['carrier'], 'expected_ip': rail['ip'], 'actual_ips': sorted(actual), 'mtu': rail['mtu']})
+        for label, passed, details in network_checks(request, report):
+            condition(label, passed, details)
 
     def image_check():
         image = json.loads(run(['docker', 'image', 'inspect', recipe['image']]))[0]
@@ -245,9 +395,9 @@ def preflight(request):
         return {'snapshot': str(snapshot), 'weight_shards': len(list(snapshot.glob('*.safetensors'))),
                 'qualification': 'Structural check only; use the model-copy receipt for SHA-256 verification.'}
 
-    def port_check(port):
-        check_port(node['fabric'][0]['ip'], port)
-        return {'address': node['fabric'][0]['ip'], 'port': port}
+    def port_check(port, address):
+        check_port(address, port)
+        return {'address': address, 'port': port}
 
     observe('runtime-image', image_check)
     if recipe.get('deepseek_v4', {}).get('source_overlays') or recipe.get('glm53', {}).get('source_overlays'):
@@ -257,15 +407,16 @@ def preflight(request):
     observe('model-cache', cache_check)
     if recipe.get('speculative_config', {}).get('method') == 'dflash':
         observe('draft-cache', lambda: verify_draft_cache(request))
-    observe('api-port', lambda: port_check(request['deployment']['port']))
+    observe('api-port', lambda: port_check(request['deployment']['port'], serving_address(node)))
     if request['deployment']['mode'] != 'single':
         condition('rdma-devices', Path('/dev/infiniband').is_dir(), {'path': '/dev/infiniband'})
-        observe('master-port', lambda: port_check(request['deployment']['master_port']))
+        observe('master-port', lambda: port_check(request['deployment']['master_port'], node['fabric'][0]['ip']))
     return {'launchable': all(item['passed'] for item in checks), 'checks': checks,
             'qualification': 'Point-in-time diagnostics. Ports are briefly bound and closed. No GPU reservation or worker is created; up rechecks admission.'}
 
 
 def reserve(request):
+    check_fence(request)
     old = reservation()
     if old:
         owned(request)
@@ -281,34 +432,98 @@ def reserve(request):
         raise RuntimeError("GPU is busy or a GPU container is pending; no workloads stopped")
     if report["memory_mib"]["MemAvailable"] < recipe["min_available_mib"]:
         raise RuntimeError("insufficient available shared memory")
-    for rail in report["fabric"]:
-        actual = {a["local"] for i in rail["addresses"] for a in i["addr_info"] if a["family"] == "inet"}
-        if rail["carrier"] != "1" or rail["ip"] not in actual:
-            raise RuntimeError("fabric carrier/address does not match inventory")
+    if any(not passed for _, passed, _ in network_checks(request, report)):
+        raise RuntimeError("required serving/fabric carrier/address does not match inventory")
     image = json.loads(run(["docker", "image", "inspect", recipe["image"]]))[0]
     if image["Architecture"] != {"aarch64": "arm64", "x86_64": "amd64"}[node["architecture"]]:
         raise RuntimeError("container architecture mismatch")
     snapshot = Path(node["cache"]) / "hub" / ("models--" + recipe["model"].replace("/", "--")) / "snapshots" / recipe["revision"]
     validate_cached_snapshot(snapshot)
-    check_port(node["fabric"][0]["ip"], request["deployment"]["port"])
+    check_port(serving_address(node), request["deployment"]["port"])
     if request["deployment"]["mode"] != "single":
         if not Path("/dev/infiniband").is_dir():
             raise RuntimeError("RDMA devices unavailable")
         check_port(node["fabric"][0]["ip"], request["deployment"]["master_port"])
+    check_fence(request)
     atomic(STATE / "gpu.json", {"owner": request["owner"], "digest": request["digest"],
-                                "created_at": time.time(), "container_ids": [], "phase": "reserved"})
+                                "created_at": time.time(), "container_ids": [], "phase": "reserved",
+                                **({"recovery": request["recovery"]} if request.get("recovery") else {})})
     return {"reserved": True, "existing": False}
+
+
+def container_identity(c):
+    labels = c["Config"].get("Labels") or {}
+    state = c["State"]
+    return {"id": c["Id"], "owner": labels.get("io.spark.owner"),
+            "digest": labels.get("io.spark.digest"), "state": state["Status"],
+            "exit_code": state.get("ExitCode"), "health": state.get("Health", {}).get("Status"),
+            "started_at": state.get("StartedAt"), "restart_count": c.get("RestartCount"),
+            "image": c["Config"].get("Image"), "image_id": c.get("Image")}
+
+
+def observe(request):
+    """Bounded metadata only: no locks, writes, bind probes or inference."""
+    global DEADLINE
+    budget = request.get("timeout", 15)
+    if isinstance(budget, bool) or not isinstance(budget, (float, int)) or not 0 < budget <= 240:
+        raise RuntimeError("invalid observation timeout")
+    previous = DEADLINE
+    DEADLINE = time.monotonic() + budget
+    result = {"hostname": platform.node(), "architecture": platform.machine(),
+              "observed_at": time.time(), "errors": {}}
+
+    def collect(key, operation):
+        try:
+            result[key] = operation()
+        except Exception as exc:
+            result[key] = None
+            # Do not expose subprocess stderr, environment or arbitrary state.
+            result["errors"][key] = type(exc).__name__
+
+    try:
+        def reservation_identity():
+            saved = reservation()
+            if not saved:
+                return None
+            result = {k: v for k, v in saved.items() if k in {
+                "owner", "digest", "created_at", "phase", "kind", "container_ids"}}
+            if "recovery" in saved:
+                result["recovery"] = recovery_context({"recovery": saved["recovery"]})
+            return result
+        collect("reservation", reservation_identity)
+        collect("recovery_fence", recovery_fence)
+        collect("memory_mib", memory)
+        collect("gpu_processes", lambda: run(["nvidia-smi", "--query-compute-apps=pid", "--format=csv,noheader"]).splitlines())
+        try:
+            items = containers()
+            result["containers"] = [container_identity(c) for c in items
+                if (c["Config"].get("Labels") or {}).get("io.spark.owner") and
+                (not request.get("owner") or (c["Config"].get("Labels") or {}).get("io.spark.owner") == request["owner"])]
+            result["gpu_containers"] = [container_identity(c) for c in gpu_containers(items)]
+        except Exception as exc:
+            result["containers"] = result["gpu_containers"] = None
+            result["errors"]["containers"] = type(exc).__name__
+        result["fabric"] = [interface_health(rail) for rail in request["node"]["fabric"]]
+        result["serving"] = interface_health(request["node"]["serving"]) if "serving" in request["node"] else None
+        for rail in result["fabric"] + ([result["serving"]] if result["serving"] else []):
+            if not rail["available"]:
+                result["errors"]["interface:" + rail["interface"]] = "unavailable"
+        result["complete"] = not result["errors"]
+        return result
+    finally:
+        DEADLINE = previous
 
 
 def status(request):
     saved = reservation()
     items = [c for c in containers() if (c["Config"].get("Labels") or {}).get("io.spark.owner") == request["owner"]]
-    return {"reservation": saved, "containers": [{"id": c["Id"], "state": c["State"]["Status"],
-             "exit_code": c["State"]["ExitCode"], "health": c["State"].get("Health", {}).get("Status")}
-             for c in items]}
+    return {"reservation": saved, "recovery_fence": recovery_fence(),
+            "containers": [container_identity(c) for c in items]}
 
 
 def runtime_cache(request, create=False, clear=False):
+    if create or clear:
+        check_fence(request)
     definition = request["compose"].get("volumes", {}).get("runtime-cache")
     if not request["recipe"].get("runtime_cache"):
         if definition: raise RuntimeError("unexpected runtime cache volume")
@@ -324,6 +539,7 @@ def runtime_cache(request, create=False, clear=False):
     if name not in names and create:
         args = ["docker", "volume", "create"]
         for key, value in labels.items(): args += ["--label", key+"="+value]
+        check_fence(request)
         run(args+[name])
         names.append(name)
     if name not in names:
@@ -334,6 +550,7 @@ def runtime_cache(request, create=False, clear=False):
     if clear:
         # Docker refuses removal while any container, including a stopped one,
         # references the volume. Never prune or stop those containers here.
+        check_fence(request)
         run(["docker", "volume", "rm", name])
     return {"enabled": True, "name": name, "present": not clear}
 
@@ -343,12 +560,14 @@ def start(request):
     verify_nccl_library(request)
     verify_source_overlays(request)
     verify_draft_cache(request)
+    owned(request)
     folder = STATE / request["owner"]
     folder.mkdir(exist_ok=True, mode=0o700)
     compose = folder / "compose.json"
     if compose.exists() and json.loads(compose.read_text()) != request["compose"]:
         raise RuntimeError("saved Compose definition changed")
     runtime_cache(request, create=True)
+    owned(request)
     atomic(compose, request["compose"])
     base = ["docker", "compose", "-f", str(compose)]
     run(base + ["config", "--quiet"])
@@ -358,7 +577,8 @@ def start(request):
         saved["phase"] = "creating"
         atomic(STATE / "gpu.json", saved)
     if saved["phase"] == "creating":
-        run(base + ["create", "--pull", "never"], timeout=120)
+        owned(request)
+        run(base + ["create", "--no-recreate", "--pull", "never"], timeout=120)
         items = [c for c in containers() if (c["Config"].get("Labels") or {}).get("io.spark.owner") == request["owner"]]
         if len(items) != len(request["compose"]["services"]):
             raise RuntimeError("created container count mismatch")
@@ -368,6 +588,13 @@ def start(request):
         saved["phase"] = "created"
         atomic(STATE / "gpu.json", saved)
     if saved["phase"] == "created":
+        owned(request)
+        items = [c for c in containers() if c["Id"] in saved["container_ids"]]
+        if len(items) != len(saved["container_ids"]) or any(
+                (c["Config"].get("Labels") or {}).get("io.spark.owner") != request["owner"] or
+                (c["Config"].get("Labels") or {}).get("io.spark.digest") != request["digest"] for c in items):
+            raise RuntimeError("start refused: journaled containers changed")
+        owned(request)
         run(["docker", "start"] + saved["container_ids"], timeout=120)
         saved["phase"] = "started"
         atomic(STATE / "gpu.json", saved)
@@ -375,6 +602,7 @@ def start(request):
 
 
 def stop(request):
+    check_fence(request)
     saved = reservation()
     if not saved:
         # No reservation is not permission to remove anything with a similar name.
@@ -402,14 +630,17 @@ def stop(request):
         with log_path.open("w") as f:
             os.chmod(log_path, 0o600)
             f.write(log.stdout + log.stderr)
+        owned(request)
         run(["docker", "rm", "-f", c["Id"]], timeout=120)
     if any((c["Config"].get("Labels") or {}).get("io.spark.owner") == request["owner"] for c in containers()):
         raise RuntimeError("cleanup incomplete; reservation retained")
-    (STATE / "gpu.json").unlink()
+    owned(request)
+    durable_unlink(STATE / "gpu.json")
     return {"released": True}
 
 
 def workload_reservation(request, release=False, batch=False):
+    check_fence(request)
     saved = reservation()
     if saved:
         owned(request)
@@ -425,11 +656,13 @@ def workload_reservation(request, release=False, batch=False):
     if report.get("research_window") not in (None, "released", "restored"):
         raise RuntimeError("research window is unresolved; restore it with its owning project")
     if release:
-        (STATE / "gpu.json").unlink()
+        owned(request)
+        durable_unlink(STATE / "gpu.json")
         return {"released": True}
     minimum = request.get("min_available_mib", 16384)
     if type(minimum) is not int or minimum < 1024 or report["memory_mib"]["MemAvailable"] < minimum:
         raise RuntimeError("insufficient available shared memory for workload")
+    check_fence(request)
     atomic(STATE / "gpu.json", {"owner": request["owner"], "digest": request["digest"],
         "phase": "reserved" if batch else "workload", "container_ids": [], "created_at": time.time(),
         **({"kind": "batch"} if batch else {})})
@@ -437,6 +670,7 @@ def workload_reservation(request, release=False, batch=False):
 
 
 def reserve_batch(request):
+    check_fence(request)
     saved = reservation()
     if saved:
         owned(request)
@@ -452,6 +686,7 @@ def reserve_batch(request):
 
 
 def probe(request):
+    check_fence(request)
     url = request["endpoint"]["base_url"]
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     with opener.open(url + "/models", timeout=5) as f:
@@ -475,24 +710,32 @@ def probe(request):
 def main(request):
     verify_host(request["node"])
     action = request["action"]
+    if action == "identity":
+        return {"hostname": platform.node(), "architecture": platform.machine()}
+    if action == "observe":
+        return observe(request)
     if action == "doctor":
         return doctor(request["node"])
     if not re.fullmatch(r"[a-z0-9-]{1,70}", request["owner"]) or not re.fullmatch(r"[a-f0-9]{64}", request["digest"]):
         raise RuntimeError("invalid ownership identity")
-    if action == "probe":
-        return probe(request)
+    if action == "status":
+        return status(request)
+    if action == "cache-status":
+        return runtime_cache(request)
     if action == "preflight":
         return preflight(request)
     with locked():
+        if action == "fence": return fence(request)
+        if action == "release-fence": return release_fence(request)
+        check_fence(request)
+        if action == "probe": return probe(request)
         if action == "reserve-batch": return reserve_batch(request)
         if action == "reserve-workload": return workload_reservation(request)
         if action == "release-workload": return workload_reservation(request, release=True)
-        if action == "cache-status": return runtime_cache(request)
         if action == "cache-clear": return runtime_cache(request, clear=True)
         if action == "reserve": return reserve(request)
         if action == "start": return start(request)
         if action == "stop": return stop(request)
-        if action == "status": return status(request)
         raise RuntimeError("unknown node operation")
 
 

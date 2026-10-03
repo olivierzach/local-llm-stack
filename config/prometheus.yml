@@ -2,10 +2,21 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+rule_files:
+  - /etc/prometheus/prometheus-spark-alerts.yml
+
 scrape_configs:
   - job_name: prometheus
     static_configs:
       - targets: ["prometheus:9090"]
+
+  # The awake Mac collects each saved deployment's coordinator endpoint once.
+  # Do not scrape TP ranks as independent engine replicas.
+  - job_name: spark-monitor
+    metrics_path: /metrics
+    scrape_timeout: 5s
+    static_configs:
+      - targets: ["host.docker.internal:9842"]
 
   - job_name: litellm
     metrics_path: /metrics

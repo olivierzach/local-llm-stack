@@ -13,8 +13,10 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 
-COMMANDS = ('sparkctl', 'spark-gateway', 'spark-client', 'spark-loop', 'spark-vector')
+BASELINE_COMMANDS = ('sparkctl', 'spark-gateway', 'spark-client', 'spark-loop', 'spark-vector')
+COMMANDS = BASELINE_COMMANDS + ('spark-recover', 'spark-monitor', 'spark-node', 'spark-services')
 MARKER = {'format': 1, 'managed_by': 'install-spark-controller'}
 
 
@@ -28,10 +30,42 @@ def atomic_json(path, value):
     temporary.replace(path)
 
 
+def source_hashes(release):
+    """Receipt for the immutable Python/CLI payload, not mutable controller state."""
+    paths = subprocess.check_output(
+        ['git', '-C', str(release), 'ls-files', '-z', '--', 'scripts', 'tools'])
+    result = {}
+    for name in paths.decode().split('\0'):
+        if not name:
+            continue
+        path = release / name
+        if path.is_symlink() or not path.is_file():
+            raise RuntimeError('release payload must contain only regular files')
+        result[name] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return result
+
+
+def release_commands(release):
+    """Select only known entrypoints committed in the target trusted revision."""
+    tracked = set(subprocess.check_output(
+        ['git', '-C', str(release), 'ls-tree', '-r', '--name-only', '-z', 'HEAD', '--', 'scripts']
+    ).decode().split('\0'))
+    missing = [command for command in BASELINE_COMMANDS if 'scripts/' + command not in tracked]
+    if missing:
+        raise RuntimeError('release is missing baseline commands: ' + ', '.join(missing))
+    commands = tuple(command for command in COMMANDS if 'scripts/' + command in tracked)
+    for command in commands:
+        path = release / 'scripts' / command
+        if path.is_symlink() or not path.is_file():
+            raise RuntimeError('release commands must be regular files')
+    return commands
+
+
 def smoke(release):
+    commands = release_commands(release)
     python = release / '.venv/bin/python'
     run([python, '-m', 'pip', 'check'])
-    for command in COMMANDS:
+    for command in commands:
         run([python, release / 'scripts' / command, '--help'], stdout=subprocess.DEVNULL)
     run([python, release / 'scripts/sparkctl', 'validate', '--deployment',
          release / 'cluster/deployments/fast-e8f1.json'], stdout=subprocess.DEVNULL)
@@ -52,6 +86,8 @@ def verify_release(release, revision, state):
     lock_hash = hashlib.sha256((release / 'tools/controller-requirements.lock').read_bytes()).hexdigest()
     if receipt.get('requirements_sha256') != lock_hash:
         raise RuntimeError('existing release dependency receipt does not match')
+    if 'source_sha256' in receipt and receipt['source_sha256'] != source_hashes(release):
+        raise RuntimeError('existing release payload has changed')
     smoke(release)
 
 
@@ -81,13 +117,31 @@ def prepare_release(bundle, revision, release, state):
             'format': 1, 'revision': revision,
             'requirements_sha256': hashlib.sha256(lock.read_bytes()).hexdigest(),
             'python': subprocess.check_output([str(python), '--version'], text=True).strip(),
+            'source_sha256': source_hashes(release),
         })
     except BaseException:
         shutil.rmtree(release)
         raise
 
 
+def wrapper_content(prefix, command):
+    current = prefix / 'current'
+    return '#!/bin/sh\nexec ' + shlex.quote(str(current / '.venv/bin/python')) + ' ' + shlex.quote(str(current / 'scripts' / command)) + ' "$@"\n'
+
+
 def activate(prefix, release):
+    commands = release_commands(release)
+    obsolete = []
+    # The exact historical wrapper is our ownership evidence. Refuse collisions,
+    # including modified wrappers and symlinks, before changing the active release.
+    for command in COMMANDS:
+        target = prefix / 'bin' / command
+        if not target.exists() and not target.is_symlink():
+            continue
+        if target.is_symlink() or not target.is_file() or target.read_bytes() != wrapper_content(prefix, command).encode():
+            raise RuntimeError('command wrapper is not installer-owned: ' + str(target))
+        if command not in commands:
+            obsolete.append(target)
     current = prefix / 'current'
     if current.exists() and not current.is_symlink():
         raise RuntimeError('current is not a managed symlink; refusing to replace it')
@@ -97,17 +151,25 @@ def activate(prefix, release):
         prior.unlink(missing_ok=True)
         prior.symlink_to(previous, target_is_directory=True)
         prior.replace(prefix / 'previous')
+    # Remove old entrypoints before switching current, so none remain executable
+    # against a target release that does not contain their command.
+    for target in obsolete:
+        target.unlink()
     temporary = prefix / 'current.tmp'
     temporary.unlink(missing_ok=True)
     temporary.symlink_to(release.relative_to(prefix), target_is_directory=True)
     temporary.replace(current)
-    for command in COMMANDS:
+    for command in commands:
         target = prefix / 'bin' / command
-        content = '#!/bin/sh\nexec ' + shlex.quote(str(current / '.venv/bin/python')) + ' ' + shlex.quote(str(current / 'scripts' / command)) + ' "$@"\n'
-        temporary = target.with_suffix('.tmp')
-        temporary.write_text(content)
-        temporary.chmod(0o755)
-        temporary.replace(target)
+        with tempfile.NamedTemporaryFile(mode='w', dir=target.parent, prefix='.' + command + '-', delete=False) as stream:
+            temporary = Path(stream.name)
+            try:
+                stream.write(wrapper_content(prefix, command))
+                stream.flush()
+                temporary.chmod(0o755)
+                temporary.replace(target)
+            finally:
+                temporary.unlink(missing_ok=True)
 
 
 def install(bundle, revision, prefix):

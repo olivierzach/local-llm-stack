@@ -1,9 +1,4 @@
-"""Opt-in registry overrides on the existing Context Guard address.
-
-Unregistered aliases retain the legacy LiteLLM path and authentication. Migrated
-aliases use the existing master key, an atomic route/limits/tokenizer snapshot,
-and the same guarded deployment path as the standalone cluster gateway.
-"""
+"""Historical adapter from 9cb40c6, retained to exercise mixed-version refresh."""
 import hmac
 import json
 import os
@@ -27,11 +22,7 @@ class LegacyGatewayHandler(gateway.GatewayHandler):
             return guard.ContextGuardHandler.incoming_headers(self)
         return super().incoming_headers()
 
-    def _dispatch_chat(self):
-        # Run under GatewayHandler's request lifecycle: initialize once before
-        # peeking at the cached body, then retain it for either dispatch path.
-        self._legacy = False
-        self.__dict__.pop('_registry_snapshot', None)
+    def do_POST(self):
         if self.parsed_path() != '/v1/chat/completions':
             self._legacy = True
             return guard.ContextGuardHandler.do_POST(self)
@@ -54,7 +45,7 @@ class LegacyGatewayHandler(gateway.GatewayHandler):
         if alias not in self._registry_snapshot['routes']:
             self._legacy = True
             return guard.ContextGuardHandler.do_POST(self)
-        return super()._dispatch_chat()
+        return super().do_POST()
 
     def do_GET(self):
         # Preserve legacy endpoints and virtual-key behavior. Only the master
@@ -107,8 +98,11 @@ def serve(registry_path, host, port, key, config):
     if not isinstance(key, str) or len(key) < 24:
         raise ValueError('registry overrides require the existing LiteLLM master key (at least 24 characters)')
     gateway.validate_registry(gateway.read(registry_path))
-    return gateway.GatewayServer((host, port), LegacyGatewayHandler, config,
-                                 registry_path=registry_path, key=key)
+    server = guard.ContextGuardServer((host, port), LegacyGatewayHandler, config)
+    server.registry_path = Path(registry_path)
+    server.api_key = key
+    server.replica_pool = gateway.ReplicaPool()
+    return server
 
 
 def main():

@@ -1,0 +1,18 @@
+apiVersion: 1
+
+providers:
+  - name: spark-cluster
+    orgId: 1
+    folder: Spark
+    type: file
+    disableDeletion: false
+    editable: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false
+
+# The dashboard's DS_PROMETHEUS datasource variable selects the existing
+# provisioned Prometheus datasource; no import-time __inputs substitution or
+# second datasource is needed.

@@ -2,6 +2,12 @@
 
 A service is reached by combining a host address and a port.
 
+For physical cabling, Internet/default-route setup, persistent management Ethernet,
+trusted SSH and reconnecting after losing access, use the
+[connection playbook](SPARK_CONNECTIONS_RUNBOOK.md). For inter-Spark collective
+links, use the [multi-Spark playbook](SPARK_MULTI_NODE_RUNBOOK.md). This page explains
+application ports; it does not provision those underlying paths.
+
 For this stack:
 
 ```text
