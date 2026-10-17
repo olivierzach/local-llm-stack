@@ -14,6 +14,41 @@ Existing single-host Compose and Make workflows continue to work. The
 [implementation record](docs/CLUSTER_IMPLEMENTATION.md) distinguishes tested
 capabilities from pending hardware and client acceptance.
 
+## GLM with optional Spark speech
+
+For Fam-Chat speech on either Spark while GLM remains resident, use
+`cluster/deployments/glm53-tp2-256k-dflash2-tts-e8f1.json`. Its dedicated
+`glm53-w4a16-256k-dflash2-tts` recipe lowers GPU memory utilization from 0.82
+to **0.80**. It preserves the previously deployed model, DFlash2 settings,
+262,144-token context, endpoint and one-image-per-prompt limit; it does not
+replace the separate four-image recipe.
+
+```bash
+./scripts/sparkctl validate \
+  --deployment cluster/deployments/glm53-tp2-256k-dflash2-tts-e8f1.json
+```
+
+Changing deployments requires a maintenance window: save the current plan,
+pause the dedicated `fam-chat-tts.service` on both nodes, stop only the owned
+GLM deployment, start the new profile through normal GPU admission, then
+restore TTS and verify both models. Do not bypass admission or lower TTS's
+12 GiB startup, 6 GiB synthesis-admission, or 4 GiB shutdown safeguards.
+An exit-78 TTS failure deliberately requires a manual restart once headroom
+is sufficient.
+
+The 2026-10-17 maintenance verified the 262,144-token advertised context and
+fresh Fam-Chat Standard/Kokoro and Large/F5 responses explicitly selected from
+each Spark, with simultaneous successful GLM generation requests. All four
+speech checks used the requested server and tier, with cache misses and no CPU
+fallback. Both TTS instances remained active afterward.
+
+The capacity tradeoff is smaller KV cache: startup reported **552,283 cached
+tokens / 2.11x maximum-length concurrency**, versus 783,886 / 2.99x in the
+preceding 0.82 run. This was a short concurrent functional check, not a
+256K-token load test or sustained-load qualification. Saved before/after
+plans, rollback inputs, maintenance receipts and request evidence are under
+`data/cluster/glm-tts-coexistence-20261017/` (ignored runtime data).
+
 ## What This Runs
 
 - vLLM inference backends for `local-fast`, `local-balanced`, and optional `local-large`.
