@@ -1,0 +1,15 @@
+{
+  "coordinator": "e8f1",
+  "master_port": 29545,
+  "mode": "tensor",
+  "name": "glm53-tp2-256k-dflash2-tts-e8f1",
+  "nodes": [
+    "66f1",
+    "e8f1"
+  ],
+  "pipeline_parallel": 1,
+  "port": 8125,
+  "recipe": "glm53-w4a16-256k-dflash2-tts",
+  "tensor_parallel": 2,
+  "version": 1
+}

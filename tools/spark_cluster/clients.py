@@ -23,6 +23,29 @@ def glm53_omp_override(contract):
                 'extraBody': {'chat_template_kwargs': {'enable_thinking': True, 'reasoning_effort': 'high'}}}},
     }
 
+DEEPSEEK_FLASH_ALIASES = ('local-deepseek-v4-flash', 'local-deepseek-v4-flash-mia')
+
+
+def deepseek_omp_override(contract):
+    """Same tested thinking toggle for either DeepSeek flash alias."""
+    compat = {
+        'supportsStore': False, 'supportsDeveloperRole': False, 'supportsReasoningEffort': False,
+        'disableReasoningOnToolChoice': False, 'reasoningContentField': 'reasoning',
+        'maxTokensField': 'max_tokens',
+        'extraBody': {'chat_template_kwargs': {'thinking': False}},
+        'whenThinking': {'requiresReasoningContentForToolCalls': True,
+            'extraBody': {'chat_template_kwargs': {'thinking': True, 'reasoning_effort': 'high'}}},
+    }
+    if contract.get('request_timeout_s'):
+        compat['streamIdleTimeoutMs'] = contract['request_timeout_s'] * 1000
+    return {
+        'contextWindow': contract['context_tokens'], 'maxTokens': contract['max_output_tokens'],
+        'input': ['text'], 'supportsTools': True, 'reasoning': True,
+        'thinking': {'mode': 'effort', 'efforts': ['high'], 'defaultLevel': 'high', 'requiresEffort': False},
+        'compat': compat,
+    }
+
+
 
 def profiles(registry, context, port):
     validate_registry(registry)
@@ -46,6 +69,8 @@ def profiles(registry, context, port):
         omp_model = {**common, "api": "openai-completions", "supportsTools": caps["tools"], "compat": omp_compat}
         if alias == 'local-glm53-flash':
             omp_model.update(glm53_omp_override(route))
+        elif alias in DEEPSEEK_FLASH_ALIASES:
+            omp_model.update(deepseek_omp_override(route))
         omp.append(omp_model)
         claw.append({**common, "compat": {**compat, "supportsTools": caps["tools"]}})
         aichat.append({"name": alias, "max_input_tokens": route["context_tokens"],
