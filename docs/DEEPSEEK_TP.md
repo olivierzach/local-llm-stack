@@ -39,6 +39,11 @@ controller. Before replacing a live deployment, compare its saved plan with
 the new render; do not substitute a different vendor image or copy modules
 into a private recovery runner. Install a complete committed controller
 release using `scripts/install-spark-controller.py`.
+For an offline host, transfer wheels downloaded with `--require-hashes` from
+`tools/controller-requirements.lock` for its Python version and platform, and
+pass `--wheelhouse /path/to/wheels` to that same installer. Offline installation
+still requires pinned hashes and binary wheels; a dependency failure leaves
+the previous controller and shared recovery state intact.
 
 **Integration is not memory qualification.** Mia retains its original
 1,048,576-token context, concurrency 1, 0.78 GPU-memory fraction, BF16 expert

@@ -55,7 +55,7 @@ def verify_release(release, revision, state):
     smoke(release)
 
 
-def prepare_release(bundle, revision, release, state):
+def prepare_release(bundle, revision, release, state, wheelhouse=None):
     if release.exists() or release.is_symlink():
         verify_release(release, revision, state)
         return
@@ -74,7 +74,8 @@ def prepare_release(bundle, revision, release, state):
         run([sys.executable, '-m', 'venv', release / '.venv'])
         python = release / '.venv/bin/python'
         lock = release / 'tools/controller-requirements.lock'
-        run([python, '-m', 'pip', '--isolated', 'install', '--index-url', 'https://pypi.org/simple',
+        source = ['--no-index', '--find-links', wheelhouse] if wheelhouse else ['--index-url', 'https://pypi.org/simple']
+        run([python, '-m', 'pip', '--isolated', 'install', *source,
              '--only-binary=:all:', '--require-hashes', '-r', lock])
         smoke(release)
         atomic_json(release / '.controller-release.json', {
@@ -110,12 +111,16 @@ def activate(prefix, release):
         temporary.replace(target)
 
 
-def install(bundle, revision, prefix):
+def install(bundle, revision, prefix, wheelhouse=None):
     if not re.fullmatch(r'[0-9a-f]{40}', revision):
         raise ValueError('--revision must be an explicit full Git commit ID')
     bundle = bundle.expanduser().resolve(strict=True)
     if not bundle.is_file():
         raise ValueError('--bundle must be a local Git bundle file')
+    if wheelhouse is not None:
+        wheelhouse = wheelhouse.expanduser().resolve(strict=True)
+        if not wheelhouse.is_dir():
+            raise ValueError('--wheelhouse must be a directory of pinned wheels')
     prefix = prefix.expanduser().absolute()
     if prefix.is_symlink():
         raise RuntimeError('installation prefix must not be a symlink')
@@ -132,7 +137,7 @@ def install(bundle, revision, prefix):
         for folder in ('releases', 'state', 'bin'):
             (prefix / folder).mkdir(mode=0o700, exist_ok=True)
         release = prefix / 'releases' / revision
-        prepare_release(bundle, revision, release, prefix / 'state')
+        prepare_release(bundle, revision, release, prefix / 'state', wheelhouse)
         activate(prefix, release)
     return {'revision': revision, 'release': str(release), 'commands': str(prefix / 'bin'),
             'state': str(prefix / 'state'), 'services_restarted': False}
@@ -143,8 +148,9 @@ def main():
     parser.add_argument('--bundle', type=Path, required=True)
     parser.add_argument('--revision', required=True)
     parser.add_argument('--prefix', type=Path, default=Path.home() / 'projects/local-llm-stack-cluster')
+    parser.add_argument('--wheelhouse', type=Path, help='install offline from these wheels; lockfile hashes remain required')
     args = parser.parse_args()
-    print(json.dumps(install(args.bundle, args.revision, args.prefix), sort_keys=True))
+    print(json.dumps(install(args.bundle, args.revision, args.prefix, args.wheelhouse), sort_keys=True))
 
 
 if __name__ == '__main__':
