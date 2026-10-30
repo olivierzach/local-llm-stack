@@ -2,6 +2,7 @@
 import copy
 import json
 from pathlib import Path
+import subprocess
 import sys
 
 import pytest
@@ -211,3 +212,56 @@ def test_a16_experts_preserve_checkpoint_and_fabric(ds_inputs):
         assert new['environment']['VLLM_B12X_MOE_FP4_FORCE_A16'] == '1'
         assert 'B12X_MOE_FORCE_A8' not in new['environment']
         assert new['environment']['NCCL_IB_HCA'] == old['environment']['NCCL_IB_HCA']
+
+
+@pytest.mark.parametrize('coordinator', ['66f1', 'e8f1'])
+def test_mia_uses_the_normal_make_and_controller_interface(tmp_path, coordinator):
+    output = tmp_path / 'mia'
+    subprocess.run(['make', 'deepseek-tp-plan', 'DEEPSEEK_TP_RUNTIME=mia',
+                    'COORDINATOR=' + coordinator, 'OUTPUT=' + str(output)],
+                   cwd=ROOT, check=True, capture_output=True, text=True)
+    plan = config.read(output / 'plan.json')
+    assert plan['recipe']['alias'] == 'local-deepseek-v4-flash-mia'
+    assert plan['deployment']['coordinator'] == coordinator
+    for node, compose in plan['compose'].items():
+        worker = compose['services']['worker']
+        argv = worker['command']
+        assert argv[argv.index('--moe-backend') + 1] == 'flashinfer_b12x'
+        assert argv[argv.index('--linear-backend') + 1] == 'auto'
+        assert argv[argv.index('--attention-backend') + 1] == 'FLASHINFER_MLA_SPARSE_DSV4'
+        assert json.loads(argv[argv.index('--speculative-config') + 1])['attention_backend'] == 'FLASHINFER_MLA_SPARSE_DSV4'
+        assert worker['environment']['B12X_MOE_FORCE_A16'] == '1'
+        assert 'VLLM_B12X_MOE_FP4_FORCE_A16' not in worker['environment']
+        assert 'B12X_MOE_FORCE_A8' not in worker['environment']
+        assert argv[argv.index('--node-rank') + 1] == ('0' if node == coordinator else '1')
+
+
+@pytest.mark.parametrize('change', [
+    {'linear_backend': 'b12x'},
+    {'moe_force_a16': False},
+    {'attention_backend': 'b12x'},
+    {'source_overlays': [{'path': 'b12x/_lib/dense_gemm.py', 'sha256': 'a' * 64}]},
+])
+def test_mia_rejects_cross_runtime_kernel_configuration(change):
+    recipe = config.read(ROOT / 'cluster/recipes/deepseek-v4-0731-1m-mia.json')
+    recipe['deepseek_v4'].update(change)
+    with pytest.raises(config.ConfigError):
+        config.validate_recipe(recipe)
+
+
+@pytest.mark.parametrize('runtime,wrong_attention', [('mia', 'B12X'), ('eugr', 'FLASHINFER_MLA_SPARSE_DSV4')])
+def test_dspark_cannot_use_the_other_runtime_attention(runtime, wrong_attention):
+    recipe_name = 'deepseek-v4-0731-1m-' + ('mia' if runtime == 'mia' else 'a16-dspark2-graphs')
+    recipe = config.read(ROOT / 'cluster/recipes' / (recipe_name + '.json'))
+    recipe['speculative_config']['attention_backend'] = wrong_attention
+    with pytest.raises(config.ConfigError):
+        config.validate_recipe(recipe)
+
+
+def test_mia_selector_does_not_silently_ignore_an_unsupported_context(tmp_path):
+    output = tmp_path / 'invalid'
+    result = subprocess.run(['make', 'deepseek-tp-plan', 'DEEPSEEK_TP_RUNTIME=mia',
+                             'DEEPSEEK_TP_CONTEXT=64k', 'COORDINATOR=e8f1',
+                             'OUTPUT=' + str(output)], cwd=ROOT, capture_output=True, text=True)
+    assert result.returncode != 0
+    assert not output.exists()

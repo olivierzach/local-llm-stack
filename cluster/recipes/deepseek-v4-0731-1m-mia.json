@@ -1,0 +1,57 @@
+{
+  "alias": "local-deepseek-v4-flash-mia",
+  "async_scheduling": false,
+  "capabilities": {
+    "streaming": true,
+    "text": true,
+    "tools": true,
+    "vision": false
+  },
+  "context_tokens": 1048576,
+  "deepseek_v4": {
+    "backend": "flashinfer_b12x",
+    "block_size": 256,
+    "cudagraph_capture_size": 8,
+    "kv_cache_dtype": "fp8",
+    "linear_backend": "auto",
+    "max_num_batched_tokens": 2048,
+    "moe_force_a16": true
+  },
+  "default_chat_template_kwargs": {
+    "reasoning_effort": "high",
+    "thinking": false
+  },
+  "dtype": "auto",
+  "extra_args": [
+    "--disable-custom-all-reduce",
+    "--enable-prefix-caching"
+  ],
+  "flashinfer_sampler": false,
+  "gpu_memory_utilization": 0.78,
+  "image": "ghcr.io/anemll/dspark-vllm-gx10@sha256:a83948492cf13df455170fb42885f5ef4db54fefe0feff0f841ecbff464ac9d8",
+  "kind": "vllm",
+  "load_strategy": "lazy",
+  "max_num_seqs": 1,
+  "max_output_tokens": 8192,
+  "min_available_mib": 102400,
+  "model": "deepseek-ai/DeepSeek-V4-Flash-0731",
+  "nccl_launch_order_implicit": true,
+  "nccl_library": {
+    "sha256": "fc7ea66334edbc934aa25959b9907dbb2b91a1d2485beff18839afc45cbc08d0",
+    "version": "2.30.7"
+  },
+  "parallelism": [
+    "tensor"
+  ],
+  "revision": "7872f01b1d1fe23eabc4c98b48bffcef5a386062",
+  "runtime_cache": true,
+  "speculative_config": {
+    "attention_backend": "FLASHINFER_MLA_SPARSE_DSV4",
+    "draft_sample_method": "probabilistic",
+    "method": "dspark",
+    "num_speculative_tokens": 2
+  },
+  "tool_call_parser": "deepseek_v4",
+  "validation": "Unpublished Mia lane. Anemll FlashInfer B12X runtime with BF16 expert activations, FP8 KV, DSpark K=2, concurrency 1. Requires exact-plan inference acceptance.",
+  "version": 1
+}

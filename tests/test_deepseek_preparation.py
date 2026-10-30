@@ -12,10 +12,11 @@ prepare = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(prepare)
 
 
-def test_preparation_cannot_launch_or_stop_gpu_services(tmp_path, monkeypatch):
+@pytest.mark.parametrize('runtime', ['eugr', 'mia'])
+def test_preparation_cannot_launch_or_stop_gpu_services(tmp_path, monkeypatch, runtime):
     output = tmp_path / 'receipts'
     monkeypatch.setattr(prepare.socket, 'gethostname', lambda: 'spark-66f1')
-    monkeypatch.setattr(sys, 'argv', ['prepare', '--peer', 'e8f1', '--output', str(output), '--apply'])
+    monkeypatch.setattr(sys, 'argv', ['prepare', '--runtime', runtime, '--peer', 'e8f1', '--output', str(output), '--apply'])
     monkeypatch.setattr(prepare, 'transport', lambda *args: (['ssh', '-o', 'HostName=10.10.20.2'],
         'spark-e8f1-wired', {'direct_fabric_verified': True}))
     calls = []
@@ -24,7 +25,8 @@ def test_preparation_cannot_launch_or_stop_gpu_services(tmp_path, monkeypatch):
         if 'stdout' in kwargs:
             kwargs['stdout'].write('{"verified_files":74}')
     monkeypatch.setattr(prepare, 'run', run)
-    image_id = json.loads((ROOT / 'cluster/deepseek-images.lock.json').read_text())['images'][0]['id']
+    lock_name = 'deepseek-mia-images.lock.json' if runtime == 'mia' else 'deepseek-images.lock.json'
+    image_id = json.loads((ROOT / 'cluster' / lock_name).read_text())['images'][0]['id']
     monkeypatch.setattr(prepare.subprocess, 'check_output',
         lambda argv, **kw: image_id + '\n' if argv[0] == 'docker' else '1000\n1000\n')
     prepare.main()

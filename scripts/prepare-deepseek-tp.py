@@ -49,6 +49,7 @@ for relative in [directory,'.locks/'+directory]:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--runtime', choices=('eugr', 'mia'), default='eugr')
     parser.add_argument('--peer', required=True, choices=('66f1', 'e8f1'))
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--apply', action='store_true', help='default is a local plan only')
@@ -61,11 +62,11 @@ def main():
     source, peer = sources[0], inventory['nodes'][args.peer]
     manifest_path = ROOT / 'cluster/model-downloads/deepseek-v4-flash-0731.json'
     manifest = read(manifest_path)
-    images_path = ROOT / 'cluster/deepseek-images.lock.json'
+    images_path = ROOT / 'cluster' / ('deepseek-mia-images.lock.json' if args.runtime == 'mia' else 'deepseek-images.lock.json')
     images = read(images_path)['images']
     total = sum(f['size'] for f in manifest['files'].values())
     print(json.dumps({'apply': args.apply, 'source': source['hostname'], 'peer': peer['hostname'],
-        'model': manifest['repo'], 'revision': manifest['revision'], 'download_bytes': total,
+        'runtime': args.runtime, 'model': manifest['repo'], 'revision': manifest['revision'], 'download_bytes': total,
         'gpu_workloads_changed': False}), flush=True)
     if not args.apply:
         return
@@ -125,7 +126,7 @@ def main():
                      '--peer', args.peer, '--peer-cache', peer['cache'],
                      '--fabric-inventory', ROOT / 'cluster/inventory.json'], stdout=receipt)
             phase('staged-awaiting-gpu-testing', complete=True, gpu_workloads_changed=False,
-                  model=manifest['repo'], revision=manifest['revision'], bytes=total,
+                  runtime=args.runtime, model=manifest['repo'], revision=manifest['revision'], bytes=total,
                   qualification='Artifacts verified on both nodes; inference and client acceptance are still required.')
         except BaseException as exc:
             phase('failed', complete=False, error=repr(exc), gpu_workloads_changed=False)

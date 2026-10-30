@@ -3,6 +3,55 @@
 This is a separate two-node deployment; the existing single-node `deepseekv4-*`
 recipes and weights remain available on either Spark.
 
+## Runtime selection: one controller
+
+Eugr DeepSeek, Mia DeepSeek, and GLM all use `scripts/sparkctl` and the same
+inventory, reservations, saved plans, status, shutdown, and release mechanism.
+Mia is not a recovery-only controller fork. GLM continues to use `glm53-tp-*`;
+the DeepSeek Make targets select their vendor runtime explicitly:
+
+```sh
+# Render only; no GPU changes.
+make deepseek-tp-plan DEEPSEEK_TP_RUNTIME=eugr \
+  DEEPSEEK_TP_CONTEXT=1m DEEPSEEK_TP_SPEC=dspark2 DEEPSEEK_TP_EXECUTION=graphs \
+  COORDINATOR=e8f1 OUTPUT=data/cluster/eugr-plan
+make deepseek-tp-plan DEEPSEEK_TP_RUNTIME=mia \
+  COORDINATOR=e8f1 OUTPUT=data/cluster/mia-plan
+```
+
+Either coordinator is supported. `DEEPSEEK_TP_RUNTIME=eugr` remains the default
+and preserves the existing defaults and variant selectors. Mia selects only
+its pinned `1m/bf16/dspark2/graphs` combination; contradictory selectors fail
+instead of being silently ignored. Its image lock is
+`cluster/deepseek-mia-images.lock.json`; preparation uses the same
+`deepseek-tp-prepare` target with `DEEPSEEK_TP_RUNTIME=mia`.
+
+After obtaining the shared GPU window, launch with the same arguments and
+`deepseek-tp-up`. Inspect and stop using the resulting saved plan:
+
+```sh
+scripts/sparkctl status --saved-plan data/cluster/mia-plan/plan.json
+scripts/sparkctl down --saved-plan data/cluster/mia-plan/plan.json
+```
+
+Recovery uses the normal pinned recipe and deployment inputs with this same
+controller. Before replacing a live deployment, compare its saved plan with
+the new render; do not substitute a different vendor image or copy modules
+into a private recovery runner. Install a complete committed controller
+release using `scripts/install-spark-controller.py`.
+
+**Integration is not memory qualification.** Mia retains its original
+1,048,576-token context, concurrency 1, 0.78 GPU-memory fraction, BF16 expert
+activations, FP8 KV, and DSpark K=2. Its startup budget is not a runtime memory
+cap. A recorded Mia request reached 192,418 computed prompt tokens before
+driver allocation failures and a distributed execution timeout; total prompt
+length and the responsible allocation were not established. A healthy startup
+or short response does not qualify long-prefill safety. Do not inherit the
+eugr acceptance below: Mia requires its own exact-plan acceptance, memory
+evidence, and both coordinator roles before publication.
+
+## Previously qualified eugr runtime
+
 The original FP8-activation expert path failed a repeated-answer regression.
 Layer traces isolated the first visible divergence to layer 0's routed experts;
 embeddings, attention, router scores, and the shared expert were unchanged.
@@ -11,10 +60,10 @@ correct answer and all recorded layer outputs matched across eight repeated
 requests on both ranks. This changes expert activations to BF16; the checkpoint
 remains the original mixed FP4/FP8 weights. No FP8 weight conversion is needed.
 
-**DeepSeek TP2 with BF16 expert activations, DSpark2, CUDA graphs and a
-1,048,576-token total context is published through both Sparks' Context Guards.**
-Both coordinator roles passed full acceptance on September 12, 2026. The live
-coordinator is e8f1; 66f1 passed the same recipe. There is no permanent master.
+**The eugr DeepSeek TP2 recipe with BF16 expert activations, DSpark2, CUDA graphs
+and a 1,048,576-token total context passed publication acceptance.**
+Both coordinator roles passed full acceptance on September 12, 2026, with
+e8f1 serving at that time. There is no permanent master.
 Qwen is stopped while DeepSeek uses both GPUs. The single-node recipes and the
 original 64K TP2 variants remain available.
 

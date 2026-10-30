@@ -124,8 +124,14 @@ def validate_recipe(r):
     if "deepseek_v4" in r:
         ds = r["deepseek_v4"]
         fields(ds, ("backend", "kv_cache_dtype", "block_size", "max_num_batched_tokens"),
-               ("cudagraph_capture_size", "attention_backend", "disable_shared_experts_stream", "cuda_launch_blocking", "source_overlays", "moe_force_a16"))
-        require(ds["backend"] == "b12x", "unsupported DeepSeek V4 backend")
+               ("cudagraph_capture_size", "attention_backend", "linear_backend", "disable_shared_experts_stream", "cuda_launch_blocking", "source_overlays", "moe_force_a16"))
+        require(ds["backend"] in ("b12x", "flashinfer_b12x"), "unsupported DeepSeek V4 backend")
+        if ds["backend"] == "flashinfer_b12x":
+            require(ds.get("linear_backend") == "auto", "Mia requires its explicit auto linear backend")
+            require(ds.get("moe_force_a16") is True, "Mia requires BF16 expert activations")
+            require(not ds.get("source_overlays"), "eugr source overlays cannot be applied to Mia")
+        else:
+            require(ds.get("linear_backend", "b12x") == "b12x", "eugr requires the B12X linear backend")
         if "source_overlays" in ds:
             overlays = ds["source_overlays"]
             allowed = {"vllm/models/deepseek_v4/nvidia/model.py", "vllm/models/deepseek_v4/nvidia/mtp.py", "b12x/_lib/dense_gemm.py"}
@@ -144,6 +150,7 @@ def validate_recipe(r):
         if "moe_force_a16" in ds:
             require(type(ds["moe_force_a16"]) is bool, "MoE A16 switch must be boolean")
         if "attention_backend" in ds:
+            require(ds["backend"] == "b12x", "alternate attention is an eugr diagnostic only")
             require(ds["attention_backend"] in ("b12x", "flashinfer-sm120"), "unsupported DeepSeek V4 attention backend")
             require("speculative_config" not in r, "alternate attention is a non-speculative diagnostic only")
         require(ds["kv_cache_dtype"] == "fp8", "unsupported DeepSeek V4 KV dtype")
@@ -202,7 +209,10 @@ def validate_recipe(r):
             fields(speculative, ("method", "num_speculative_tokens", "draft_sample_method", "attention_backend"))
             require("deepseek_v4" in r, "DSpark requires the DeepSeek V4 runtime profile")
             require(speculative["draft_sample_method"] == "probabilistic", "unsupported DSpark sampling")
-            require(speculative["attention_backend"] == "B12X", "DSpark requires B12X attention")
+            expected_attention = ("FLASHINFER_MLA_SPARSE_DSV4"
+                                  if r["deepseek_v4"]["backend"] == "flashinfer_b12x" else "B12X")
+            require(speculative["attention_backend"] == expected_attention,
+                    "DSpark attention must match the DeepSeek runtime backend")
         elif speculative.get('method') == 'dflash':
             fields(speculative, ('method', 'model', 'revision', 'num_speculative_tokens'))
             require('glm53' in r, 'DFlash requires the GLM runtime profile')
@@ -325,8 +335,9 @@ def plan(inv, recipe, deployment):
                     "--reasoning-config", canonical({"reasoning_parser": "deepseek_v4", "reasoning_start_str": "", "reasoning_end_str": ""}),
                     "--kv-cache-dtype", ds["kv_cache_dtype"], "--block-size", str(ds["block_size"]),
                     "--max-num-batched-tokens", str(ds["max_num_batched_tokens"]),
-                    "--moe-backend", "b12x", "--linear-backend", "b12x", "--attention-backend",
-                    "FLASHINFER_MLA_SPARSE_DSV4" if ds.get("attention_backend") == "flashinfer-sm120" else "B12X"]
+                    "--moe-backend", ds["backend"], "--linear-backend", ds.get("linear_backend", "b12x"),
+                    "--attention-backend", "FLASHINFER_MLA_SPARSE_DSV4"
+                    if ds["backend"] == "flashinfer_b12x" or ds.get("attention_backend") == "flashinfer-sm120" else "B12X"]
             if "cudagraph_capture_size" in ds:
                 cmd += ["--max-cudagraph-capture-size", str(ds["cudagraph_capture_size"]),
                         "--compilation-config", canonical({"cudagraph_mode": "FULL_AND_PIECEWISE", "custom_ops": ["all"]})]
@@ -381,7 +392,9 @@ def plan(inv, recipe, deployment):
                 "B12X_MLA_SM120_UNIFIED": "1", "B12X_MOE_FORCE_A8": "1"})
             if "moe_force_a16" in recipe["deepseek_v4"]:
                 a16 = recipe["deepseek_v4"]["moe_force_a16"]
-                service["environment"]["VLLM_B12X_MOE_FP4_FORCE_A16"] = "1" if a16 else "0"
+                a16_env = ("B12X_MOE_FORCE_A16" if recipe["deepseek_v4"]["backend"] == "flashinfer_b12x"
+                           else "VLLM_B12X_MOE_FP4_FORCE_A16")
+                service["environment"][a16_env] = "1" if a16 else "0"
                 if a16:
                     service["environment"].pop("B12X_MOE_FORCE_A8")
             if "disable_shared_experts_stream" in recipe["deepseek_v4"]:
