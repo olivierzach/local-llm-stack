@@ -41,6 +41,8 @@ def chat(base, payload, key):
     start = time.monotonic()
     ttft = None
     content = ""
+    reasoning_characters = 0
+    reasoning_present = False
     calls = {}
     finish = None
     usage = {}
@@ -66,7 +68,10 @@ def chat(base, payload, key):
                 for choice in event.get("choices", []):
                     delta = choice.get("delta") or {}
                     text = delta.get("content") or ""
-                    if ttft is None and (text or delta.get("tool_calls") or delta.get("reasoning_content") or delta.get("reasoning")):
+                    reasoning = delta.get("reasoning_content") or delta.get("reasoning") or ""
+                    reasoning_characters += len(reasoning)
+                    reasoning_present = reasoning_present or bool(reasoning.strip())
+                    if ttft is None and (text or delta.get("tool_calls") or reasoning):
                         ttft = time.monotonic() - start
                     content += text
                     finish = choice.get("finish_reason") or finish
@@ -81,6 +86,9 @@ def chat(base, payload, key):
             body = response.json()
             choice = body["choices"][0]
             content = choice["message"].get("content") or ""
+            reasoning = choice["message"].get("reasoning_content") or choice["message"].get("reasoning") or ""
+            reasoning_characters = len(reasoning)
+            reasoning_present = bool(reasoning.strip())
             finish = choice["finish_reason"]
             calls = dict(enumerate(choice["message"].get("tool_calls") or []))
             usage = body.get("usage") or {}
@@ -89,7 +97,8 @@ def chat(base, payload, key):
         json.loads(call["function"]["arguments"])
     elapsed = time.monotonic() - start
     record = {"elapsed_s": round(elapsed, 3), "ttft_s": round(ttft, 3) if ttft else None,
-              "finish_reason": finish, "usage": usage, "guard": guard, "memory": memory()}
+              "finish_reason": finish, "usage": usage, "guard": guard, "memory": memory(),
+              "reasoning_characters": reasoning_characters, "reasoning_present": reasoning_present}
     if ttft and elapsed - ttft >= 1 and usage.get("completion_tokens", 0) >= 32:
         record["decode_estimate_tok_s"] = round((usage["completion_tokens"] - 1) / (elapsed - ttft), 2)
     return record, {"role": "assistant", "content": content, **({"tool_calls": list(calls.values())} if calls else {})}

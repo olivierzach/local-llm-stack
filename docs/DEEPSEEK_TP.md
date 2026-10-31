@@ -55,6 +55,13 @@ or short response does not qualify long-prefill safety. Do not inherit the
 eugr acceptance below: Mia requires its own exact-plan acceptance, memory
 evidence, and both coordinator roles before publication.
 
+Thinking acceptance checks the actual separate reasoning channel in both JSON
+and streamed responses, along with the final answer and total-token accounting.
+The OpenAI-compatible `completion_tokens_details.reasoning_tokens` breakdown is
+[optional](https://github.com/openai/openai-python/blob/main/src/openai/types/completion_usage.py);
+when supplied, it must agree with the requested mode and completion-token count.
+Receipts retain reasoning presence and character counts, never reasoning text.
+
 ## Previously qualified eugr runtime
 
 The original FP8-activation expert path failed a repeated-answer regression.

@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import runpy
 import sys
 
 import pytest
@@ -92,3 +93,65 @@ def test_extended_context_cannot_reuse_short_context_qualification(accepted):
                    {'swapout_pages': 65536}, {'started_at': 11}, {'ended_at': 99}, {'samples': 1}):
         memory_path.write_text(json.dumps({**good, **change}))
         with pytest.raises(config.ConfigError): verify(plan, folder)
+
+
+@pytest.mark.parametrize('field,counter,reasoning,passes', [
+    ('reasoning', None, 'PRIVATE_REASONING_FIXTURE', True),
+    ('reasoning_content', None, 'PRIVATE_REASONING_FIXTURE', True),
+    ('reasoning', 16, '', False),
+    ('reasoning', 0, 'PRIVATE_REASONING_FIXTURE', False),
+])
+def test_thinking_gate_checks_channel_not_optional_usage(tmp_path, monkeypatch, field, counter, reasoning, passes):
+    import requests
+
+    chat = runpy.run_path(str(ROOT / 'scripts/qwen38-verify.py'))['chat']
+    main = runpy.run_path(str(ROOT / 'scripts/probe-deepseek-thinking.py'))['main']
+    monkeypatch.setitem(chat.__globals__, 'memory', lambda: {})
+    monkeypatch.setattr(runpy, 'run_path', lambda path: {'chat': chat})
+    modes = iter([(False, False), (False, True), (True, False), (True, True)])
+
+    def respond(*args, **kwargs):
+        thinking, stream = next(modes)
+        usage = dict(prompt_tokens=36, completion_tokens=18 if thinking else 2,
+                     total_tokens=54 if thinking else 38)
+        if counter is not None:
+            usage['completion_tokens_details'] = {'reasoning_tokens': counter if thinking else 0}
+        response = requests.Response()
+        response.status_code = 200
+        response._content_consumed = True
+        if stream:
+            events = [
+                {'choices': [{'delta': {field: reasoning if thinking else ''}, 'finish_reason': None}]},
+                {'choices': [{'delta': {'content': '323'}, 'finish_reason': None}]},
+                {'choices': [{'delta': {}, 'finish_reason': 'stop'}]},
+                {'choices': [], 'usage': usage},
+            ]
+            response._content = (''.join('data: ' + json.dumps(event) + '\n\n' for event in events)
+                                 + 'data: [DONE]\n\n').encode()
+        else:
+            response._content = json.dumps({'choices': [{'message': {
+                'content': '323', field: reasoning if thinking else ''}, 'finish_reason': 'stop'}],
+                'usage': usage}).encode()
+        return response
+
+    monkeypatch.setattr(requests, 'post', respond)
+    plan = config.plan(*config.load(ROOT, ROOT / 'cluster/inventory.json',
+        ROOT / 'cluster/deployments/deepseek-tp2-mia-1m-e8f1.json'))
+    saved = tmp_path / 'plan.json'
+    saved.write_text(json.dumps(plan))
+    output = tmp_path / 'thinking.json'
+    monkeypatch.setattr(sys, 'argv', ['probe', '--controller', str(ROOT),
+                                     '--saved-plan', str(saved), '--output', str(output)])
+    if passes:
+        main()
+    else:
+        with pytest.raises(RuntimeError):
+            main()
+    receipt = json.loads(output.read_text())
+    assert receipt['complete'] is passes
+    if passes:
+        assert [check['reasoning_present'] for check in receipt['checks']] == [False, False, True, True]
+        assert all(check['passed'] for check in receipt['checks'])
+    else:
+        assert receipt['checks'][-1]['passed'] is False
+    assert 'PRIVATE_REASONING_FIXTURE' not in output.read_text()
