@@ -186,3 +186,72 @@ make smoke
 ```
 
 If Open WebUI still sends tool settings that the selected model cannot satisfy, disable tools/features in that Open WebUI chat or use a model with stronger tool-call tuning.
+
+## 2026-10-29: DeepSeek MIA Engine *Healthy But Stalled*
+
+Observed signature on the FlashInfer/DSpark MIA lane: periodic engine logging
+went silent while `/health` returned 200 and a request produced no streamed
+tokens. A Compose healthcheck alone cannot establish generation progress.
+
+The recorded logs (`serve-e8f1.log`, `stuck-2036.log`) also contain a
+`jit_monitor.py` warning about `_prepare_dflash_inputs_kernel` compilation
+during inference. This motivates exercising draft decode before admission;
+it does not prove compilation caused the entire stall or exclude memory
+pressure and distributed execution failures.
+
+### Verified startup warmup
+
+For DSpark recipes, `sparkctl up` requires warmup before the acceptance probe
+and readiness publication. The request enforces a minimum decode length
+using `min_tokens` and `ignore_eos`; the response must contain that many
+completion tokens. The controller also requires an increase in the native
+`vllm:spec_decode_num_draft_tokens_total` counter, allowing publication lag
+within the same `--warmup-timeout` budget (600 seconds by default).
+
+Short responses, missing draft metrics, counter resets, and absent draft
+progress fail warmup instead of advertising readiness. Startup failure uses
+the existing owned-cleanup path and retains the exact recovery plan.
+
+```bash
+sparkctl warmup --saved-plan <plan.json> --warmup-timeout 600
+```
+
+Successful warmup covers only the exercised request shapes. It does not
+qualify long-prefill memory safety or eliminate every future JIT compilation.
+The runtime-cache volume is retained across owned container restarts.
+
+### Aggregate generation watchdog
+
+The watchdog is an explicit operator command, not a service automatically
+started by `sparkctl up`:
+
+```bash
+sparkctl watchdog --saved-plan <plan.json> \
+  --stall-seconds 180 --timeout 600 --max-restarts 3
+```
+
+It reads `/health` and native `/metrics` families
+`vllm:generation_tokens_total` and `vllm:num_requests_{running,waiting}`.
+Underscore-form aliases are also accepted. Initial samples are baselines:
+only a subsequent counter increase with continuously observed active work
+arms generation-stall detection. Idle samples, missing telemetry, and
+counter resets disarm it. Long initial prefill is not classified as a decode
+stall merely because no output tokens have appeared.
+
+After restarting the owned containers, the watchdog clears old observations
+and allows `--timeout` seconds for liveness to return. Restored health alone
+does not reset the consecutive-recovery budget; observed generation progress
+does. Exhausted recovery attempts or a failed restart command stop the
+supervisor with an error rather than silently assuming recovery.
+
+**Limits:** aggregate counters cannot identify individual stalled requests.
+Other decoding can mask a stuck request; a new prefill without an observed
+idle boundary can resemble a decode freeze. Missing telemetry and stalls
+before observed generation progress are not covered by generation detection.
+Health failures remain independently supervised.
+
+Use only one lifecycle supervisor per deployment, and stop it before planned
+maintenance. Do not run this restart loop alongside an independent failover
+controller until restart authority and fencing are coordinated. Restarting
+the engine interrupts all in-flight requests; this is not a fix for OMP's
+per-request Esc/Ctrl-C cancellation path.

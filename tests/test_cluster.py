@@ -475,3 +475,63 @@ def test_runtime_backend_choice_preserves_commands_and_fabric(coordinator, enabl
     recipe[option] = '0'
     with pytest.raises(config.ConfigError, match='boolean'):
         config.validate_recipe(recipe)
+
+
+def test_status_dispatch_reports_owned_workers_without_mutation(req, monkeypatch):
+    save_reservation(req, ids=["owned"])
+    before = node.reservation()
+    own = container(req, identity="owned")
+    own["State"] = {"Status": "running", "ExitCode": 0, "Health": {"Status": "healthy"}}
+    foreign = container(req, identity="foreign", owner="another-deployment")
+    monkeypatch.setattr(node, "containers", lambda: [own, foreign])
+    request = {**req, "action": "status", "node": {
+        "hostname": node.platform.node(), "architecture": node.platform.machine()}}
+
+    result = node.main(request)
+
+    assert result["containers"] == [
+        {"id": "owned", "state": "running", "exit_code": 0, "health": "healthy"}]
+    assert node.reservation() == before
+
+
+def test_restart_refuses_unowned_or_unstarted(req, monkeypatch):
+    save_reservation(req, phase="created", ids=["abc123"])
+    with pytest.raises(RuntimeError, match="no started worker"):
+        node.restart(req)
+
+
+def test_failed_dspark_warmup_prevents_readiness_and_cleans_owned_workers(tmp_path, monkeypatch):
+    planned = config.plan(*config.load(
+        ROOT, ROOT / "cluster/inventory.json",
+        ROOT / "cluster/deployments/deepseek-tp2-mia-1m-66f1.json"))
+    active = set()
+
+    def call(p, n, action):
+        if action == "status":
+            return {"reservation": None}
+        if action == "start":
+            active.add(n)
+        if action == "stop":
+            active.discard(n)
+        if action == "probe":
+            pytest.fail("failed warmup must not advance to acceptance")
+        return {}
+
+    def failed_warmup(p, timeout):
+        raise RuntimeError("draft activity absent")
+
+    monkeypatch.setattr(cli, "call", call)
+    monkeypatch.setattr(cli, "inspect", lambda p: {"healthy": True})
+    monkeypatch.setattr(cli, "warmup", failed_warmup)
+    with pytest.raises(RuntimeError, match="draft activity absent"):
+        cli.up(planned, 30, tmp_path)
+    assert not (tmp_path / "endpoint.json").exists()
+    assert not active
+    config.validate_saved_plan(config.read(tmp_path / "plan.json"))
+
+
+def test_doctor_rejects_empty_inventory(tmp_path):
+    inventory = tmp_path / "inventory.json"
+    inventory.write_text(json.dumps({"version": 1, "nodes": {}}))
+    with pytest.raises(config.ConfigError):
+        cli.main(["doctor", "--inventory", str(inventory)])

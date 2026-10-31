@@ -70,7 +70,17 @@ def inspect(p):
     return {"owner": p["owner"], "healthy": healthy, "nodes": results}
 
 
-def up(p, timeout, output):
+def warmup(p, timeout=600):
+    """Exercise decode and verify draft activity for DSpark before readiness."""
+    from .warmup import run_warmup, warmup_speculative_payload
+
+    speculative = p["recipe"].get("speculative_config") or {}
+    payload = warmup_speculative_payload(p["recipe"]["alias"], speculative)
+    return run_warmup(p["endpoint"]["base_url"], payload, timeout=timeout,
+                      require_speculation=speculative.get("method") == "dspark")
+
+
+def up(p, timeout, output, warmup_timeout=600):
     # Save exact inputs before any side effects. This artifact is the recovery
     # handle even if inventory or recipes subsequently change.
     save_json(output / "plan.json", p)
@@ -92,6 +102,10 @@ def up(p, timeout, output):
         while True:
             report = inspect(p)
             if report["healthy"]:
+                # A health response is not proof that speculative decode works.
+                # Warmup failure follows the same owned cleanup path as probe failure.
+                if (p["recipe"].get("speculative_config") or {}).get("method") == "dspark":
+                    emit({"warmup": warmup(p, warmup_timeout)})
                 evidence = call(p, p["deployment"]["coordinator"], "probe")
                 save_json(output / "acceptance.json", evidence)
                 # Desired endpoint is never published as ready before inference.
@@ -121,14 +135,23 @@ def up(p, timeout, output):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("validate", "render", "doctor", "preflight", "up", "status", "down", "probe", "collectives", "cache-status", "cache-clear"))
+    parser.add_argument("action", choices=("validate", "render", "doctor", "preflight", "up", "status", "down", "probe", "collectives", "cache-status", "cache-clear", "warmup", "watchdog"))
     parser.add_argument("--inventory", type=Path, default=ROOT / "cluster/inventory.json")
     parser.add_argument("--deployment", type=Path)
     parser.add_argument("--saved-plan", type=Path, help="exact rendered inputs for status/down/recovery")
     parser.add_argument("--node", help="limit doctor to one inventory node")
     parser.add_argument("--output", type=Path, help="local rendered plan and evidence directory")
-    parser.add_argument("--timeout", type=int, default=600, help="startup health deadline in seconds")
+    parser.add_argument("--timeout", type=int, default=600, help="startup/watchdog recovery health deadline in seconds")
+    parser.add_argument("--warmup-timeout", type=int, default=600, help="total warmup and draft-metric verification deadline in seconds")
+    parser.add_argument("--stall-seconds", type=int, default=180, help="watchdog: generation-freeze before restart")
+    parser.add_argument("--poll-interval", type=float, default=5.0, help="watchdog: probe interval in seconds")
+    parser.add_argument("--max-restarts", type=int, default=3, help="watchdog: consecutive restarts before giving up")
+    parser.add_argument("--watchdog-once", action="store_true", help="watchdog: exit after the first supervised interval")
     args = parser.parse_args(argv)
+    if args.action in ("up", "watchdog") and not 10 <= args.timeout <= 7200:
+        raise ConfigError("startup/recovery timeout must be 10..7200 seconds")
+    if args.action in ("up", "warmup") and not 1 <= args.warmup_timeout <= 7200:
+        raise ConfigError("warmup timeout must be 1..7200 seconds")
     if args.action == "doctor":
         inv = read(args.inventory)
         validate_inventory(inv)
@@ -145,7 +168,7 @@ def main(argv=None):
                 failures += 1
         return int(bool(failures))
     if args.saved_plan:
-        if args.deployment or args.action not in ("preflight", "status", "down", "probe", "cache-status", "cache-clear"):
+        if args.deployment or args.action not in ("preflight", "status", "down", "probe", "cache-status", "cache-clear", "warmup", "watchdog"):
             raise ConfigError("saved plans are for preflight/status/down/probe/cache operations, without --deployment")
         p = read(args.saved_plan)
         validate_saved_plan(p)
@@ -173,8 +196,25 @@ def main(argv=None):
         emit(result)
         return int(not result['launchable'])
     elif args.action == "up":
-        if not 10 <= args.timeout <= 7200: raise ConfigError("startup timeout must be 10..7200 seconds")
-        up(p, args.timeout, output)
+        up(p, args.timeout, output, warmup_timeout=args.warmup_timeout)
+    elif args.action == "warmup":
+        emit({"warmup": warmup(p, args.warmup_timeout)})
+    elif args.action == "watchdog":
+        from .watchdog import HttpProbe, StallDetector, run_watchdog
+
+        probe = HttpProbe(p["endpoint"]["base_url"], timeout=5)
+        detector = StallDetector(stall_seconds=args.stall_seconds,
+                                 health_grace=max(10, args.poll_interval * 2))
+        def restart():
+            for node in p["nodes"]:
+                emit({"node": node, "restart": call(p, node, "restart")})
+
+        restarts = run_watchdog(
+            detector, probe, restart,
+            poll_interval=args.poll_interval, max_restarts=args.max_restarts,
+            recovery_timeout=args.timeout,
+            stop_after=(args.poll_interval if args.watchdog_once else None))
+        emit({"owner": p["owner"], "watchdog_exit": "ok", "restarts": restarts})
     elif args.action == "status":
         emit(inspect(p))
     elif args.action == "probe":
