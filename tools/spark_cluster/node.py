@@ -504,6 +504,7 @@ def main(request):
         if action == "start": return start(request)
         if action == "restart": return restart(request)
         if action == "stop": return stop(request)
+        if action == "status": return status(request)
         raise RuntimeError("unknown node operation")
 
 
