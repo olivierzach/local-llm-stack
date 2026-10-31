@@ -186,3 +186,46 @@ make smoke
 ```
 
 If Open WebUI still sends tool settings that the selected model cannot satisfy, disable tools/features in that Open WebUI chat or use a model with stronger tool-call tuning.
+## 2026-10-29: DeepSeek MIA Engine *Healthy But Stalled*
+
+Observed signature (twice, on the FlashInfer/DSpark MIA lane): the vLLM engine's
+periodic-metric loop goes silent for minutes while `/health` keeps returning
+200 and one request is in flight with no streamed tokens. The Compose
+`healthcheck` never trips, so the service is not restarted automatically and
+the operator had to kill it by hand.
+
+Evidence (`serve-e8f1.log`, `stuck-2036.log`): `jit_monitor.py` logged
+`Triton kernel JIT compilation during inference: _prepare_dflash_inputs_kernel
+- This causes a latency spike; consider extending warmup to cover this
+shape/config`. The DSpark draft kernels are TileLang/TRITON JIT-compiled lazily
+on the first *speculative* decode step; with `max-num-seqs 1` that cold compile
+blocks the engine scheduler off the clock. The small 16-token acceptance probe
+does not exercise the draft path, so the kernels stay cold into live traffic.
+
+Two mitigations landed in this worktree:
+
+1. **Startup warmup** (`sparkctl up` now runs a speculative-decode generation
+   before the acceptance probe for DSpark recipes). The one-time JIT happens
+   before readiness is advertised, and the compiled kernels persist in the
+   `runtime-cache` volume across restarts. Re-warm manually:
+
+   ```bash
+   sparkctl warmup --saved-plan <plan.json>
+   ```
+
+2. **Engine-stall watchdog** (`sparkctl watchdog`). It supervises the served
+   endpoint and restarts the worker when the engine is healthy but generation
+   has frozen for the stall window with work queued/running — it ignores an
+   idle-but-healthy engine:
+
+   ```bash
+   sparkctl watchdog --saved-plan <plan.json> --stall-seconds 180 --max-restarts 3
+   ```
+
+   It reads `/health` for liveness and `/metrics` (`vllm_generation_tokens_total`
+   + `vllm_num_requests_{running,waiting}`) for progress, so a healthy idle
+   engine is never restarted. Recovery uses `docker restart` on the owned
+   container, which keeps the warm kernel cache.
+
+Diagnostic tip: a real stall looks like the `loggers.py:273 Running:N` metric
+line disappearing while `/health` stays 200 and the request count is non-zero.

@@ -374,6 +374,17 @@ def start(request):
     return status(request)
 
 
+def restart(request, timeout=300):
+    saved = owned(request)
+    if saved.get("phase") != "started" or not saved.get("container_ids"):
+        raise RuntimeError("no started worker to restart")
+    # docker restart keeps the same container and the warm runtime-cache volume,
+    # so a hung engine is recycled without a cold kernel-JIT replay.
+    run(["docker", "restart"] + saved["container_ids"], timeout=timeout)
+    return status(request)
+
+
+
 def stop(request):
     saved = reservation()
     if not saved:
@@ -491,8 +502,8 @@ def main(request):
         if action == "cache-clear": return runtime_cache(request, clear=True)
         if action == "reserve": return reserve(request)
         if action == "start": return start(request)
+        if action == "restart": return restart(request)
         if action == "stop": return stop(request)
-        if action == "status": return status(request)
         raise RuntimeError("unknown node operation")
 
 

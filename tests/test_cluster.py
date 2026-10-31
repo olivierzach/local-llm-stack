@@ -475,3 +475,46 @@ def test_runtime_backend_choice_preserves_commands_and_fabric(coordinator, enabl
     recipe[option] = '0'
     with pytest.raises(config.ConfigError, match='boolean'):
         config.validate_recipe(recipe)
+
+
+def test_restart_recycles_started_owned_worker(req, monkeypatch):
+    save_reservation(req, phase="started", ids=["abc123"])
+    seen = []
+
+    def fake_run(args, timeout=30):
+        seen.append(args)
+        return ""
+
+    monkeypatch.setattr(node, "run", fake_run)
+    result = node.restart(req)
+    assert any(a == ["docker", "restart", "abc123"] for a in seen)
+    assert isinstance(result, dict)  # status report
+
+
+def test_restart_refuses_unowned_or_unstarted(req, monkeypatch):
+    save_reservation(req, phase="created", ids=["abc123"])
+    with pytest.raises(RuntimeError, match="no started worker"):
+        node.restart(req)
+
+
+def test_dspark_warmup_runs_before_probe_and_readiness(tmp_path, monkeypatch):
+    inv, recipe, d = config.load(
+        ROOT, ROOT / "cluster/inventory.json",
+        ROOT / "cluster/deployments/deepseek-tp2-mia-1m-66f1.json")
+    planned = config.plan(inv, recipe, d)
+    calls = []
+
+    def call(p, n, action):
+        calls.append(action)
+        if action == "status":
+            return {"reservation": None}
+        if action == "probe":
+            return {"ready": True}
+        return {}
+
+    monkeypatch.setattr(cli, "call", call)
+    monkeypatch.setattr(cli, "inspect", lambda p: {"healthy": True})
+    monkeypatch.setattr(cli, "warmup", lambda p, timeout=600: calls.append("warmup") or {"ready": True})
+    cli.up(planned, 30, tmp_path)
+    assert calls.index("warmup") < calls.index("probe")
+    assert (tmp_path / "endpoint.json").exists()
