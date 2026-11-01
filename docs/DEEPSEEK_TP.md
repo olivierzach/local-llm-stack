@@ -21,7 +21,7 @@ make deepseek-tp-plan DEEPSEEK_TP_RUNTIME=mia \
 
 Either coordinator is supported. `DEEPSEEK_TP_RUNTIME=eugr` remains the default
 and preserves the existing defaults and variant selectors. Mia selects only
-its pinned `1m/bf16/dspark2/graphs` combination; contradictory selectors fail
+its pinned `512k/bf16/dspark5/graphs` combination; contradictory selectors fail
 instead of being silently ignored. Its image lock is
 `cluster/deepseek-mia-images.lock.json`; preparation uses the same
 `deepseek-tp-prepare` target with `DEEPSEEK_TP_RUNTIME=mia`.
@@ -45,15 +45,13 @@ pass `--wheelhouse /path/to/wheels` to that same installer. Offline installation
 still requires pinned hashes and binary wheels; a dependency failure leaves
 the previous controller and shared recovery state intact.
 
-**Integration is not memory qualification.** Mia retains its original
-1,048,576-token context, concurrency 1, 0.78 GPU-memory fraction, BF16 expert
-activations, FP8 KV, and DSpark K=2. Its startup budget is not a runtime memory
-cap. A recorded Mia request reached 192,418 computed prompt tokens before
-driver allocation failures and a distributed execution timeout; total prompt
-length and the responsible allocation were not established. A healthy startup
-or short response does not qualify long-prefill safety. Do not inherit the
-eugr acceptance below: Mia requires its own exact-plan acceptance, memory
-evidence, and both coordinator roles before publication.
+**Mia's qualified recipe is 512K, not 1M.** It uses a 524,288-token context,
+concurrency 1, a 0.78 GPU-memory fraction, BF16 expert activations, FP8 KV,
+DSpark K=5, an 8,192-token prefill budget, and asynchronous scheduling.
+Both coordinator roles passed the exact-plan acceptance below. The startup
+memory fraction is not a runtime memory cap, and these receipts do not qualify
+different settings or the historical 1M recipes. Publication still requires
+the exact plan's own acceptance, memory evidence, and alternate coordinator.
 
 Thinking acceptance checks the actual separate reasoning channel in both JSON
 and streamed responses, along with the final answer and total-token accounting.
@@ -61,6 +59,109 @@ The OpenAI-compatible `completion_tokens_details.reasoning_tokens` breakdown is
 [optional](https://github.com/openai/openai-python/blob/main/src/openai/types/completion_usage.py);
 when supplied, it must agree with the requested mode and completion-token count.
 Receipts retain reasoning presence and character counts, never reasoning text.
+
+### Measured Mia throughput, not full-context qualification
+
+The October 31, 2026 local sweep retained the official 0731 checkpoint, FP8 KV,
+BF16 expert activations, 1M total context, concurrency 1, and a 2K prefill budget.
+Each scenario used one excluded warmup and three measured trials with fresh
+prefixes. Median decode tok/s follows the upstream convention: output tokens
+divided by response time after the first token, excluding prefill.
+
+| Workload | K=2 | K=3 | K=5 |
+| --- | ---: | ---: | ---: |
+| Technical explanation, 512 output tokens | 45.2 | 46.5 | 42.0 |
+| Technical explanation, 1,024 output tokens | 46.4 | 49.2 | 50.1 |
+| Mia numbered-word completion, 280 input tokens | 52.7 | 68.6 | 72.6 |
+| Mia numbered-word completion, 2,072 input tokens | 52.1 | 68.4 | 71.7 |
+| Mia numbered-word completion, 8,216 input tokens | 51.9 | 67.5 | 73.2 |
+
+K=5 reproduced the approximately 70–75 tok/s range of the
+[published natural-completion sweep](https://github.com/MiaAI-Lab/DeepSeek-v4-Flash-DSpark-2x-DGX-Spark/blob/a8b4636710068fd30edb98e1365d567086cc208e/results/deepseek-v4-flash-0731-2x-dgx-spark.json),
+not a general coding-throughput guarantee. The upstream checkpoint revision and
+several runtime settings differ. K=3 improved every sampled workload over K=2;
+K=5 regressed the 512-token technical workload. These small samples do not
+establish a global optimum.
+
+**Neither candidate was promoted.** K=3 passed short-response, tool, and thinking
+checks, but the near-1M qualification crossed the 5% full-memory-PSI safety limit.
+Reducing GPU-memory utilization from 0.78 to 0.73 retained 1,174,629 tokens of
+reported KV capacity and comparable short-workload speed, but still crossed
+5.16% full-memory PSI on e8f1 with at least 18.53 GiB available. Inference had
+begun; the first long-context retrieval did not finish. This is not a completed
+1M run or an observed OOM, and the responsible allocation remains unproven.
+The alternate coordinator was not qualified. The exact original K=2/0.78
+deployment and routes were restored, with a successful inference smoke check.
+
+Raw trials, native logs, memory samples, qualification failures, and rollback
+receipts are under `logs/mia-opt-1793477516549*`; the central comparison is
+`logs/mia-opt-1793477516549/performance-comparison.json`.
+
+The November 1, 2026 candidate combined K=5, an 8,192-token prefill budget, and
+async scheduling while retaining FP8 KV, concurrency 1, and the 1M context.
+Startup and actual async scheduling were verified. Three-trial median decode
+rates were 46.2/51.5 tok/s for the 512/1,024-output technical tasks and
+74.5/74.5/73.3 tok/s for the 280/2,072/8,216-input Mia tasks. Fresh 16K/64K
+prefill TTFT was 7.44/32.81 seconds, versus the earlier K=2/2K-budget screen's
+7.77/35.31 seconds; these are not contemporaneous interleaved controls.
+The 16K cached repeat still took 6.24 seconds, so cache-hit latency did not
+uniformly improve.
+
+The candidate completed 100 pre-serving answer checks, 36 tool checks, and all
+four thinking checks. It was not promoted: the first near-1M retrieval remained
+incomplete when e8f1 reached 11.2% full-memory PSI, despite measured available
+memory staying at least 10.58 GiB. The memory guard triggered original-plan
+rollback. Post-serving acceptance and the alternate coordinator were not
+qualified. Evidence: `logs/mia-k5-8k-async-1793499046812/report.json`.
+
+### Strict 512K qualification
+
+The same K=5/8K-budget/async candidate passed at 524,288 context tokens with
+both e8f1 and 66f1 as coordinator. The measured-serving limits remained
+unchanged: full-memory PSI below 5%, at least 4 GiB available per host, and
+less than 256 MiB of swapout. Startup and warmup retained their separately
+bounded allowance and had to settle before measurement.
+
+Each role passed 100 answer checks before and after serving, 36 tool checks,
+four thinking checks, sustained decode, soak, and 4,096-output-token checks.
+Both retrieved the expected values from a varied 522,134-token prompt on
+fresh and repeated requests, verified tokenizer accounting and prefix reuse,
+then generated 1,024 tokens at approximately 41.1–41.2 tok/s near that context.
+
+| Measured result | e8f1 coordinator | 66f1 coordinator |
+|---|---:|---:|
+| Technical decode, 512 / 1,024 output tokens | 41.7 / 45.8 tok/s | 46.6 / 49.1 tok/s |
+| Mia decode, 280 / 2,072 / 8,216 input tokens | 72.7 / 70.8 / 73.5 tok/s | 74.6 / 70.0 / 66.2 tok/s |
+| Fresh 16K / 64K prefill TTFT | 7.86 / 31.63 s | 7.53 / 35.96 s |
+| Fresh / cached 522K retrieval TTFT | 517.23 / 1.71 s | 512.47 / 1.65 s |
+| Peak full-memory PSI across either host | 2.55% | 0.90% |
+| Minimum available memory across either host | 10.60 GiB | 10.38 GiB |
+| Maximum measured swapout on either host | 0.043 MiB | 0.031 MiB |
+
+Short-task decode and fresh 16K/64K results are three-trial medians after an
+excluded warmup. Near-limit results are individual fresh/cached requests, not
+three-trial medians. Cached 16K requests still took approximately six seconds.
+These measurements do not establish a uniform speedup over K=2.
+
+The qualified plan digests are
+`d0d9643795291234c6ca9f45825b3646b8b771728f017a2c27531381dad97327`
+(e8f1) and
+`a468d3141c138692a70d748b4de83cb7844979b2ae7a5de5c0266dfe9525309b`
+(66f1). Normal Make rendering reproduces these identities. Evidence is under
+`logs/mia-k5-strict-1793510523600-512k-{e8f1,66f1}/`; the combined report is
+`logs/mia-k5-strict-1793510523600-promotion/qualification-summary.json`.
+The 256K fallback was unnecessary and was not run.
+
+### Why this image retains FP8 KV
+
+The pinned FlashInfer sparse backend's SM12x compatibility check accepts
+`fp8`, `fp8_e4m3`, and `fp8_ds_mla`, not `nvfp4`. More importantly,
+[Mia's implementation analysis](https://github.com/MiaAI-Lab/DeepSeek-v4-Flash-DSpark-2x-DGX-Spark/blob/a8b4636710068fd30edb98e1365d567086cc208e/docs/CLAUDE/item8-fp4-kv-design.md)
+states that both `fp8_ds_mla` and `nvfp4_ds_mla` use 584-byte rows containing
+FP8 NoPE values and BF16 RoPE values in this runtime. Their issue-22 patch routes
+the NVFP4 label to the FP8 kernel; a real 4-bit compressed layout is design-only
+in that document. Changing this label is not evidence of reduced KV storage.
+The local `fp8` alias already resolves to the native `fp8_ds_mla` path.
 
 ## Previously qualified eugr runtime
 

@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "name": "deepseek-tp2-mia-1m-66f1",
-  "recipe": "deepseek-v4-0731-1m-mia",
+  "name": "deepseek-tp2-mia-512k-66f1",
+  "recipe": "deepseek-v4-0731-512k-mia",
   "nodes": [
     "66f1",
     "e8f1"

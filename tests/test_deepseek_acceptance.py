@@ -136,7 +136,7 @@ def test_thinking_gate_checks_channel_not_optional_usage(tmp_path, monkeypatch, 
 
     monkeypatch.setattr(requests, 'post', respond)
     plan = config.plan(*config.load(ROOT, ROOT / 'cluster/inventory.json',
-        ROOT / 'cluster/deployments/deepseek-tp2-mia-1m-e8f1.json'))
+        ROOT / 'cluster/deployments/deepseek-tp2-mia-512k-e8f1.json'))
     saved = tmp_path / 'plan.json'
     saved.write_text(json.dumps(plan))
     output = tmp_path / 'thinking.json'

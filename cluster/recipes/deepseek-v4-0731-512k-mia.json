@@ -1,20 +1,20 @@
 {
   "alias": "local-deepseek-v4-flash-mia",
-  "async_scheduling": false,
+  "async_scheduling": true,
   "capabilities": {
     "streaming": true,
     "text": true,
     "tools": true,
     "vision": false
   },
-  "context_tokens": 1048576,
+  "context_tokens": 524288,
   "deepseek_v4": {
     "backend": "flashinfer_b12x",
     "block_size": 256,
     "cudagraph_capture_size": 8,
     "kv_cache_dtype": "fp8",
     "linear_backend": "auto",
-    "max_num_batched_tokens": 2048,
+    "max_num_batched_tokens": 8192,
     "moe_force_a16": true
   },
   "default_chat_template_kwargs": {
@@ -49,9 +49,9 @@
     "attention_backend": "FLASHINFER_MLA_SPARSE_DSV4",
     "draft_sample_method": "probabilistic",
     "method": "dspark",
-    "num_speculative_tokens": 2
+    "num_speculative_tokens": 5
   },
   "tool_call_parser": "deepseek_v4",
-  "validation": "Unpublished Mia lane. Anemll FlashInfer B12X runtime with BF16 expert activations, FP8 KV, DSpark K=2, concurrency 1. Requires exact-plan inference acceptance.",
+  "validation": "Mia 0731 performance candidate. BF16 expert activations, FP8 KV, DSpark K=5, asynchronous scheduling, 8192-token prefill budget, concurrency 1. Publication requires exact-plan inference acceptance.",
   "version": 1
 }

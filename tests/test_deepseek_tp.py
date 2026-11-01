@@ -243,7 +243,7 @@ def test_mia_uses_the_normal_make_and_controller_interface(tmp_path, coordinator
     {'source_overlays': [{'path': 'b12x/_lib/dense_gemm.py', 'sha256': 'a' * 64}]},
 ])
 def test_mia_rejects_cross_runtime_kernel_configuration(change):
-    recipe = config.read(ROOT / 'cluster/recipes/deepseek-v4-0731-1m-mia.json')
+    recipe = config.read(ROOT / 'cluster/recipes/deepseek-v4-0731-512k-mia.json')
     recipe['deepseek_v4'].update(change)
     with pytest.raises(config.ConfigError):
         config.validate_recipe(recipe)
@@ -251,7 +251,7 @@ def test_mia_rejects_cross_runtime_kernel_configuration(change):
 
 @pytest.mark.parametrize('runtime,wrong_attention', [('mia', 'B12X'), ('eugr', 'FLASHINFER_MLA_SPARSE_DSV4')])
 def test_dspark_cannot_use_the_other_runtime_attention(runtime, wrong_attention):
-    recipe_name = 'deepseek-v4-0731-1m-' + ('mia' if runtime == 'mia' else 'a16-dspark2-graphs')
+    recipe_name = 'deepseek-v4-0731-' + ('512k-mia' if runtime == 'mia' else '1m-a16-dspark2-graphs')
     recipe = config.read(ROOT / 'cluster/recipes' / (recipe_name + '.json'))
     recipe['speculative_config']['attention_backend'] = wrong_attention
     with pytest.raises(config.ConfigError):

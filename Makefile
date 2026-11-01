@@ -27,12 +27,12 @@ glm53-tp-status glm53-tp-down:
 
 # DeepSeek runtimes share the same controller; existing deepseekv4-* is single-node.
 DEEPSEEK_TP_RUNTIME ?= eugr
-DEEPSEEK_TP_SPEC ?= $(if $(filter mia,$(DEEPSEEK_TP_RUNTIME)),dspark2,off)
+DEEPSEEK_TP_SPEC ?= $(if $(filter mia,$(DEEPSEEK_TP_RUNTIME)),dspark5,off)
 DEEPSEEK_TP_EXECUTION ?= $(if $(filter mia,$(DEEPSEEK_TP_RUNTIME)),graphs,eager)
 DEEPSEEK_TP_EXPERTS ?= bf16
 DEEPSEEK_TP_REPEAT_TRIALS ?= 100
-DEEPSEEK_TP_CONTEXT ?= $(if $(filter mia,$(DEEPSEEK_TP_RUNTIME)),1m,64k)
-DEEPSEEK_TP_MANIFEST = cluster/deployments/$(if $(filter mia,$(DEEPSEEK_TP_RUNTIME)),deepseek-tp2-mia-1m-$(COORDINATOR),deepseek-tp2$(if $(filter bf16,$(DEEPSEEK_TP_EXPERTS)),-a16,)$(if $(filter dspark2,$(DEEPSEEK_TP_SPEC)),-dspark2,)$(if $(filter graphs,$(DEEPSEEK_TP_EXECUTION)),-graphs,)$(if $(filter-out 64k,$(DEEPSEEK_TP_CONTEXT)),-$(DEEPSEEK_TP_CONTEXT),)-$(COORDINATOR)).json
+DEEPSEEK_TP_CONTEXT ?= $(if $(filter mia,$(DEEPSEEK_TP_RUNTIME)),512k,64k)
+DEEPSEEK_TP_MANIFEST = cluster/deployments/$(if $(filter mia,$(DEEPSEEK_TP_RUNTIME)),deepseek-tp2-mia-512k-$(COORDINATOR),deepseek-tp2$(if $(filter bf16,$(DEEPSEEK_TP_EXPERTS)),-a16,)$(if $(filter dspark2,$(DEEPSEEK_TP_SPEC)),-dspark2,)$(if $(filter graphs,$(DEEPSEEK_TP_EXECUTION)),-graphs,)$(if $(filter-out 64k,$(DEEPSEEK_TP_CONTEXT)),-$(DEEPSEEK_TP_CONTEXT),)-$(COORDINATOR)).json
 .PHONY: deepseek-tp-prepare deepseek-tp-plan deepseek-tp-up deepseek-tp-status deepseek-tp-down deepseek-tp-accept deepseek-tp-publish deepseek-tp-context-accept
 deepseek-tp-prepare:
 	@test -n "$(PEER)" -a -n "$(OUTPUT)" || { echo 'Use PEER=66f1|e8f1 OUTPUT=/path/to/preparation-receipts' >&2; exit 2; }
@@ -41,11 +41,11 @@ deepseek-tp-prepare:
 deepseek-tp-plan deepseek-tp-up:
 	@case "$(COORDINATOR)" in 66f1|e8f1) ;; *) echo 'Choose COORDINATOR=66f1 or e8f1' >&2; exit 2 ;; esac
 	@case "$(DEEPSEEK_TP_RUNTIME)" in eugr|mia) ;; *) echo 'Use DEEPSEEK_TP_RUNTIME=eugr or mia' >&2; exit 2 ;; esac
-	@if test "$(DEEPSEEK_TP_RUNTIME)" = mia; then test "$(DEEPSEEK_TP_CONTEXT)/$(DEEPSEEK_TP_EXPERTS)/$(DEEPSEEK_TP_SPEC)/$(DEEPSEEK_TP_EXECUTION)" = 1m/bf16/dspark2/graphs || { echo 'The pinned Mia recipe requires 1m/bf16/dspark2/graphs; other configurations need explicit recipes and qualification' >&2; exit 2; }; fi
-	@case "$(DEEPSEEK_TP_SPEC)" in off|dspark2) ;; *) echo 'Use DEEPSEEK_TP_SPEC=off or dspark2' >&2; exit 2 ;; esac
+	@if test "$(DEEPSEEK_TP_RUNTIME)" = mia; then test "$(DEEPSEEK_TP_CONTEXT)/$(DEEPSEEK_TP_EXPERTS)/$(DEEPSEEK_TP_SPEC)/$(DEEPSEEK_TP_EXECUTION)" = 512k/bf16/dspark5/graphs || { echo 'The pinned Mia recipe requires 512k/bf16/dspark5/graphs; other configurations need explicit recipes and qualification' >&2; exit 2; }; fi
+	@case "$(DEEPSEEK_TP_RUNTIME)/$(DEEPSEEK_TP_SPEC)" in mia/dspark5|eugr/off|eugr/dspark2) ;; *) echo 'Mia requires dspark5; eugr supports off or dspark2' >&2; exit 2 ;; esac
 	@case "$(DEEPSEEK_TP_EXECUTION)" in eager|graphs) ;; *) echo 'Use DEEPSEEK_TP_EXECUTION=eager or graphs' >&2; exit 2 ;; esac
 	@case "$(DEEPSEEK_TP_EXPERTS)" in bf16|fp8) ;; *) echo 'Use DEEPSEEK_TP_EXPERTS=bf16 or fp8' >&2; exit 2 ;; esac
-	@case "$(DEEPSEEK_TP_CONTEXT)" in 64k) ;; 256k|512k|768k|1m) test "$(DEEPSEEK_TP_EXPERTS)/$(DEEPSEEK_TP_SPEC)/$(DEEPSEEK_TP_EXECUTION)" = bf16/dspark2/graphs || { echo 'Extended contexts require bf16/dspark2/graphs' >&2; exit 2; } ;; *) echo 'Use DEEPSEEK_TP_CONTEXT=64k|256k|512k|768k|1m' >&2; exit 2 ;; esac
+	@if test "$(DEEPSEEK_TP_RUNTIME)" = eugr; then case "$(DEEPSEEK_TP_CONTEXT)" in 64k) ;; 256k|512k|768k|1m) test "$(DEEPSEEK_TP_EXPERTS)/$(DEEPSEEK_TP_SPEC)/$(DEEPSEEK_TP_EXECUTION)" = bf16/dspark2/graphs || { echo 'Extended eugr contexts require bf16/dspark2/graphs' >&2; exit 2; } ;; *) echo 'Use DEEPSEEK_TP_CONTEXT=64k|256k|512k|768k|1m' >&2; exit 2 ;; esac; fi
 	@test -n "$(OUTPUT)" || { echo 'Use OUTPUT=/path/to/a/new/deployment-receipt-directory' >&2; exit 2; }
 	python3 scripts/sparkctl $(if $(filter deepseek-tp-plan,$@),render,up) --deployment "$(DEEPSEEK_TP_MANIFEST)" --output "$(OUTPUT)" --timeout 3600
 
