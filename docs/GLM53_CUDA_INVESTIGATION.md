@@ -316,6 +316,12 @@ The extension is installed through a user-extension symlink to this checkout. **
 
 Subscription is per session; a fork does not inherit permission. Polling uses managed 15-second timers. Triage is limited to 12 evidence reads and 120 seconds, with read/grep/glob restrictions and an exact-event acknowledgment. Failed, timed-out, or unacknowledged attempts latch without automatic retries; inspect status and use `/vllm-watch retry EVENT_ID` explicitly. A dequeued manual user prompt takes ownership and removes the automatic triage deadline/restrictions. Session state restores the acknowledgment and failure latch. `/vllm-watch off` prevents new wakes, but does not interrupt an already-running triage.
 
+Local evidence access accepts one existing literal path, optionally with simple
+line/raw selectors. Multi-target lists, wildcard patterns, encoded paths, missing
+paths, and symlinks resolving outside the evidence allowlist are rejected. Use a
+literal evidence directory for `glob`; do not pass a compound search expression.
+The extension regression suite covers these boundaries before publication.
+
 Main-owned GPU windows write `maintenance.json` before arming restoration guards and clear it only after original serving is verified. Active or malformed interlocks block wakes; a deadline never authorizes automatic resumption. Use `/vllm-watch off` before other GPU/background work because those jobs do not necessarily publish this interlock.
 
 Lifecycle behavior was exercised with the actual extension in an isolated Bun driver. Real OMP RPC smoke checks verified explicit loading and fresh-start automatic discovery and executed commands without invoking a model. The live subscribed session subsequently delivered triage, but its guard incorrectly rejected the acknowledgment device's `read`/`write` transport. The October 11 fix exempts only exact `xd://vllm_upstream_ack` schema reads/invocations; other writes/devices remain blocked. Run `node --test tests/test_vllm_upstream_extension.mjs` with Node 24: four regressions pass, two fail with the original guard. Read/time bounds and exact-event/no-replay behavior remain covered. Fresh actual OMP startup loads the repaired source; already-running sessions must restart/resume to load it. The October 8 event was explicitly acknowledged after user takeover; later events remain separate. No independent unattended model session was installed.

@@ -9,6 +9,10 @@ def verify(plan, directory):
     ds = plan['recipe'].get('deepseek_v4', {})
     require(ds.get('moe_force_a16') is True and not ds.get('source_overlays'),
             'publication requires untraced BF16 expert activations')
+    if plan['recipe'].get('alias') == 'local-deepseek-v4-flash':
+        require(plan['recipe'].get('image') ==
+                'eugr/spark-vllm-b12x@sha256:693a1d778e998ccf9d9268d70f5af0f1f397e4a8c0d2ce6e54bb75e22bd1b36b',
+                'live DeepSeek alias requires the qualified runtime image')
     require(plan['deployment']['mode'] == 'tensor' and plan['deployment']['tensor_parallel'] == 2,
             'publication requires a DeepSeek TP2 plan')
     directory = Path(directory)

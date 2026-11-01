@@ -240,6 +240,7 @@ def test_mia_uses_the_normal_make_and_controller_interface(tmp_path, coordinator
     {'linear_backend': 'b12x'},
     {'moe_force_a16': False},
     {'attention_backend': 'b12x'},
+    {'kv_cache_dtype': 'nvfp4_ds_mla'},
     {'source_overlays': [{'path': 'b12x/_lib/dense_gemm.py', 'sha256': 'a' * 64}]},
 ])
 def test_mia_rejects_cross_runtime_kernel_configuration(change):

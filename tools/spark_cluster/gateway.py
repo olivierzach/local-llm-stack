@@ -102,6 +102,21 @@ def from_plans(plans, replicas=False):
     return result
 
 
+def upsert_routes(previous, addition):
+    """Return a new registry. Supplied aliases are replaced; every other route is copied unchanged."""
+    validate_registry(previous)
+    validate_registry(addition)
+    routes = dict(previous['routes'])
+    routes.update(addition['routes'])
+    result = {'version': 1, 'routes': routes}
+    validate_registry(result)
+    for alias, route in previous['routes'].items():
+        if alias not in addition['routes']:
+            require(result['routes'][alias] == route, 'unrelated route changed')
+    return result
+
+
+
 def provider_key(route, registry_path):
     name = route.get("upstream_key_env")
     if not name: return None
