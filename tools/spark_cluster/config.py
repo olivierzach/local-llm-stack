@@ -87,7 +87,7 @@ def validate_recipe(r):
     fields(r, ("version", "kind", "image", "model", "revision", "alias", "context_tokens",
                "max_output_tokens", "capabilities", "dtype", "gpu_memory_utilization",
                "min_available_mib", "max_num_seqs", "extra_args", "parallelism", "validation"),
-           ("tool_call_parser", "default_chat_template_kwargs", "image_processing", "runtime_cache", "load_strategy", "mamba_cache_mode", "speculative_config", "async_scheduling", "nccl_launch_order_implicit", "flashinfer_sampler", "disable_pynccl", "nccl_library", "deepseek_v4", "glm53"))
+           ("tool_call_parser", "default_chat_template_kwargs", "image_processing", "runtime_cache", "load_strategy", "mamba_cache_mode", "speculative_config", "async_scheduling", "nccl_launch_order_implicit", "flashinfer_sampler", "disable_pynccl", "nccl_library", "deepseek_v4", "glm53", "cuda_error_logging", "prefix_caching", "kv_transfer"))
     require(r["version"] == 1 and r["kind"] == "vllm", "unsupported recipe version/kind")
     require(re.fullmatch(r"[a-zA-Z0-9./_-]+@sha256:[0-9a-f]{64}", r["image"]),
             "image must be an immutable registry digest")
@@ -191,6 +191,21 @@ def validate_recipe(r):
         require(r["mamba_cache_mode"] in ("none", "align"), "unsupported hybrid cache mode")
     if "async_scheduling" in r:
         require(type(r["async_scheduling"]) is bool, "async_scheduling must be a boolean")
+    if "prefix_caching" in r:
+        require(type(r["prefix_caching"]) is bool, "prefix_caching must be a boolean")
+        require("--enable-prefix-caching" not in r["extra_args"],
+                "prefix_caching must not also be set through extra_args")
+    if "kv_transfer" in r:
+        transfer = r["kv_transfer"]
+        fields(transfer, ("role", "side_channel_port", "buffer_device", "transport"))
+        require(transfer["role"] in ("kv_producer", "kv_consumer"), "unsupported KV transfer role")
+        integer(transfer["side_channel_port"], 1024, 65535)
+        require(transfer["buffer_device"] in ("cuda", "cpu"), "unsupported KV buffer device")
+        require(transfer["transport"] in ("rdma", "tcp"), "unsupported KV transport")
+        require(r["parallelism"] == ["single"], "KV transfer supports single mode only")
+        require("speculative_config" not in r, "KV transfer does not support speculation")
+    if "cuda_error_logging" in r:
+        require(type(r["cuda_error_logging"]) is bool, "cuda_error_logging must be a boolean")
     if "nccl_launch_order_implicit" in r:
         require(type(r["nccl_launch_order_implicit"]) is bool,
                 "nccl_launch_order_implicit must be a boolean")
@@ -244,7 +259,7 @@ def validate_recipe(r):
             set(r["parallelism"]) <= {"single", "tensor", "pipeline"}, "invalid parallelism")
 
 
-def load(root, inventory, deployment):
+def load(root, inventory, deployment, recipe_file=None):
     inv = read(inventory)
     validate_inventory(inv)
     d = read(deployment)
@@ -264,7 +279,8 @@ def load(root, inventory, deployment):
         require(d["master_port"] != d["port"], "master and API ports must differ")
     integer(d["tensor_parallel"], 1, 64)
     integer(d["pipeline_parallel"], 1, 64)
-    r = read(Path(root) / "cluster" / "recipes" / (d["recipe"] + ".json"))
+    r = read(recipe_file if recipe_file is not None else
+             Path(root) / "cluster" / "recipes" / (d["recipe"] + ".json"))
     validate_recipe(r)
     require(d["mode"] in r["parallelism"], "recipe does not support this parallelism mode")
     gpus = sum(inv["nodes"][n]["gpus"] for n in d["nodes"])
@@ -280,8 +296,9 @@ def load(root, inventory, deployment):
 
 
 def runtime_cache_name(recipe, deployment, node_id, architecture):
-    # Validation prose and the public alias do not change compiled computation.
-    compute = {key: value for key, value in recipe.items() if key not in ("validation", "alias", "load_strategy")}
+    # Validation, naming, loading and diagnostic logging do not change compiled computation.
+    compute = {key: value for key, value in recipe.items()
+               if key not in ("validation", "alias", "load_strategy", "cuda_error_logging")}
     ordered = [deployment["coordinator"]] + [n for n in deployment["nodes"] if n != deployment["coordinator"]]
     identity = {"cache_format": 1, "recipe": compute, "architecture": architecture,
                 "mode": deployment["mode"], "tensor_parallel": deployment["tensor_parallel"],
@@ -292,6 +309,15 @@ def runtime_cache_name(recipe, deployment, node_id, architecture):
 def plan(inv, recipe, deployment):
     """Return an immutable desired state. Rendering never contacts a host."""
     require(deployment["mode"] in recipe["parallelism"], "recipe does not support this parallelism mode")
+    if "kv_transfer" in recipe:
+        require(deployment["mode"] == "single" and len(deployment["nodes"]) == 1 and
+                inv["nodes"][deployment["nodes"][0]]["gpus"] == 1 and
+                deployment["tensor_parallel"] == deployment["pipeline_parallel"] == 1,
+                "KV transfer requires one GPU on one node in single mode")
+        require("speculative_config" not in recipe, "KV transfer does not support speculation")
+        require(recipe["kv_transfer"]["side_channel_port"] not in
+                (deployment["port"], deployment.get("master_port")),
+                "KV side-channel and API/master ports must differ")
     if 'glm53' in recipe:
         require(deployment['tensor_parallel'] == 2 and deployment['pipeline_parallel'] == 1 and len(deployment['nodes']) == 2,
                 'GLM runtime candidate supports two-node TP2 only')
@@ -323,6 +349,14 @@ def plan(inv, recipe, deployment):
             cmd += ["--speculative-config", canonical(speculative)]
         if "async_scheduling" in recipe:
             cmd += ["--async-scheduling" if recipe["async_scheduling"] else "--no-async-scheduling"]
+        if "prefix_caching" in recipe:
+            cmd += ["--enable-prefix-caching" if recipe["prefix_caching"] else "--no-enable-prefix-caching"]
+        if "kv_transfer" in recipe:
+            transfer = recipe["kv_transfer"]
+            cmd += ["--kv-transfer-config", canonical({
+                "kv_connector": "NixlConnector", "kv_role": transfer["role"],
+                "kv_buffer_device": transfer["buffer_device"],
+                "kv_load_failure_policy": "fail", "kv_connector_extra_config": {"backends": ["UCX"]}})]
         if "load_strategy" in recipe:
             cmd += ["--safetensors-load-strategy", recipe["load_strategy"]]
         if recipe.get("tool_call_parser"):
@@ -365,6 +399,20 @@ def plan(inv, recipe, deployment):
                            f"import urllib.request; urllib.request.urlopen('http://{ip}:{deployment['port']}/health', timeout=2)"],
                             "interval": "10s", "timeout": "3s", "retries": 6, "start_period": "180s"}
         }
+        if "kv_transfer" in recipe:
+            transfer = recipe["kv_transfer"]
+            rail = node["fabric"][0]
+            rdma = transfer["transport"] == "rdma"
+            service["environment"].update({
+                "VLLM_NIXL_SIDE_CHANNEL_HOST": ip,
+                "VLLM_NIXL_SIDE_CHANNEL_PORT": str(transfer["side_channel_port"]),
+                "UCX_NET_DEVICES": rail["rdma"] + ":1" if rdma else rail["interface"],
+                "UCX_TLS": ("rc,ud" if rdma else "tcp") + ",sm,self,cuda_copy,cuda_ipc"})
+            service["devices"] = ["/dev/infiniband:/dev/infiniband"]
+            service["cap_add"] = ["IPC_LOCK"]
+            service["ulimits"] = {"memlock": {"soft": -1, "hard": -1}}
+        if recipe.get("cuda_error_logging"):
+            service["environment"].update({"CUDA_LOG_FILE": "stderr", "TORCH_SHOW_CPP_STACKTRACES": "1"})
         if "flashinfer_sampler" in recipe:
             service["environment"]["VLLM_USE_FLASHINFER_SAMPLER"] = (
                 "1" if recipe["flashinfer_sampler"] else "0")

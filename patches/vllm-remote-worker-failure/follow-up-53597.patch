@@ -1,0 +1,544 @@
+diff --git a/tests/v1/executor/test_multiproc_executor_fail_fast.py b/tests/v1/executor/test_multiproc_executor_fail_fast.py
+index 3755d23188..8b9ea711d8 100644
+--- a/tests/v1/executor/test_multiproc_executor_fail_fast.py
++++ b/tests/v1/executor/test_multiproc_executor_fail_fast.py
+@@ -6,12 +6,19 @@ import multiprocessing
+ import os
+ import struct
+ import threading
++from collections import deque
+ from types import SimpleNamespace
+ from typing import Any
+ 
+ import pytest
++import zmq
+ 
+-from vllm.v1.executor.multiproc_executor import MultiprocExecutor, WorkerProc
++from vllm.distributed.device_communicators.shm_broadcast import MessageQueue
++from vllm.v1.executor.multiproc_executor import (
++    FutureWrapper,
++    MultiprocExecutor,
++    WorkerProc,
++)
+ 
+ 
+ @pytest.fixture
+@@ -96,6 +103,7 @@ def test_monitor_fails_executor_on_error_pipe_event(error_pipe, signal_failure):
+     executor.is_failed = False
+     executor.shutdown = lambda: calls.append("shutdown")
+     executor.failure_callback = lambda: calls.append("failure_callback")
++    executor.response_mqs = []
+     executor.workers = [
+         SimpleNamespace(
+             proc=SimpleNamespace(
+@@ -119,3 +127,199 @@ def test_monitor_fails_executor_on_error_pipe_event(error_pipe, signal_failure):
+     assert not alive, "monitor did not react to the error pipe"
+     assert executor.is_failed
+     assert calls == ["shutdown", "failure_callback"]
++
++
++@pytest.fixture
++def remote_queue():
++    writer = MessageQueue(1, 0, connect_ip="127.0.0.1")
++    reader = MessageQueue.create_from_handle(writer.export_handle(), -1)
++    # Arm before the test's monitor thread starts so disconnect delivery does
++    # not depend on that thread being scheduled before the publisher closes.
++    monitor = reader.remote_socket.get_monitor_socket(events=zmq.EVENT_DISCONNECTED)
++    for mq in (writer, reader):
++        mq.remote_socket.setsockopt(zmq.RCVTIMEO, 10000)
++    writer.wait_until_ready()
++    reader.wait_until_ready()
++    try:
++        yield writer, reader
++    finally:
++        monitor.close(linger=0)
++        for mq in (writer, reader):
++            mq.remote_socket.context.destroy(linger=0)
++
++
++def _wait_for_parent(death_reader, error_writer, ready):
++    ready.set()
++    try:
++        death_reader.recv()
++    except EOFError:
++        pass
++    finally:
++        death_reader.close()
++        error_writer.close()
++
++
++@pytest.fixture
++def executor_with_remote_queue(remote_queue):
++    _, reader = remote_queue
++    context = multiprocessing.get_context("spawn")
++    death_reader, death_writer = context.Pipe(duplex=False)
++    error_reader, error_writer = context.Pipe(duplex=False)
++    ready = context.Event()
++    proc = context.Process(
++        target=_wait_for_parent, args=(death_reader, error_writer, ready)
++    )
++    proc.start()
++    death_reader.close()
++    error_writer.close()
++    assert ready.wait(30)
++    failed = threading.Event()
++    executor: Any = MultiprocExecutor.__new__(MultiprocExecutor)
++    executor.is_failed = False
++    executor.failure_callback = failed.set
++    executor.response_mqs = [reader]
++    executor.workers = [
++        SimpleNamespace(
++            proc=proc,
++            error_reader=error_reader,
++            death_writer=death_writer,
++            worker_response_mq=None,
++        )
++    ]
++    errors = []
++
++    def run_monitor():
++        try:
++            executor.start_worker_monitor(inline=True)
++        except Exception as error:
++            errors.append(error)
++
++    monitor = threading.Thread(target=run_monitor, daemon=True)
++    monitor.start()
++    try:
++        yield executor, proc, failed, monitor
++    finally:
++        executor.shutdown()
++        proc.join(10)
++        if proc.is_alive():
++            proc.kill()
++            proc.join(10)
++        monitor.join(10)
++        assert not monitor.is_alive()
++        assert not errors
++        error_reader.close()
++        death_writer.close()
++        proc.close()
++
++
++def test_remote_worker_disconnect_fails_executor(
++    remote_queue, executor_with_remote_queue
++):
++    writer, _ = remote_queue
++    executor, proc, failed, monitor = executor_with_remote_queue
++    writer.remote_socket.close(linger=0)
++
++    assert failed.wait(5), "remote worker loss did not reach the engine"
++    monitor.join(5)
++    proc.join(5)
++    assert executor.is_failed
++    assert not monitor.is_alive()
++    assert proc.exitcode == 0, "local worker did not receive the shutdown request"
++
++
++def test_normal_shutdown_with_remote_worker_is_not_a_failure(
++    executor_with_remote_queue,
++):
++    executor, proc, failed, monitor = executor_with_remote_queue
++    executor.shutdown()
++    monitor.join(5)
++    proc.join(5)
++
++    assert not monitor.is_alive()
++    assert proc.exitcode == 0
++    assert not executor.is_failed
++    assert not failed.is_set()
++
++
++def test_coordinator_disconnect_notifies_headless_parent(
++    error_pipe, remote_queue, monkeypatch
++):
++    error_reader, error_writer = error_pipe
++    writer, reader = remote_queue
++    death_reader, death_writer = multiprocessing.Pipe(duplex=False)
++    shutdown_requested = threading.Event()
++    monitor_threads = []
++
++    def make_monitor_thread(**kwargs):
++        thread = threading.Thread(**kwargs)
++        monitor_threads.append(thread)
++        return thread
++
++    monkeypatch.setattr(
++        "vllm.v1.executor.multiproc_executor.Thread", make_monitor_thread
++    )
++    worker: Any = WorkerProc.__new__(WorkerProc)
++    worker.rpc_broadcast_mq = reader
++    worker.worker_response_mq = None
++    worker.error_writer = error_writer
++    worker.monitor_death_pipe(death_reader, shutdown_requested)
++    try:
++        writer.remote_socket.close(linger=0)
++        assert error_reader.poll(5), "coordinator loss did not reach the local executor"
++        assert shutdown_requested.wait(5)
++    finally:
++        death_writer.close()
++        assert shutdown_requested.wait(5)
++        # The queue context must outlive its monitor's final shutdown call.
++        for thread in monitor_threads:
++            thread.join(5)
++            assert not thread.is_alive()
++        death_reader.close()
++
++
++@pytest.mark.parametrize("timeout", [None, 30])
++def test_shutdown_cancels_pending_remote_response(remote_queue, timeout):
++    writer, reader = remote_queue
++    future = FutureWrapper(deque(), lambda: reader.dequeue(timeout=timeout))
++    started = threading.Event()
++    errors = []
++
++    def receive():
++        started.set()
++        try:
++            future.result()
++        except Exception as error:
++            errors.append(error)
++
++    receiver = threading.Thread(target=receive, daemon=True)
++    receiver.start()
++    assert started.wait(5)
++    try:
++        reader.shutdown()
++        receiver.join(5)
++        assert not receiver.is_alive(), "shutdown left the remote response blocked"
++        assert len(errors) == 1
++        assert isinstance(errors[0], RuntimeError)
++    finally:
++        if receiver.is_alive():
++            # Release a broken implementation without destroying a socket that
++            # another thread is still polling.
++            writer.enqueue(None)
++            receiver.join(5)
++        assert not receiver.is_alive()
++
++
++def test_shutdown_rejects_queued_remote_response(remote_queue):
++    writer, reader = remote_queue
++    writer.enqueue("stale response")
++    reader.shutdown()
++    with pytest.raises(RuntimeError):
++        reader.dequeue(timeout=5)
++
++
++def test_remote_receive_timeout_preserves_queue(remote_queue):
++    writer, reader = remote_queue
++    with pytest.raises(TimeoutError):
++        reader.dequeue(timeout=0)
++    writer.enqueue("response after timeout")
++    assert reader.dequeue(timeout=5) == "response after timeout"
+diff --git a/vllm/distributed/device_communicators/shm_broadcast.py b/vllm/distributed/device_communicators/shm_broadcast.py
+index bafc5728b8..f1f33337e3 100644
+--- a/vllm/distributed/device_communicators/shm_broadcast.py
++++ b/vllm/distributed/device_communicators/shm_broadcast.py
+@@ -109,6 +109,15 @@ LONG_WAIT_TIME_LOG_MSG = (
+ )
+ 
+ 
++def _make_cancel_sockets(context: zmq.Context) -> tuple[zmq.Socket, zmq.Socket]:
++    cancel_path = get_open_zmq_inproc_path()
++    writer = context.socket(zmq.PAIR)
++    writer.bind(cancel_path)
++    reader = context.socket(zmq.PAIR)
++    reader.connect(cancel_path)
++    return writer, reader
++
++
+ class SpinCondition:
+     """This class implements an interface similar to a threading.Condition. It
+     allows a writer to notify readers to wake up and read from the shared memory
+@@ -152,11 +161,9 @@ class SpinCondition:
+             self.local_notify_socket.connect(notify_address)
+ 
+             # Readers require a process-local socket to poll for cancellation
+-            cancel_path = get_open_zmq_inproc_path()
+-            self.write_cancel_socket: zmq.Socket = context.socket(zmq.PAIR)
+-            self.write_cancel_socket.bind(cancel_path)
+-            self.read_cancel_socket: zmq.Socket = context.socket(zmq.PAIR)
+-            self.read_cancel_socket.connect(cancel_path)
++            self.write_cancel_socket, self.read_cancel_socket = _make_cancel_sockets(
++                context
++            )
+ 
+             # Poller allows waiting on either `.notify()` or `.cancel()`
+             self.poller = zmq.Poller()
+@@ -473,6 +480,11 @@ class Handle:
+ 
+ 
+ class MessageQueue:
++    # Socket receive state is initialized by the reader factory.
++    _read_cancel_socket: zmq.Socket
++    _write_cancel_socket: zmq.Socket
++    _socket_poller: zmq.Poller
++
+     def __init__(
+         self,
+         n_reader,  # number of all readers
+@@ -492,6 +504,7 @@ class MessageQueue:
+         n_remote_reader = n_reader - n_local_reader
+         self.n_remote_reader = n_remote_reader
+         self.shutting_down = False
++        self._shutdown_lock = threading.Lock()
+         context = Context()
+ 
+         if n_local_reader > 0:
+@@ -572,6 +585,7 @@ class MessageQueue:
+         self = MessageQueue.__new__(MessageQueue)
+         self.handle = handle
+         self._is_writer = False
++        self._shutdown_lock = threading.Lock()
+ 
+         context = Context()
+ 
+@@ -594,6 +608,7 @@ class MessageQueue:
+             self._spin_condition = SpinCondition(
+                 is_reader=True, context=context, notify_address=handle.local_notify_addr
+             )
++            self._read_cancel_socket = self._spin_condition.read_cancel_socket
+         else:
+             self.buffer = None  # type: ignore
+             self.current_idx = -1
+@@ -611,6 +626,16 @@ class MessageQueue:
+             logger.debug("Connecting to %s", socket_addr)
+             self.remote_socket.connect(socket_addr)
+             self._spin_condition = None  # type: ignore
++            self._write_cancel_socket, self._read_cancel_socket = _make_cancel_sockets(
++                context
++            )
++
++        self._socket_poller = zmq.Poller()
++        self._socket_poller.register(self._read_cancel_socket, zmq.POLLIN)
++        self._socket_poller.register(
++            self.local_socket if self._is_local_reader else self.remote_socket,
++            zmq.POLLIN,
++        )
+ 
+         self.shutting_down = False
+         return self
+@@ -649,11 +674,17 @@ class MessageQueue:
+             assert recv == b"READY"
+ 
+     def shutdown(self):
+-        """If this is an idle reader, wakes it up so it can clean up and shut
+-        down"""
+-        self.shutting_down = True
+-        if self._spin_condition is not None:
+-            self._spin_condition.cancel()
++        """Wake blocked readers without closing sockets owned by another thread."""
++        # A cancellation sender may be used by different shutdown threads,
++        # but must never be used concurrently or enqueue more than one ping.
++        with self._shutdown_lock:
++            if self.shutting_down:
++                return
++            self.shutting_down = True
++            if self._spin_condition is not None:
++                self._spin_condition.cancel()
++            elif self._is_remote_reader:
++                self._write_cancel_socket.send(b"\x00")
+ 
+     @contextmanager
+     def acquire_write(self, timeout: float | None = None):
+@@ -910,18 +941,20 @@ class MessageQueue:
+                         all_buffers.append(buf[buf_offset:offset])
+                     obj = pickle.loads(all_buffers[0], buffers=all_buffers[1:])
+             if overflow:
+-                obj = MessageQueue.recv(self.local_socket, timeout)
++                obj = self.recv(self.local_socket, timeout)
+         elif self._is_remote_reader:
+-            obj = MessageQueue.recv(self.remote_socket, timeout)
++            obj = self.recv(self.remote_socket, timeout)
+         else:
+             raise RuntimeError("Only readers can dequeue")
+         return obj
+ 
+-    @staticmethod
+-    def recv(socket: zmq.Socket, timeout: float | None) -> Any:
++    def recv(self, socket: zmq.Socket, timeout: float | None) -> Any:
+         # Ensure non-negative timeout passed to zmq poll.
+         timeout_ms = None if timeout is None else max(0, int(timeout * 1000))
+-        if not socket.poll(timeout=timeout_ms):
++        events = dict(self._socket_poller.poll(timeout=timeout_ms))
++        if self.shutting_down or self._read_cancel_socket in events:
++            raise RuntimeError("cancelled")
++        if socket not in events:
+             raise TimeoutError
+         recv, *recv_oob = socket.recv_multipart(copy=False)
+         return pickle.loads(recv, buffers=recv_oob)
+diff --git a/vllm/v1/executor/multiproc_executor.py b/vllm/v1/executor/multiproc_executor.py
+index 1dbc77faec..28f6e85844 100644
+--- a/vllm/v1/executor/multiproc_executor.py
++++ b/vllm/v1/executor/multiproc_executor.py
+@@ -24,6 +24,7 @@ from typing import Any, cast
+ 
+ import cloudpickle
+ import torch
++import zmq
+ 
+ import vllm.envs as envs
+ from vllm.config import VllmConfig
+@@ -108,6 +109,17 @@ class FutureWrapper(Future):
+                 self.set_exception(e)
+ 
+ 
++def _wait_for_worker_event(
++    local_events: Sequence[int], remote_events: Sequence[zmq.Socket]
++) -> list[int | zmq.Socket]:
++    if not remote_events:
++        return multiprocessing.connection.wait(local_events)
++    poller = zmq.Poller()
++    for event in (*local_events, *remote_events):
++        poller.register(event, zmq.POLLIN)
++    return [event for event, _ in poller.poll()]
++
++
+ class MultiprocExecutor(Executor):
+     supports_pp: bool = True
+ 
+@@ -221,10 +233,6 @@ class MultiprocExecutor(Executor):
+             # contention with them.
+             set_torch_threads_for_runtime()
+ 
+-            # Start background thread to monitor worker health if not in headless mode.
+-            if self.monitor_workers:
+-                self.start_worker_monitor()
+-
+             self.response_mqs = []
+             # Only leader node have remote response mqs
+             if self.parallel_config.node_rank_within_dp == 0:
+@@ -240,6 +248,10 @@ class MultiprocExecutor(Executor):
+                         assert remote_message_queue is not None
+                         self.response_mqs.append(remote_message_queue)
+ 
++            # Remote response sockets must exist before starting the monitor.
++            if self.monitor_workers:
++                self.start_worker_monitor()
++
+             # Ensure message queues are ready. Will deadlock if re-ordered
+             # Must be kept consistent with the WorkerProc.
+ 
+@@ -298,19 +310,32 @@ class MultiprocExecutor(Executor):
+         return rank % self.parallel_config.tensor_parallel_size == 0
+ 
+     def start_worker_monitor(self, inline=False) -> None:
+-        workers = self.workers
++        sentinels = {h.proc.sentinel: h.proc for h in self.workers}
++        error_pipes = {
++            h.error_reader.fileno(): h.proc
++            for h in self.workers
++            if h.error_reader is not None
++        }
++        # Monitor sockets are separate from the response sockets used by the
++        # engine thread. Only the monitor thread polls and closes them.
++        remote_monitors = {
++            mq.remote_socket.get_monitor_socket(events=zmq.EVENT_DISCONNECTED): rank
++            for rank, mq in enumerate(self.response_mqs)
++            if mq.remote_socket is not None
++        }
+         self_ref = weakref.ref(self)
+ 
+-        # Monitors worker process liveness and fatal RPC failure notifications.
+-        # If any worker dies unexpectedly or reports a fatal failure, logs an
+-        # error, shuts down the executor and invokes the failure callback to
+-        # inform the engine.
+         def monitor_workers():
+-            sentinels = {h.proc.sentinel: h.proc for h in workers}
+-            error_pipes = {
+-                h.error_reader: h.proc for h in workers if h.error_reader is not None
+-            }
+-            ready = multiprocessing.connection.wait([*sentinels, *error_pipes])
++            try:
++                handle_failure()
++            finally:
++                for monitor in remote_monitors:
++                    monitor.close(linger=0)
++
++        def handle_failure():
++            ready = _wait_for_worker_event(
++                [*sentinels, *error_pipes], list(remote_monitors)
++            )
+             _self = self_ref()
+             if not _self or getattr(_self, "shutting_down", False):
+                 logger.debug("MultiprocWorkerMonitor: shutdown already initiated")
+@@ -324,14 +349,19 @@ class MultiprocExecutor(Executor):
+                         died[0].name,
+                         died[0].exitcode,
+                     )
+-                else:
++                elif failed := [p for r, p in error_pipes.items() if r in ready]:
+                     # The error pipe is only a wake-up signal and is never read,
+                     # so teardown can't depend on a (possibly torn) message.
+-                    proc = next(p for r, p in error_pipes.items() if r in ready)
+                     logger.error(
+                         "Worker proc %s reported a fatal error, shutting down "
+                         "executor. See the worker's log above for the root cause.",
+-                        proc.name,
++                        failed[0].name,
++                    )
++                else:
++                    rank = next(r for m, r in remote_monitors.items() if m in ready)
++                    logger.error(
++                        "Remote worker rank %d disconnected, shutting down executor.",
++                        rank,
+                     )
+                 _self.shutdown()
+             finally:
+@@ -880,18 +910,49 @@ class WorkerProc:
+         if death_pipe is None:
+             return
+ 
++        remote_socket = (
++            self.rpc_broadcast_mq.remote_socket
++            if self.rpc_broadcast_mq is not None
++            else None
++        )
++        remote_monitor = (
++            remote_socket.get_monitor_socket(events=zmq.EVENT_DISCONNECTED)
++            if remote_socket is not None
++            else None
++        )
++        worker_ref = weakref.ref(self)
++        death_fd = death_pipe.fileno()
++
+         def death_pipe_monitor(queues_to_shutdown: list[MessageQueue]):
+             try:
+-                # This will block until parent process exits (pipe closes)
+-                death_pipe.recv()
++                if remote_monitor is not None:
++                    ready = _wait_for_worker_event([death_fd], [remote_monitor])
++                    if death_fd not in ready:
++                        logger.error(
++                            "Coordinator connection lost, terminating worker queues."
++                        )
++                        if worker := worker_ref():
++                            worker._report_fatal_failure()
++                    else:
++                        death_pipe.recv()
++                        return
++                else:
++                    # This will block until the parent exits (pipe closes).
++                    death_pipe.recv()
++                    return
+             except EOFError:
+                 logger.info_once("Parent process exited, terminating worker queues")
+-                shutdown_requested.set()
+-                for mq in queues_to_shutdown:
+-                    if mq is not None:
+-                        mq.shutdown()
+             except Exception as e:
+                 logger.warning("Death monitoring error: %s", e)
++                return
++            finally:
++                if remote_monitor is not None:
++                    remote_monitor.close(linger=0)
++
++            shutdown_requested.set()
++            for mq in queues_to_shutdown:
++                if mq is not None:
++                    mq.shutdown()
+ 
+         # Pass queue references directly to avoid gc issues if passing self
+         Thread(

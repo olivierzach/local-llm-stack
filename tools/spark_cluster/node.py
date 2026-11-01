@@ -203,6 +203,44 @@ def verify_nccl_library(request):
     return {'override': True, 'path': str(path), **library}
 
 
+def verify_rdma_devices(request):
+    devices = Path("/dev/infiniband")
+    if not devices.is_dir():
+        raise RuntimeError("RDMA devices unavailable")
+    if "kv_transfer" not in request["recipe"]:
+        return {"path": str(devices)}
+    # Check the selected HCA's verbs device, not just an unrelated IB directory.
+    # This is host visibility/admission, not evidence that UCX used RDMA.
+    rail = request["node"]["fabric"][0]
+    verbs = Path("/sys/class/infiniband") / rail["rdma"] / "device/infiniband_verbs"
+    endpoints = sorted(verbs.glob("uverbs*"))
+    if not endpoints:
+        raise RuntimeError("selected RDMA HCA has no verbs device: " + rail["rdma"])
+    required = [devices / "rdma_cm"] + [devices / endpoint.name for endpoint in endpoints]
+    for path in required:
+        if not path.is_char_device() or not os.access(path, os.R_OK | os.W_OK):
+            raise RuntimeError("RDMA device is not accessible: " + str(path))
+    return {"hca": rail["rdma"], "devices": [str(path) for path in required]}
+
+
+def launch_resource_checks(request):
+    """The same fabric port/device admission for diagnostics and reservation."""
+    node, deployment, recipe = request["node"], request["deployment"], request["recipe"]
+
+    def port_check(port):
+        address = node["fabric"][0]["ip"]
+        check_port(address, port)
+        return {"address": address, "port": port}
+
+    yield "api-port", lambda: port_check(deployment["port"])
+    if deployment["mode"] != "single" or "kv_transfer" in recipe:
+        yield "rdma-devices", lambda: verify_rdma_devices(request)
+    if deployment["mode"] != "single":
+        yield "master-port", lambda: port_check(deployment["master_port"])
+    if "kv_transfer" in recipe:
+        yield "kv-side-channel-port", lambda: port_check(recipe["kv_transfer"]["side_channel_port"])
+
+
 def preflight(request):
     """Point-in-time launch diagnostics; never takes a lease or starts a worker."""
     node, recipe = request['node'], request['recipe']
@@ -245,10 +283,6 @@ def preflight(request):
         return {'snapshot': str(snapshot), 'weight_shards': len(list(snapshot.glob('*.safetensors'))),
                 'qualification': 'Structural check only; use the model-copy receipt for SHA-256 verification.'}
 
-    def port_check(port):
-        check_port(node['fabric'][0]['ip'], port)
-        return {'address': node['fabric'][0]['ip'], 'port': port}
-
     observe('runtime-image', image_check)
     if recipe.get('deepseek_v4', {}).get('source_overlays') or recipe.get('glm53', {}).get('source_overlays'):
         observe('source-overlays', lambda: verify_source_overlays(request))
@@ -257,10 +291,8 @@ def preflight(request):
     observe('model-cache', cache_check)
     if recipe.get('speculative_config', {}).get('method') == 'dflash':
         observe('draft-cache', lambda: verify_draft_cache(request))
-    observe('api-port', lambda: port_check(request['deployment']['port']))
-    if request['deployment']['mode'] != 'single':
-        condition('rdma-devices', Path('/dev/infiniband').is_dir(), {'path': '/dev/infiniband'})
-        observe('master-port', lambda: port_check(request['deployment']['master_port']))
+    for label, action in launch_resource_checks(request):
+        observe(label, action)
     return {'launchable': all(item['passed'] for item in checks), 'checks': checks,
             'qualification': 'Point-in-time diagnostics. Ports are briefly bound and closed. No GPU reservation or worker is created; up rechecks admission.'}
 
@@ -290,11 +322,8 @@ def reserve(request):
         raise RuntimeError("container architecture mismatch")
     snapshot = Path(node["cache"]) / "hub" / ("models--" + recipe["model"].replace("/", "--")) / "snapshots" / recipe["revision"]
     validate_cached_snapshot(snapshot)
-    check_port(node["fabric"][0]["ip"], request["deployment"]["port"])
-    if request["deployment"]["mode"] != "single":
-        if not Path("/dev/infiniband").is_dir():
-            raise RuntimeError("RDMA devices unavailable")
-        check_port(node["fabric"][0]["ip"], request["deployment"]["master_port"])
+    for _, action in launch_resource_checks(request):
+        action()
     atomic(STATE / "gpu.json", {"owner": request["owner"], "digest": request["digest"],
                                 "created_at": time.time(), "container_ids": [], "phase": "reserved"})
     return {"reserved": True, "existing": False}

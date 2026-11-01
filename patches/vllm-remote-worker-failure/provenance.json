@@ -1,0 +1,180 @@
+{
+  "schema_version": 1,
+  "scope": "Human-reviewed worker/coordinator-disconnect follow-up, integrated with a78d050 and published in ready-for-review PR #61558. Full-source CPU and two-host GPU qualification passed. Historical proposals and evidence remain distinct. This does not fix the original CUDA fault.",
+  "upstream": {
+    "repository": "https://github.com/vllm-project/vllm",
+    "pr": "https://github.com/vllm-project/vllm/pull/53597",
+    "author": "Nanfang-Li",
+    "base_commit": "d2125ea681784c17251c47939f5ed6d1c67384f8",
+    "patch_parent_commit": "89a48785ee496f0cb646f2d7e9d089e98b30bb40"
+  },
+  "current_candidate": {
+    "status": "PR #61558 is ready for review at 3d76823. The authorized message-only rewrite left source trees and prerequisite commits unchanged. DCO passed; prerequisite merge, review and CI eligibility remain.",
+    "parent_commit": "c52a711abf5c73db2fc2fc6e18aa6bd1351c2a9d",
+    "merge_parent": "a78d050eff733c2c85d7b36d464838bf282e496e",
+    "native_base_commit": "2521446ac8c92937b5a32b7dc2a84ef7fa8e99c5",
+    "qualified_tree": "18aa0a99031aa0977b3effca9938cdc78a17ede9",
+    "published_commit": "3d76823ad86d92dd3a11da5e534f5a050d931248",
+    "published_url": "https://github.com/olivierzach/vllm/commit/3d76823ad86d92dd3a11da5e534f5a050d931248",
+    "published_branch": "olivierzach/vllm:fix/mp-remote-worker-disconnect-direct-exit",
+    "upstream_pr": "https://github.com/vllm-project/vllm/pull/61558",
+    "upstream_pr_is_draft": false,
+    "depends_on": "https://github.com/vllm-project/vllm/pull/53597",
+    "verification_record": "direct-exit/verification.json",
+    "source_directory_from_repository_root": "data/vllm-worker-failure/dependent-final",
+    "original_bundle": {
+      "commit": "c3962352b23d8d4db61364d46c66f67ca00c66dd",
+      "parent": "462261a4cef04dd6735279d4c283ab0e0d6d657f",
+      "patch": "direct-exit/follow-up.patch",
+      "patch_sha256": "c7398de1095cea84d07a48108f0d97711d1458f887fa46645d78cb1420f678de",
+      "source_directory": "direct-exit/source",
+      "scope": "Preserved historical c396235 inputs, not snapshots of the newly integrated published head."
+    },
+    "historical_fields": "The top-level upstream, published_commit, patch and historical_records objects retain the older error-pipe proposal."
+  },
+  "integrated_qualification": {
+    "recorded_utc": "2026-10-14T06:39:17.018Z",
+    "source_tree": "18aa0a99031aa0977b3effca9938cdc78a17ede9",
+    "main": "a78d050eff733c2c85d7b36d464838bf282e496e",
+    "native_base": "2521446ac8c92937b5a32b7dc2a84ef7fa8e99c5",
+    "native_inputs_unchanged_between_base_and_main": true,
+    "new_review_delta": "Four files, +80/-26 relative to the automatic merge; existing c396235 review remains valid.",
+    "review_patch_sha256": "601d64f145fc5d4725486461d5a3377e8f4f6f690482d2120de6c94bd5fa1d86",
+    "cpu": "88 passed, 2 skipped, 43 warnings, 169.75s; full source and native hashes checked.",
+    "gpu": "Fresh TP2/PP2 forward exceptions, immediate exit, synchronous scheduling, and active-stream coordinator loss passed on two GB10 hosts. Both-host natural cleanup verified within 3.63–13.90s. Matched prerequisite-only TP2 control timed out at 45.12s and retained coordinator/GPU context until explicit owned cleanup.",
+    "limits": "Missing-LoRA error allowed subsequent generation, but the next utility RPC consumed an inherited stale error; failed combined experiment retained. Official cuSPARSELt SBSA wheel-tag warning retained. No startup-before-READY, throughput or upstream-CI success claim.",
+    "private_evidence": "logs/incidents/2026-10-01-vllm-worker-failure/integrated-pr-20261014-b678678d",
+    "summary": "qualification-summary.json",
+    "review_patch": "integration-review.patch",
+    "personal_check_command": "review-integration.sh",
+    "human_reviewed": true,
+    "human_personal_checks_confirmed": true,
+    "new_dco_confirmed": true,
+    "human_confirmation_utc": "2026-10-14T07:07:56.805Z",
+    "publication_utc": "2026-10-14T07:11:47Z",
+    "published": true,
+    "publication_receipt": "logs/incidents/2026-10-01-vllm-worker-failure/integrated-pr-20261014-b678678d-publication/publication-receipt.json",
+    "wording_receipt": "logs/incidents/2026-10-01-vllm-worker-failure/pr-wording-20261014-742a6668/receipt.json",
+    "normal_workloads_unchanged": true,
+    "owned_builders_removed": 12,
+    "qualified_images_and_reproduction_inputs_retained": true
+  },
+  "published_commit": {
+    "sha": "b919a571ef2f92e94c20ed6e2e890a011c485237",
+    "url": "https://github.com/olivierzach/vllm/commit/b919a571ef2f92e94c20ed6e2e890a011c485237",
+    "reply_url": "https://github.com/vllm-project/vllm/pull/53597#issuecomment-5963547766"
+  },
+  "patch": {
+    "path": "follow-up-53597.patch",
+    "sha256": "667abe736673ce4ee944d43ef6b955e72223beae5ad4ad6a60c10d7e96c74c3b",
+    "bytes": "Unmodified historical published follow-up patch; applies on patch_parent_commit, not directly on base_commit."
+  },
+  "submission_preparation": {
+    "recorded_date": "2026-10-14",
+    "pr_body": "PR_DRAFT.md",
+    "review_and_submission_checklist": "SUBMISSION_CHECKLIST.md",
+    "coordination_comment": "https://github.com/vllm-project/vllm/pull/53597#issuecomment-6115410855",
+    "coordination_action": "Existing #61558 is ready for review. The user authorized rewording our two commits with an expected-head lease; source trees and prerequisite commits are unchanged. No new PR, label request or CI bypass.",
+    "verification_record": "direct-exit/verification.json",
+    "private_evidence_from_repository_root": "logs/incidents/2026-10-01-vllm-worker-failure",
+    "verification_scope": "88 CPU passes, five GPU failure scenarios and a matched prerequisite control on the exact published tree. Human review, personal successful checks and DCO now explicitly cover the integration correction; no personal-run counts/logs were inferred.",
+    "status": "Publication complete; PR is ready for review. Prerequisite #53597 remains unmerged. Upstream pre-run-check failed contributor/label eligibility (zero merged PRs), not a code test; pre-commit skipped. Maintainer review and required CI remain.",
+    "blocking_overlap_pr": "https://github.com/vllm-project/vllm/pull/58738",
+    "overlap_head_at_review": "4f72e66203f1f2219826c2d1a8c3e6732ad43520",
+    "overlap_status": "Legacy field name retained: author direction agreement is recorded and the standalone heartbeat implementation will not continue; the PR remains open and is credited in dependent draft #61558.",
+    "dependent_submission_receipt": "logs/incidents/2026-10-01-vllm-worker-failure/dependent-pr-20261014-15596992/publication-receipt.json",
+    "fresh_exact_source_cpu": "55 passed, 1 skipped, 14 warnings, 109.39s; source hashes verified. No GPU rerun.",
+    "current_main_compatibility": "Historical 2521446 overlay probe passed 88 tests/2 skips and reproduced both lifecycle defects with negative controls. Superseded for final qualification by the full-source a78d050-based runtime and GPU experiments recorded above; historical artifacts remain unchanged.",
+    "candidate_comparison_with_main_at_review": {
+      "recorded_date": "2026-10-03",
+      "ahead_by": 3,
+      "behind_by": 89,
+      "meaning": "Historical b919a57 fork branch only: includes the parent's two earlier commits and our old follow-up. Not the current direct-exit adaptation or a current-main comparison."
+    }
+  },
+  "attribution": "Based on Nanfang Li / Nanfang-Li PR #53597, with all prerequisite commits preserved. Original and integration human review, personal checks and DCO explicitly confirmed. New commit includes the authorized Signed-off-by and Co-authored-by: OpenAI Codex. DCO passed; no maintainer approval or code-CI success is asserted.",
+  "license": {
+    "identifier": "Apache-2.0",
+    "path": "LICENSE",
+    "copyright": "Copyright contributors to the vLLM project",
+    "scope": "Bundled upstream vLLM source retains its SPDX notices; follow-up modifies that Apache-2.0 source."
+  },
+  "historical_records": {
+    "meaning": "Dates and hashes below were recorded by the handoff, not assertions about current PR status, current deployments, review, or present-day reproducibility.",
+    "initial_comment": {
+      "url": "https://github.com/vllm-project/vllm/pull/53597#issuecomment-5955587804",
+      "recorded_created_at": "2026-10-02T15:24:52Z"
+    },
+    "code_reply_recorded_created_at": "2026-10-03T00:20:19Z",
+    "follow_up_ownership_offer": {
+      "url": "https://github.com/vllm-project/vllm/pull/53597#issuecomment-5974024241",
+      "recorded_created_at": "2026-10-03T22:15:48Z",
+      "intent": "Offered to own a follow-up PR if Nanfang-Li has not already started it; supersedes the earlier preference to integrate into his PR.",
+      "status_at_posting": "Awaiting author coordination; no follow-up PR opened."
+    },
+    "published_source_sha256": {
+      "vllm/v1/executor/multiproc_executor.py": "76799f4b67df9a6cc6779d811ba65b9a090f68dcacb0c05ab7a371db796794ef",
+      "vllm/distributed/device_communicators/shm_broadcast.py": "f86957ae0e0ed2e8f6b0d90be65fc0d0b9ad2f79a7542041a250f5ded45f9763",
+      "tests/v1/executor/test_multiproc_executor_fail_fast.py": "c70fa869ce4f0de847374e97b795c2ba01980dcb823a518b367016d4bd02c6f5"
+    },
+    "bundled_source_sha256": {
+      "source/executor-base.py": "11a1554380d1efa516bb481416c798798d5839f38ac3b0f379ef4b8b547f4d1b",
+      "source/executor-candidate.py": "76799f4b67df9a6cc6779d811ba65b9a090f68dcacb0c05ab7a371db796794ef",
+      "source/executor-deployed-backport.py": "9bb9d7d3a951d936a4b6a4df349ab69d829b9b607718294a6ff8498c7f9c7ff6",
+      "source/executor-updated-pr.py": "19bf2834ba7df84e5dea24fd31fbdc3d351e937486b78ac23541eea12e816981",
+      "source/shm-broadcast-base.py": "0dcc2990f1647d1ad3e94710b8e94d3f6694f7b87746241c0de2f84082779e2c",
+      "source/shm-broadcast-candidate.py": "f86957ae0e0ed2e8f6b0d90be65fc0d0b9ad2f79a7542041a250f5ded45f9763",
+      "source/shm-broadcast-deployed-backport.py": "d2bd540719309ab1e147c136dd5173a6be062eada38927d68552f5358e0ab264",
+      "source/test_multiproc_executor.py": "bea363107ce2082519c8e50aa3c8cbad35aefd3ddbbe20d04667ec88728c9b02",
+      "source/test_multiproc_executor_fail_fast.py": "c70fa869ce4f0de847374e97b795c2ba01980dcb823a518b367016d4bd02c6f5",
+      "source/test_shm_broadcast.py": "c829720c367bad9632cb139de95d137f83b38d883137c094ba473fd41d23dceb"
+    },
+    "runtime_versions": {
+      "vllm": "0.30.1rc1.dev535+gd2125ea68",
+      "torch": "2.13.0+cu130",
+      "triton": "3.7.1",
+      "flashinfer-python": "0.7.0.post1",
+      "flashinfer-cubin": "0.7.0.post1"
+    },
+    "matched_model": {
+      "id": "Qwen/Qwen3-4B-Instruct-2507",
+      "revision": "cdbee75f17c01a7cc42f958dc650907174af0554"
+    }
+  },
+  "source_roles": {
+    "executor-base.py": "Upstream base executor control.",
+    "executor-updated-pr.py": "Historical error-pipe parent PR head executor control, not the revised direct-exit parent.",
+    "executor-candidate.py": "Published follow-up executor; module vllm/v1/executor/multiproc_executor.py.",
+    "shm-broadcast-base.py": "Upstream base queue control.",
+    "shm-broadcast-candidate.py": "Published follow-up queue; module vllm/distributed/device_communicators/shm_broadcast.py.",
+    "executor-deployed-backport.py": "Historical legacy-runtime experimental backport, NOT the published upstream patch and NOT a claim about current serving.",
+    "shm-broadcast-deployed-backport.py": "Historical legacy-runtime experimental queue backport; same restriction as executor backport.",
+    "test_multiproc_executor_fail_fast.py": "Published focused failure-propagation regression tests.",
+    "test_multiproc_executor.py": "Historical executor compatibility regression source.",
+    "test_shm_broadcast.py": "Historical queue/distributed regression source."
+  },
+  "reproduction": {
+    "safety": "Fault injection intentionally raises in or exits a worker. Use only isolated test servers with approved GPU admission, a bounded maintenance window and a tested rollback. Keep generated observations and logs in this checkout's Git-ignored logs/incidents/ directory, never in Git.",
+    "external_inputs": [
+      "Compatible Linux aarch64 CUDA runtime with native vLLM extensions matching the pinned base; the historical private base image is not distributed.",
+      "Two GPU hosts and operator-reviewed network/RDMA configuration, model cache, launch argument arrays, source-overlay mounts, and rollback. No launch manifest is bundled.",
+      "Expose the development collective-RPC endpoint only on the isolated test server. Make fault_extension importable and configure worker extension fault_extension.FailureProbeExtension on both hosts.",
+      "Verify installed module versions and source hashes on both workers before arming a fault; do not overlay these snapshots onto an unrelated vLLM binary."
+    ],
+    "helpers": {
+      "client_probe.py": "Python plus httpx; modes normal/cancel/failure/lora/report/speculative, --url direct vLLM root, --model, --timeout (default 60), --failure-mode exception|exit. report/failure require the test extension and collective RPC; lora requires LoRA-enabled serving; speculative requires speculative decoding metrics.",
+      "fault_extension.py": "Synthetic forward pre-hook. failure targets rank 1 by default. Never install in production serving.",
+      "legacy_rpc_smoke.py": "Python with the matching legacy vLLM runtime and historical backport installed. Uses real dispatch/pipes but stub model methods; not GPU inference proof.",
+      "render_launch.py": "Prints only. Requires an external JSON object mapping host-a and host-b to command argument arrays plus HOST_A_IP, HOST_B_IP and HF_CACHE environment variables. Supports ${NAME} substitutions and example IP substitutions. Private executed manifests are deliberately excluded.",
+      "runtime-build.sh": "Builds an isolated Linux aarch64 verification venv using uv and the exact official base wheel, pins both FlashInfer Python/cubin packages, validates core versions, and prints the dependency inventory. Requires a compatible inherited base image and network access; not an OS lockfile. Run only in a new CPU/memory-bounded container with no GPU devices."
+    },
+    "test_dependencies": [
+      "pytest",
+      "pytest-timeout",
+      "pytest-asyncio",
+      "matching vLLM runtime and its dependencies",
+      "multiprocess==0.70.16 and dill==0.3.8 for historical distributed queue tests"
+    ],
+    "test_isolation": "Historical CPU checks disabled plugin autoload (PYTEST_DISABLE_PLUGIN_AUTOLOAD=1), used --noconftest -c /dev/null, and had no GPU access. The vendored test snapshots are reference tools, not part of this repository test suite."
+  }
+}

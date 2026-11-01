@@ -37,6 +37,48 @@ def test_offline_drafter_and_both_coordinator_paths(coordinator):
         assert '--trust-remote-code' not in argv
 
 
+@pytest.mark.parametrize('coordinator', ['66f1', 'e8f1'])
+def test_cuda_logging_preserves_inference_and_rank_caches(coordinator):
+    baseline = config.plan(*inputs(coordinator))
+    inv, recipe, deployment = config.load(ROOT, ROOT / 'cluster/inventory.json',
+        ROOT / f'cluster/deployments/glm53-tp2-256k-dflash2-cuda-log-{coordinator}.json')
+    diagnostic = config.plan(inv, recipe, deployment)
+    config.validate_saved_plan(diagnostic)
+    assert diagnostic['digest'] != baseline['digest']
+    assert diagnostic['endpoint'] == baseline['endpoint']
+    for node_id, compose in diagnostic['compose'].items():
+        old_compose = baseline['compose'][node_id]
+        assert compose['volumes'] == old_compose['volumes']
+        expected = copy.deepcopy(old_compose['services']['worker'])
+        expected['environment'].update({
+            'CUDA_LOG_FILE': 'stderr', 'TORCH_SHOW_CPP_STACKTRACES': '1'})
+        worker = compose['services']['worker']
+        assert 'CUDA_LAUNCH_BLOCKING' not in worker['environment']
+        for key in ('container_name', 'labels'):
+            expected[key] = worker[key]
+        assert worker == expected
+
+    recipe['cuda_error_logging'] = False
+    config.validate_recipe(recipe)
+    disabled = config.plan(inv, recipe, deployment)
+    for node_id, compose in disabled['compose'].items():
+        old_compose = baseline['compose'][node_id]
+        assert compose['volumes'] == old_compose['volumes']
+        expected = copy.deepcopy(old_compose['services']['worker'])
+        worker = compose['services']['worker']
+        for key in ('container_name', 'labels'):
+            expected[key] = worker[key]
+        assert worker == expected
+
+
+@pytest.mark.parametrize('value', [1, 'true', None])
+def test_cuda_logging_rejects_non_boolean_values(value):
+    _, recipe, _ = inputs()
+    recipe['cuda_error_logging'] = value
+    with pytest.raises(config.ConfigError):
+        config.validate_recipe(recipe)
+
+
 @pytest.mark.parametrize('kind', ['draft_revision', 'draft_path', 'draft_count', 'overlay_escape', 'overlay_hash', 'parser', 'mixed_profile'])
 def test_reject_unpinned_or_incompatible_recipe(kind):
     _, recipe, _ = inputs()

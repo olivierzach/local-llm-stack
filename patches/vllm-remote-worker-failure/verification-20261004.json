@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "verified_at_utc": "2026-10-04T00:14:36Z",
+  "status": "passed_for_preserved_candidate",
+  "candidate_commit": "b919a571ef2f92e94c20ed6e2e890a011c485237",
+  "parent_commit": "89a48785ee496f0cb646f2d7e9d089e98b30bb40",
+  "published_fix_changed": false,
+  "patch_sha256": "667abe736673ce4ee944d43ef6b955e72223beae5ad4ad6a60c10d7e96c74c3b",
+  "patch_application": {
+    "method": "Archive the three parent files into an independent scratch Git root, git apply --check, then git apply.",
+    "result": "All three resulting file hashes match the published candidate.",
+    "source_sha256": {
+      "vllm/v1/executor/multiproc_executor.py": "76799f4b67df9a6cc6779d811ba65b9a090f68dcacb0c05ab7a371db796794ef",
+      "vllm/distributed/device_communicators/shm_broadcast.py": "f86957ae0e0ed2e8f6b0d90be65fc0d0b9ad2f79a7542041a250f5ded45f9763",
+      "tests/v1/executor/test_multiproc_executor_fail_fast.py": "c70fa869ce4f0de847374e97b795c2ba01980dcb823a518b367016d4bd02c6f5"
+    }
+  },
+  "runtime": {
+    "platform": "Linux aarch64, isolated CPU-only containers on local infrastructure",
+    "base_image_id": "sha256:35c6f70ffcba62fd67d7b9d4b4e8300ad177201792ce9cdb1ea18fd449bc23b6",
+    "verification_image_tag": "local-llm-stack/vllm-worker-failure-verification:20261003-d2125ea68",
+    "verification_image_id": "sha256:6e1e0957d986ff6c803db9c92e39216459f92cc138e2ce545ff0ec58b3522244",
+    "core_versions": {
+      "vllm": "0.30.1rc1.dev535+gd2125ea68",
+      "torch": "2.13.0",
+      "triton": "3.7.1",
+      "flashinfer-python": "0.7.0.post1",
+      "flashinfer-cubin": "0.7.0.post1",
+      "pytest": "9.1.1",
+      "pyzmq": "27.2.0"
+    },
+    "torch_build": "2.13.0+cu130",
+    "cuda_available": false,
+    "native_queue_extension_imported": "vllm.spinloop",
+    "test_limits": {
+      "cpus": 2,
+      "memory_bytes": 3221225472,
+      "pids": 256,
+      "network": "none",
+      "runtime": "runc",
+      "timeout_seconds": 120
+    },
+    "builder": "reproduce/runtime-build.sh",
+    "builder_sha256": "d244a6a7b6d327f56668c6ba29a1e9f10e1a93839207d19787e44009461e980c",
+    "dependency_inventory_scope": "Full resolved inventory in private runtime-build.log; core/test inputs pinned, not a complete OS/dependency lockfile."
+  },
+  "checks": [
+    {
+      "name": "candidate-focused",
+      "result": "17 passed, 14 warnings in 23.25s",
+      "exitcode": 0,
+      "private_record_sha256": "7974d73b22c37d59b614665d0505a3b48438e5e5fd778d1e6f3928e99c9e0d18"
+    },
+    {
+      "name": "without-queue-cancellation",
+      "result": "3 failed, 14 passed, 14 warnings in 28.73s",
+      "exitcode": 1,
+      "expected_failure": true,
+      "failed_cases": [
+        "test_shutdown_cancels_pending_remote_response[None]",
+        "test_shutdown_cancels_pending_remote_response[30]",
+        "test_shutdown_rejects_queued_remote_response"
+      ],
+      "private_record_sha256": "15cfb4419083ff49637cfc4b5813a786e2581d0369bd3c753fbef3c4d2dcf598"
+    },
+    {
+      "name": "distributed-queue",
+      "result": "2 passed in 19.32s",
+      "exitcode": 0,
+      "private_record_sha256": "710d20bfdf242e43d574b8876700db68f4949b5c56124606e9966203304f7f94"
+    }
+  ],
+  "fresh_gpu_fault_injection": false,
+  "historical_hardware_evidence": "TP2 and PP2 measurements remain the previous runs described in PR_DRAFT.md; not rerun here.",
+  "serving_preserved": {
+    "hosts": 2,
+    "containers_running": true,
+    "container_ids_unchanged": true,
+    "image_ids_unchanged": true,
+    "start_times_unchanged": true
+  },
+  "archive_migration": {
+    "path_from_repository_root": "logs/incidents/2026-10-01-vllm-worker-failure",
+    "git_ignored": true,
+    "original_checksums_verified": 1542
+  },
+  "private_records_from_repository_root": "logs/incidents/2026-10-01-vllm-worker-failure/candidate-verification-20261003",
+  "environment_setup_corrections": [
+    "Torch distribution metadata is 2.13.0; the validated torch.__version__ is 2.13.0+cu130.",
+    "The native CPU queue extension is vllm.spinloop, not vllm._C.",
+    "The runtime builder supports resuming its own isolated venv with --allow-existing."
+  ],
+  "remaining_submission_gates": [
+    "Author/maintainer coordination on overlap with PR #58738.",
+    "Integration onto the agreed current upstream base and validation of any resulting changes.",
+    "Human line-by-line review, personal relevant test runs, and DCO certification.",
+    "Explicit authorization to open an upstream PR."
+  ]
+}

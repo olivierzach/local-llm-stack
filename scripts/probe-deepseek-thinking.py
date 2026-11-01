@@ -39,9 +39,17 @@ def main():
                     payload['stream_options'] = {'include_usage': True}
                 record, message = chat(plan['endpoint']['base_url'], payload, None)
                 record.pop('memory', None)
-                count = (record['usage'].get('completion_tokens_details') or {}).get('reasoning_tokens', 0)
+                usage = record['usage']
+                count = (usage.get('completion_tokens_details') or {}).get('reasoning_tokens')
+                valid_usage = (all(type(usage.get(key)) is int and usage[key] >= 0
+                                   for key in ('prompt_tokens', 'completion_tokens', 'total_tokens'))
+                               and usage['completion_tokens'] > 0
+                               and usage['prompt_tokens'] + usage['completion_tokens'] == usage['total_tokens'])
+                if count is not None:
+                    valid_usage = (valid_usage and type(count) is int
+                                   and 0 <= count <= usage['completion_tokens'] and bool(count) == thinking)
                 passed = (record['finish_reason'] == 'stop' and message['content'].strip() == '323'
-                          and (count > 0 if thinking else count == 0))
+                          and record['reasoning_present'] == thinking and valid_usage)
                 record.update(thinking=thinking, stream=stream, passed=passed,
                               final_answer=message['content'], reasoning_tokens=count)
                 report['checks'].append(record)

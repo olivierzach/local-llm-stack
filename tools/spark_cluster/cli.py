@@ -124,11 +124,15 @@ def main(argv=None):
     parser.add_argument("action", choices=("validate", "render", "doctor", "preflight", "up", "status", "down", "probe", "collectives", "cache-status", "cache-clear"))
     parser.add_argument("--inventory", type=Path, default=ROOT / "cluster/inventory.json")
     parser.add_argument("--deployment", type=Path)
-    parser.add_argument("--saved-plan", type=Path, help="exact rendered inputs for status/down/recovery")
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument("--saved-plan", type=Path, help="exact rendered inputs for status/down/recovery")
+    source.add_argument("--recipe-file", type=Path, help="explicit recipe JSON for --deployment")
     parser.add_argument("--node", help="limit doctor to one inventory node")
     parser.add_argument("--output", type=Path, help="local rendered plan and evidence directory")
     parser.add_argument("--timeout", type=int, default=600, help="startup health deadline in seconds")
     args = parser.parse_args(argv)
+    if args.recipe_file and (not args.deployment or args.action == "doctor"):
+        raise ConfigError("--recipe-file requires --deployment and a deployment action")
     if args.action == "doctor":
         inv = read(args.inventory)
         validate_inventory(inv)
@@ -151,7 +155,7 @@ def main(argv=None):
         validate_saved_plan(p)
     else:
         if not args.deployment: raise ConfigError("--deployment is required")
-        p = plan(*load(ROOT, args.inventory, args.deployment))
+        p = plan(*load(ROOT, args.inventory, args.deployment, args.recipe_file))
     output = args.output or ROOT / "data/cluster" / p["owner"]
     if args.action == "validate":
         emit({"valid": True, "owner": p["owner"], "validation": p["recipe"]["validation"]})

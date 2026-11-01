@@ -1,0 +1,724 @@
+{
+  "schema_version": 1,
+  "recorded_utc": "2026-10-07T22:31:03.928014+00:00",
+  "updated_utc": "2026-10-15T03:55:39.739Z",
+  "status": "PR #61558 is ready for review at 3d76823. Only our commit messages changed; the qualified source tree remains 18aa0a990. DCO passed. Prerequisite merge, review and CI eligibility remain.",
+  "upstream_parent": "462261a4cef04dd6735279d4c283ab0e0d6d657f",
+  "native_base_commit": "d2125ea681784c17251c47939f5ed6d1c67384f8",
+  "coordination_comment": "https://github.com/vllm-project/vllm/pull/53597#issuecomment-6115410855",
+  "publication": {
+    "scope": "Historical October 12 fork/comment publication receipt; see dependent_submission for the subsequent upstream draft.",
+    "status": "fork_review_branch_published",
+    "commit": "c3962352b23d8d4db61364d46c66f67ca00c66dd",
+    "commit_url": "https://github.com/olivierzach/vllm/commit/c3962352b23d8d4db61364d46c66f67ca00c66dd",
+    "branch": "olivierzach/vllm:fix/mp-remote-worker-disconnect-direct-exit",
+    "parent": "462261a4cef04dd6735279d4c283ab0e0d6d657f",
+    "exact_four_committed_files_match_tested_hashes": true,
+    "human_review_confirmed_by_user": true,
+    "personal_relevant_checks_confirmed_by_user": true,
+    "human_run_commands_counts_or_logs_provided": false,
+    "human_dco_explicitly_certified": true,
+    "authorized_signoff_and_ai_attribution_present": true,
+    "historical_b919a57_branch_unchanged": true,
+    "comment_created_utc": "2026-10-12T00:06:10Z",
+    "comment_post_attempts": 1,
+    "comment_exact_body_verified_with_separate_get": true,
+    "new_pr_opened": false,
+    "new_tests_run_for_publication": false,
+    "normal_serving_changed": false,
+    "watcher_restarted": false,
+    "private_receipt": "logs/incidents/2026-10-01-vllm-worker-failure/upstream-watch/publication-receipt-20261012.json"
+  },
+  "dependent_submission": {
+    "recorded_utc": "2026-10-14T03:51:24.852Z",
+    "pr_number": 61558,
+    "pr_url": "https://github.com/vllm-project/vllm/pull/61558",
+    "draft": true,
+    "target": "main",
+    "head": "c3962352b23d8d4db61364d46c66f67ca00c66dd",
+    "dependency": 53597,
+    "user_authorized_dependent_submission": true,
+    "post_attempts": 1,
+    "exact_body_head_base_draft_commits_and_files_verified_by_separate_get": true,
+    "body_sha256": "0885d73d9b9fa46874f418e9b3b5163c26b3d35bf6cc6eaab9284400299fcbb4",
+    "prerequisite_commits": 3,
+    "follow_up_commits": 1,
+    "aggregate_changed_files": 6,
+    "own_delta_changed_files": 4,
+    "published_source_changed": false,
+    "push_performed": false,
+    "fresh_published_cpu": {
+      "passed": 55,
+      "skipped": 1,
+      "warnings": 14,
+      "seconds": 109.39,
+      "exact_source_hashes_verified": true
+    },
+    "compatibility_probe": {
+      "main": "2521446ac8c92937b5a32b7dc2a84ef7fa8e99c5",
+      "textual_conflicts": 0,
+      "required_reconciliation": "Include remote cancellation sockets in #60472 finalization; retain remote queues until executor monitor sockets close; adapt static recv test spies while preserving observable ownership assertions.",
+      "passed": 88,
+      "skipped": 2,
+      "warnings": 14,
+      "seconds": 134.43,
+      "negative_controls": "Each lifecycle regression independently failed with its respective correction removed; both pass in the reconciled suite.",
+      "initial_resource_failure": "85 passed, 3 failed, 2 skipped with 512 MiB SHM. New arena needs over 2 GiB; complete rerun passed with 3 GiB SHM and unchanged RAM/swap limits/test selection.",
+      "scope": "Actual merged executor/queue/arena Python modules over retained d212 native runtime, not full current-main installation or new GPU qualification.",
+      "private_worktree": "data/vllm-worker-failure/dependent-compatibility",
+      "private_patch_sha256": "a61349cc61a0db350eef17926c53fac55579c261ac1501c1e1cf5de9ceb8d0b8",
+      "submitted": false,
+      "human_reviewed": false
+    },
+    "initial_ci": {
+      "dco": "SUCCESS",
+      "pre_run_check": "FAILURE: contributor/label eligibility gate; found zero merged PRs and no qualifying label, not a code test failure.",
+      "failure_url": "https://github.com/vllm-project/vllm/actions/runs/38508369798/job/115670968439",
+      "ci_requested": false
+    },
+    "remaining_before_ready": "Integrate eventual prerequisite and lifecycle corrections, obtain human review of new source and affected validation, update target base, then satisfy qualifying upstream review and required CI.",
+    "normal_serving_operations": false,
+    "gpu_tests_rerun": false,
+    "watcher_restarted": false,
+    "owned_containers_and_remote_staging_removed": true,
+    "inventory_limit": "Early historical service-label filter matched none; later controls checked all four running service identities/configurations/start times unchanged. No serving operations were issued.",
+    "private_evidence": "logs/incidents/2026-10-01-vllm-worker-failure/dependent-pr-20261014-15596992"
+  },
+  "integrated_qualification": {
+    "recorded_utc": "2026-10-14T06:39:17.018Z",
+    "tree": "18aa0a99031aa0977b3effca9938cdc78a17ede9",
+    "main": "a78d050eff733c2c85d7b36d464838bf282e496e",
+    "native_base": "2521446ac8c92937b5a32b7dc2a84ef7fa8e99c5",
+    "scope": "Complete tracked source, separately pinned native wheel and all installed distribution versions; not narrow overlays.",
+    "cpu": {"passed": 88, "skipped": 2, "warnings": 43, "seconds": 169.75},
+    "gpu_cases_passed": ["TP2 async exception", "PP2 async exception", "TP2 immediate exit", "TP2 synchronous exception", "TP2 coordinator loss during streaming"],
+    "natural_cleanup_upper_bounds_seconds": [12.68471679277718, 13.892085790634155, 12.825692376121879, 3.6294641233980656, 4.146359499543905],
+    "matched_control": "Same main/native/dependencies with prerequisite only: ReadTimeout at 45.12s; coordinator and its GPU context still alive before explicit owned cleanup.",
+    "retained_failure": "Missing LoRA returned 404 and subsequent inference succeeded; next utility RPC consumed an inherited stale failure. This combined case is not counted as passing.",
+    "package_check_caveat": "Vendor cuSPARSELt wheel SBSA tag rejected by pip/uv check; actual AArch64 binary loading and dependency requirements checked separately.",
+    "style": "Ruff 0.14.0 check and format check passed all six PR-delta files.",
+    "private_evidence": "logs/incidents/2026-10-01-vllm-worker-failure/integrated-pr-20261014-b678678d",
+    "summary": "qualification-summary.json",
+    "new_human_review_and_personal_checks_confirmed": true,
+    "new_dco_confirmed": true,
+    "human_confirmation_utc": "2026-10-14T07:07:56.805Z",
+    "publication_utc": "2026-10-14T07:11:47Z",
+    "pushed": true,
+    "published_commit": "3d76823ad86d92dd3a11da5e534f5a050d931248",
+    "ready_for_review": true,
+    "published_tree_and_six_file_blobs_verified_independently": true,
+    "dco_check": "SUCCESS",
+    "ci_gate": "pre-run-check failed: author has zero merged PRs and no qualifying label. pre-commit skipped; agent did not request labels or bypass eligibility.",
+    "publication_receipt": "logs/incidents/2026-10-01-vllm-worker-failure/integrated-pr-20261014-b678678d-publication/publication-receipt.json",
+    "wording_receipt": "logs/incidents/2026-10-01-vllm-worker-failure/pr-wording-20261014-742a6668/receipt.json",
+    "protected_gpu_processes_and_12_services_unchanged": true,
+    "owned_test_containers_removed": true,
+    "owned_builders_removed": 12,
+    "qualified_images_and_reproduction_inputs_retained": true,
+    "watcher_restarted": false
+  },
+  "patch": {
+    "path": "follow-up.patch",
+    "sha256": "c7398de1095cea84d07a48108f0d97711d1458f887fa46645d78cb1420f678de",
+    "bytes": 29937,
+    "changes": {
+      "tests/distributed/test_shm_broadcast.py": {
+        "added": 92,
+        "removed": 0
+      },
+      "tests/v1/executor/test_multiproc_executor_fail_fast.py": {
+        "added": 308,
+        "removed": 8
+      },
+      "vllm/distributed/device_communicators/shm_broadcast.py": {
+        "added": 50,
+        "removed": 15
+      },
+      "vllm/v1/executor/multiproc_executor.py": {
+        "added": 77,
+        "removed": 28
+      }
+    },
+    "clean_application_verified": true,
+    "parent_file_sha256": {
+      "vllm/v1/executor/multiproc_executor.py": "8d9136abb070c3876cee0a62e4b7d9770470312b3f011f591f01a356de72146f",
+      "vllm/distributed/device_communicators/shm_broadcast.py": "0dcc2990f1647d1ad3e94710b8e94d3f6694f7b87746241c0de2f84082779e2c",
+      "tests/v1/executor/test_multiproc_executor_fail_fast.py": "54c02b9748d8602802a44953077ba0829db165a31db13abb05c11800bcaf0ad4",
+      "tests/distributed/test_shm_broadcast.py": "c829720c367bad9632cb139de95d137f83b38d883137c094ba473fd41d23dceb"
+    },
+    "postimage_sha256": {
+      "vllm/v1/executor/multiproc_executor.py": "745704a246e8a199733add9ea031ae3c0bf1f35533bf506617b02dab72738f7a",
+      "vllm/distributed/device_communicators/shm_broadcast.py": "0a348c069362338ca6f6fd7ccda0f0cfdca0804ca35915a44080bcf66f5a2a4f",
+      "tests/v1/executor/test_multiproc_executor_fail_fast.py": "b6813d232fc0f1dd2d299fe3f1f277fde7d12b9cbd92f2ff35c2035859f09e51",
+      "tests/distributed/test_shm_broadcast.py": "55d2ff35d2dea92c5ba932e44b3846424db53f47258c5fd61b632e3192129227"
+    }
+  },
+  "bundled_source_sha256": {
+    "source/executor-candidate.py": "745704a246e8a199733add9ea031ae3c0bf1f35533bf506617b02dab72738f7a",
+    "source/executor-parent.py": "8d9136abb070c3876cee0a62e4b7d9770470312b3f011f591f01a356de72146f",
+    "source/queue_log_fixtures.py": "699ac1fcf6fb4501cd9803279894edb41e87836fd6c0aa0e67ce3582506e964a",
+    "source/shm-broadcast-candidate.py": "0a348c069362338ca6f6fd7ccda0f0cfdca0804ca35915a44080bcf66f5a2a4f",
+    "source/shm-broadcast-parent.py": "0dcc2990f1647d1ad3e94710b8e94d3f6694f7b87746241c0de2f84082779e2c",
+    "source/test_multiproc_executor.py": "bea363107ce2082519c8e50aa3c8cbad35aefd3ddbbe20d04667ec88728c9b02",
+    "source/test_multiproc_executor_fail_fast.py": "b6813d232fc0f1dd2d299fe3f1f277fde7d12b9cbd92f2ff35c2035859f09e51",
+    "source/test_shm_broadcast.py": "55d2ff35d2dea92c5ba932e44b3846424db53f47258c5fd61b632e3192129227"
+  },
+  "fixture_adapter": {
+    "path": "source/queue_log_fixtures.py",
+    "origin": "tests/conftest.py at 462261a4cef04dd6735279d4c283ab0e0d6d657f",
+    "functions": [
+      "caplog_vllm",
+      "temporary_enable_log_propagate"
+    ],
+    "ast_identity_verified": true,
+    "purpose": "Original logging fixtures only; avoids unrelated repository conftest/plugin loading in the isolated snapshot run."
+  },
+  "runtime": {
+    "image_id": "sha256:6e1e0957d986ff6c803db9c92e39216459f92cc138e2ce545ff0ec58b3522244",
+    "architecture": "aarch64",
+    "cuda_available": false,
+    "dependencies": {
+      "dill": "0.3.8",
+      "flashinfer-cubin": "0.7.0.post1",
+      "flashinfer-python": "0.7.0.post1",
+      "multiprocess": "0.70.16",
+      "pytest": "9.1.1",
+      "pyzmq": "27.2.0",
+      "triton": "3.7.1",
+      "pytest-timeout": "2.4.0"
+    },
+    "source_sha256": {
+      "executor-candidate.py": "745704a246e8a199733add9ea031ae3c0bf1f35533bf506617b02dab72738f7a",
+      "shm-broadcast-candidate.py": "0a348c069362338ca6f6fd7ccda0f0cfdca0804ca35915a44080bcf66f5a2a4f"
+    },
+    "spinloop": "/opt/e2e/.venv/lib/python3.12/site-packages/vllm/spinloop.abi3.so",
+    "torch": "2.13.0+cu130",
+    "vllm": "0.30.1rc1.dev535+gd2125ea68",
+    "limitations": "Retained private/local Linux ARM64 image, not a public registry image or complete OS lockfile.",
+    "scope": "CPU verification containers; the GPU matrix uses the identical native image with GPU access."
+  },
+  "isolation": {
+    "runtime": "runc",
+    "network": "none (loopback TCP/IPC available)",
+    "gpu_devices": false,
+    "cpus": 2,
+    "memory": "3g",
+    "shm_size": "512m",
+    "pids_limit": 256,
+    "timeout_seconds": 180,
+    "kill_after_seconds": 5,
+    "environment": {
+      "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+      "VLLM_PLUGINS": "",
+      "OMP_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1"
+    }
+  },
+  "results": [
+    {
+      "name": "full_candidate",
+      "passed": 55,
+      "failed": 0,
+      "skipped": 1,
+      "warnings": 14,
+      "seconds": 79.35,
+      "exit_code": 0,
+      "evidence": "Completed native CPU command output observed in this session; full stdout was not separately retained. Exact command and six input files are retained.",
+      "command_file": "full-candidate.command.json",
+      "source_sha256": {
+        "executor.py": "745704a246e8a199733add9ea031ae3c0bf1f35533bf506617b02dab72738f7a",
+        "shm.py": "0a348c069362338ca6f6fd7ccda0f0cfdca0804ca35915a44080bcf66f5a2a4f",
+        "test_multiproc_executor_fail_fast.py": "b6813d232fc0f1dd2d299fe3f1f277fde7d12b9cbd92f2ff35c2035859f09e51",
+        "test_multiproc_executor.py": "bea363107ce2082519c8e50aa3c8cbad35aefd3ddbbe20d04667ec88728c9b02",
+        "test_shm_broadcast.py": "55d2ff35d2dea92c5ba932e44b3846424db53f47258c5fd61b632e3192129227",
+        "queue_log_fixtures.py": "699ac1fcf6fb4501cd9803279894edb41e87836fd6c0aa0e67ce3582506e964a"
+      },
+      "private_record": "full-candidate.result.json",
+      "python_arguments": [
+        "-m",
+        "pytest",
+        "--noconftest",
+        "-c",
+        "/dev/null",
+        "-p",
+        "pytest_timeout",
+        "/work/test_multiproc_executor.py",
+        "/work/test_multiproc_executor_fail_fast.py",
+        "/work/test_shm_broadcast.py",
+        "-q",
+        "-p",
+        "queue_log_fixtures"
+      ]
+    },
+    {
+      "name": "flushed_reply_loss_before_correction",
+      "failed": 2,
+      "passed": 0,
+      "seconds": 21.53,
+      "exit_code": 1,
+      "scope": "Synchronous and deferred real-RPC replies masked by cancellation after disconnect-driven shutdown.",
+      "queue_sha256": "f86957ae0e0ed2e8f6b0d90be65fc0d0b9ad2f79a7542041a250f5ded45f9763",
+      "private_log": "before.log",
+      "private_log_sha256": "5ddac08d7ea2935d0fecff27abdba71b15ac99e9e87fbc725c9ce6cc2db76931"
+    }
+  ],
+  "static_checks": {
+    "changed_file_pre_commit": {
+      "passed": true,
+      "private_log": "precommit.log",
+      "sha256": "0ec0b78aecd509b05530dd497f8548f475cad903e38ddd9219bb02923356c038"
+    },
+    "mypy_3_12": {
+      "passed": true,
+      "private_record": "mypy-3.12.result.json",
+      "evidence": "Separate successful tool completion observed; full raw output not separately retained."
+    },
+    "changed_files": [
+      "vllm/v1/executor/multiproc_executor.py",
+      "vllm/distributed/device_communicators/shm_broadcast.py",
+      "tests/v1/executor/test_multiproc_executor_fail_fast.py",
+      "tests/distributed/test_shm_broadcast.py"
+    ]
+  },
+  "ci_coverage": {
+    "executor": ".buildkite/test_areas/misc.yaml: v1-executor-worker; pytest -v -s v1/executor",
+    "queue": ".buildkite/test_areas/distributed.yaml: distributed-comm-ops; pytest -v -s distributed/test_shm_broadcast.py",
+    "upstream_ci_run": false
+  },
+  "serving_preservation": {
+    "restored": true,
+    "same_container_ids_and_images": true,
+    "health_and_gpu_ownership_verified": true,
+    "normal_concurrent_generation_and_cancellation_recovery_passed": true,
+    "admission_bytes_unchanged": true,
+    "start_times_changed_as_expected": true,
+    "elapsed_first_stop_to_final_restoration_seconds": 2346.956208229065,
+    "maximum_authorized_seconds": 3600,
+    "test_deadline_unchanged": true,
+    "guards_inactive": true,
+    "owned_test_containers_remaining": 0,
+    "cache_cleanup_failures": []
+  },
+  "private_evidence_from_repository_root": "logs/incidents/2026-10-01-vllm-worker-failure/direct-exit-reply-20261007",
+  "private_evidence_manifest": {
+    "directory": "logs/incidents/2026-10-01-vllm-worker-failure/direct-exit-reply-20261007",
+    "path": "SHA256SUMS",
+    "files": 13,
+    "sha256": "5153c39b4da04a55778f17b196aae077a8b0dd0fd555c1c5f268d7d5a0510ebd"
+  },
+  "artifact_integrity": {
+    "bundled_source_files_verified": 8,
+    "historical_source_files_unchanged": 10,
+    "historical_patch_unchanged": true,
+    "local_documentation_links_valid": true
+  },
+  "cleanup": {
+    "temporary_remote_inputs_removed": true,
+    "patch_application_scratch_removed": true,
+    "temporary_wake_driver_removed": true,
+    "isolated_test_containers_remaining": 0,
+    "guards_inactive": true,
+    "retained": "Exact source snapshots, sealed private evidence/operational reproduction scripts, original serving containers, and the native verification image on both hosts."
+  },
+  "scope_limits": [
+    "CPU process/transport tests use synthetic model methods; separate GPU cases use the pinned Qwen model.",
+    "October 7 TP2/PP2 worker exceptions, synchronous scheduling and immediate exit passed. October 11 coordinator-container SIGKILL during active streaming passed; the two earlier uninjected attempts remain historical failures.",
+    "Invalid LoRA preserved subsequent generation, but inherited stale replies can poison a following all-rank utility RPC; not fixed here.",
+    "No silent-partition detection guarantee, startup-before-READY GPU coverage, full fault-tolerant serving validation, CUDA-graph validation or throughput benchmark.",
+    "Original CUDA fault remains unresolved.",
+    "Human review/personal checks/DCO and authorized dependent draft #61558 are complete for unchanged c396235. Eventual current-main integration requires renewed human review and affected validation; qualifying upstream review/CI and merge remain."
+  ],
+  "previous_direct_exit_iteration": {
+    "patch": {
+      "path": "follow-up.patch",
+      "sha256": "4b8b7e82d4a771f41bbdd2fa44f93557e69dec7db1e9b8654f5c4941c0efcbfa",
+      "bytes": 26476,
+      "changes": {
+        "tests/distributed/test_shm_broadcast.py": {
+          "added": 87,
+          "removed": 0
+        },
+        "tests/v1/executor/test_multiproc_executor_fail_fast.py": {
+          "added": 239,
+          "removed": 8
+        },
+        "vllm/distributed/device_communicators/shm_broadcast.py": {
+          "added": 48,
+          "removed": 15
+        },
+        "vllm/v1/executor/multiproc_executor.py": {
+          "added": 77,
+          "removed": 28
+        }
+      },
+      "clean_application_verified": true,
+      "parent_file_sha256": {
+        "vllm/v1/executor/multiproc_executor.py": "8d9136abb070c3876cee0a62e4b7d9770470312b3f011f591f01a356de72146f",
+        "vllm/distributed/device_communicators/shm_broadcast.py": "0dcc2990f1647d1ad3e94710b8e94d3f6694f7b87746241c0de2f84082779e2c",
+        "tests/v1/executor/test_multiproc_executor_fail_fast.py": "54c02b9748d8602802a44953077ba0829db165a31db13abb05c11800bcaf0ad4",
+        "tests/distributed/test_shm_broadcast.py": "c829720c367bad9632cb139de95d137f83b38d883137c094ba473fd41d23dceb"
+      },
+      "postimage_sha256": {
+        "vllm/v1/executor/multiproc_executor.py": "745704a246e8a199733add9ea031ae3c0bf1f35533bf506617b02dab72738f7a",
+        "vllm/distributed/device_communicators/shm_broadcast.py": "f86957ae0e0ed2e8f6b0d90be65fc0d0b9ad2f79a7542041a250f5ded45f9763",
+        "tests/v1/executor/test_multiproc_executor_fail_fast.py": "abce8c6734deae6181dea9e201301bd49ad17b59bad4dbcceeec87d1e123dd11",
+        "tests/distributed/test_shm_broadcast.py": "578a20bbc74875e8e649cb41744be216f105145aa0daa1205e05291a9f6eb78d"
+      }
+    },
+    "results": [
+      {
+        "name": "full_candidate",
+        "executor": "candidate",
+        "queue": "candidate",
+        "passed": 52,
+        "failed": 0,
+        "skipped": 1,
+        "warnings": 14,
+        "seconds": 59.89,
+        "exit_code": 0,
+        "private_log": "final-candidate.log",
+        "python_arguments": [
+          "-m",
+          "pytest",
+          "--noconftest",
+          "-c",
+          "/dev/null",
+          "/work/test_multiproc_executor.py",
+          "/work/test_multiproc_executor_fail_fast.py",
+          "/work/test_shm_broadcast.py",
+          "-q",
+          "-p",
+          "queue_log_fixtures"
+        ],
+        "notes": "One CUDA-only queue test skipped; Torch deprecation warnings. Completion output preserved from the tool notification.",
+        "private_log_sha256": "315f5ba50c8e8a0802f4cfc2411af50e1c37a5ff06d187bdf1557abff9d6fc1e"
+      },
+      {
+        "name": "parent_reproduction",
+        "executor": "parent",
+        "queue": "parent",
+        "passed": 2,
+        "failed": 9,
+        "skipped": 0,
+        "warnings": 14,
+        "seconds": 108.95,
+        "exit_code": null,
+        "private_log": "final-parent-reproduction.log",
+        "python_arguments": [
+          "-m",
+          "pytest",
+          "--noconftest",
+          "-c",
+          "/dev/null",
+          "/work/test_multiproc_executor_fail_fast.py::test_remote_worker_loss_fails_executor_and_cancels_response",
+          "/work/test_multiproc_executor_fail_fast.py::test_worker_death_monitor_cleans_up_headless_workers",
+          "/work/test_shm_broadcast.py::test_socket_read_shutdown_cancels_pending",
+          "/work/test_shm_broadcast.py::test_socket_read_shutdown_rejects_queued_data",
+          "/work/test_shm_broadcast.py::test_socket_read_timeout_preserves_usability",
+          "-q"
+        ],
+        "notes": "Complete pytest failure report captured directly. Shell exit status unavailable after the local tooling kernel exited; no status is fabricated.",
+        "private_log_sha256": "ea59dd85778a7fe72e412be351bfd365a0008adcb7df32558b1e4bfe1df7090a"
+      },
+      {
+        "name": "without_queue_cancellation",
+        "executor": "candidate",
+        "queue": "parent",
+        "passed": 3,
+        "failed": 8,
+        "skipped": 0,
+        "warnings": 14,
+        "seconds": 99.36,
+        "exit_code": 1,
+        "private_log": "final-without-cancellation.log",
+        "python_arguments": [
+          "-m",
+          "pytest",
+          "--noconftest",
+          "-c",
+          "/dev/null",
+          "/work/test_multiproc_executor_fail_fast.py::test_remote_worker_loss_fails_executor_and_cancels_response",
+          "/work/test_multiproc_executor_fail_fast.py::test_worker_death_monitor_cleans_up_headless_workers",
+          "/work/test_shm_broadcast.py::test_socket_read_shutdown_cancels_pending",
+          "/work/test_shm_broadcast.py::test_socket_read_shutdown_rejects_queued_data",
+          "/work/test_shm_broadcast.py::test_socket_read_timeout_preserves_usability",
+          "-q"
+        ],
+        "notes": "Expected failures: all three coordinator response waits, four timed/untimed remote/local-overflow waits, and queued-data shutdown precedence.",
+        "private_log_sha256": "1e934173a4ff8112ca6e8fa14bda2ae6f7b44f0762d3156dcd443ce286b78175"
+      }
+    ],
+    "private_evidence_from_repository_root": "logs/incidents/2026-10-01-vllm-worker-failure/direct-exit-20261007",
+    "private_evidence_manifest": {
+      "path": "SHA256SUMS",
+      "files": 34,
+      "sha256": "5df7f86f8bf1df66df28431a177219ca7fcd8bb572b150c4f2ec15a840b65b9b"
+    },
+    "notes": "Historical initial direct-exit iteration. Its negative-control counts include an obsolete queued-data rejection expectation and are not results for the final tests."
+  },
+  "review": {
+    "parent": "No production regression established by the focused parent review; unbounded readiness-test handshake addressed with a module-wide 60-second pytest timeout.",
+    "follow_up": "Reproduced and corrected cancellation-first loss of already flushed replies; preserves buffered healthy replies and original fatal errors while cancelling empty reads.",
+    "human_review": "Completed by explicit user report after approximately one hour reviewing the unchanged candidate. Personal relevant checks and DCO explicitly confirmed separately; individual human-run results were not supplied. Final integration changes require further review."
+  },
+  "gpu_validation": {
+    "date": "2026-10-07",
+    "candidate_patch_sha256": "c7398de1095cea84d07a48108f0d97711d1458f887fa46645d78cb1420f678de",
+    "image_id": "sha256:6e1e0957d986ff6c803db9c92e39216459f92cc138e2ce545ff0ec58b3522244",
+    "model": "Qwen/Qwen3-4B-Instruct-2507",
+    "model_revision": "cdbee75f17c01a7cc42f958dc650907174af0554",
+    "hosts": 2,
+    "gpu": "GB10, one per host",
+    "execution": "eager; deterministic greedy normal/failure probes; async unless case says sync",
+    "loaded_worker_source_hashes_verified_each_case": true,
+    "source_sha256": {
+      "parent/multiproc_executor.py": "8d9136abb070c3876cee0a62e4b7d9770470312b3f011f591f01a356de72146f",
+      "parent/shm_broadcast.py": "0dcc2990f1647d1ad3e94710b8e94d3f6694f7b87746241c0de2f84082779e2c",
+      "parent/fault_extension.py": "51cd1b0cae15820f82c3b3a694ace5d591c5bff0e95f27d308a05d9bf09207ba",
+      "parent/client_probe.py": "8c82e9f5182e339323413dcfae3f0a8dec78ecd3ee068ed377a91002ccc97d5b",
+      "candidate/multiproc_executor.py": "745704a246e8a199733add9ea031ae3c0bf1f35533bf506617b02dab72738f7a",
+      "candidate/shm_broadcast.py": "0a348c069362338ca6f6fd7ccda0f0cfdca0804ca35915a44080bcf66f5a2a4f",
+      "candidate/fault_extension.py": "51cd1b0cae15820f82c3b3a694ace5d591c5bff0e95f27d308a05d9bf09207ba",
+      "candidate/client_probe.py": "8c82e9f5182e339323413dcfae3f0a8dec78ecd3ee068ed377a91002ccc97d5b"
+    },
+    "cases": [
+      {
+        "case": "parent-tp2-exception",
+        "client_status": null,
+        "client_transport_error": "ReadTimeout",
+        "client_seconds": 45.04912192514166,
+        "automatic_cleanup_before_forced_cleanup": false,
+        "cleanup_observed_seconds_from_probe_start": 51.02929139137268
+      },
+      {
+        "case": "candidate-tp2-fresh-exception",
+        "client_status": 500,
+        "client_transport_error": null,
+        "client_seconds": 9.083446592092514,
+        "automatic_cleanup_before_forced_cleanup": true,
+        "cleanup_observed_seconds_from_probe_start": 11.105425596237183
+      },
+      {
+        "case": "parent-pp2-exception",
+        "client_status": null,
+        "client_transport_error": "ReadTimeout",
+        "client_seconds": 45.05724698211998,
+        "automatic_cleanup_before_forced_cleanup": false,
+        "cleanup_observed_seconds_from_probe_start": 51.09224343299866
+      },
+      {
+        "case": "candidate-pp2-exception",
+        "client_status": 500,
+        "client_transport_error": null,
+        "client_seconds": 9.054875730071217,
+        "automatic_cleanup_before_forced_cleanup": true,
+        "cleanup_observed_seconds_from_probe_start": 12.441932439804077
+      },
+      {
+        "case": "candidate-tp2-sync-exception",
+        "client_status": 500,
+        "client_transport_error": null,
+        "client_seconds": 0.03321331925690174,
+        "automatic_cleanup_before_forced_cleanup": true,
+        "cleanup_observed_seconds_from_probe_start": 3.391517162322998
+      },
+      {
+        "case": "candidate-tp2-exit",
+        "client_status": 500,
+        "client_transport_error": null,
+        "client_seconds": 9.048128633294255,
+        "automatic_cleanup_before_forced_cleanup": true,
+        "cleanup_observed_seconds_from_probe_start": 11.104878187179565
+      }
+    ],
+    "coordinator_loss": {
+      "qualified": false,
+      "attempts": 2,
+      "sigkill_injected": false,
+      "outcome": "First-content-token signal timed out before injection, both inside-API and independent CPU observers. Raw observer stdout/stderr were empty. Exact request/parser passed a CPU-only real-socket SSE fixture; real-model stall remains unexplained.",
+      "limitation": "CPU headless coordinator-disconnect regression passes; fresh GPU coordinator-loss coverage is not established."
+    },
+    "utility": {
+      "invalid_lora_status": 404,
+      "before_statuses": [
+        200,
+        200,
+        200,
+        200
+      ],
+      "after_statuses": [
+        200,
+        200,
+        200,
+        200
+      ],
+      "parent_and_candidate_collective_rpc_ast_identical": true,
+      "failure_arm_returned_prior_lora_error": true,
+      "synthetic_model_failure_not_executed_in_this_candidate_attempt": true,
+      "scope": "Inherited fail-fast response loop leaves later rank replies queued after an earlier rank raises; record separately, do not change remote-failure patch scope."
+    },
+    "original_serving": {
+      "restored": true,
+      "same_container_ids_and_images": true,
+      "health_and_gpu_ownership_verified": true,
+      "normal_concurrent_generation_and_cancellation_recovery_passed": true,
+      "admission_bytes_unchanged": true,
+      "start_times_changed_as_expected": true,
+      "elapsed_first_stop_to_final_restoration_seconds": 2346.956208229065,
+      "maximum_authorized_seconds": 3600,
+      "test_deadline_unchanged": true,
+      "guards_inactive": true,
+      "owned_test_containers_remaining": 0,
+      "cache_cleanup_failures": []
+    },
+    "limits": [
+      "Synthetic forward exception/immediate process exit, not reproduction of the original CUDA fault.",
+      "No throughput, accuracy, CUDA-graph, arbitrary partition, or full fault-tolerant serving claim.",
+      "Coordinator-loss GPU qualification and inherited cross-utility reply alignment remain unresolved."
+    ]
+  },
+  "coordinator_loss_gpu_validation_20261011": {
+    "date": "2026-10-11",
+    "qualified": true,
+    "candidate_patch_sha256": "c7398de1095cea84d07a48108f0d97711d1458f887fa46645d78cb1420f678de",
+    "parent": "462261a4cef04dd6735279d4c283ab0e0d6d657f",
+    "image_id": "sha256:6e1e0957d986ff6c803db9c92e39216459f92cc138e2ce545ff0ec58b3522244",
+    "model": "Qwen/Qwen3-4B-Instruct-2507",
+    "model_revision": "cdbee75f17c01a7cc42f958dc650907174af0554",
+    "hosts": 2,
+    "gpu": "GB10",
+    "execution": "TP2, eager, async scheduling, temperature=0, seed=42",
+    "loaded_worker_source_hashes_verified": true,
+    "executor_sha256": "745704a246e8a199733add9ea031ae3c0bf1f35533bf506617b02dab72738f7a",
+    "queue_sha256": "0a348c069362338ca6f6fd7ccda0f0cfdca0804ca35915a44080bcf66f5a2a4f",
+    "observer_sha256": "d99b1f6af689a31e047167602d77076a932e8b22a32fdf1d6b9e066b7fe9c285",
+    "fault": "Isolated coordinator container SIGKILL after actual first content and live observer/candidate checks",
+    "sigkill_injected": true,
+    "first_content_seconds_from_observer_start": 0.348,
+    "client_error": "RemoteProtocolError",
+    "client_error_seconds_from_observer_start": 1.6,
+    "content_fragments_before_error": 46,
+    "client_exit_code": 2,
+    "automatic_cleanup_before_forced_cleanup": true,
+    "cleanup_observed_seconds_from_injection": 3.694962739944458,
+    "normal_concurrent_generation_and_cancellation_recovery_before_fault": true,
+    "original_serving": {
+      "restored": true,
+      "same_current_container_ids_images_configuration_and_mounts": true,
+      "admission_and_saved_plan_bytes_unchanged": true,
+      "health_and_gpu_ownership_verified": true,
+      "normal_concurrent_generation_and_cancellation_recovery_passed": true,
+      "seconds_from_stop_completion_to_verification": 455.9595468044281,
+      "seconds_from_window_start_to_verification": 478.5947198867798,
+      "maximum_authorized_seconds": 3600,
+      "start_times_changed_as_expected": true,
+      "guards_and_maintenance_inactive": true,
+      "remaining_test_containers_and_volumes": 0,
+      "owned_remote_staging_removed": true
+    },
+    "private_evidence": "logs/incidents/2026-10-01-vllm-worker-failure/coordinator-gpu-20261011",
+    "limits": [
+      "One candidate coordinator-container SIGKILL case; no matched coordinator-loss parent control in this window.",
+      "Timings include control/inspection overhead and host-clock observations, not latency guarantees.",
+      "The greedy probe closes this qualification gap, not the archived default-sampling JIT investigation. Cold sampling compilation is evidenced but not proven the sole cause of earlier stalls.",
+      "The dated October 7 gpu_validation object preserves the earlier two uninjected attempts; it is not the latest coordinator-loss result.",
+      "Inherited utility reply alignment and the original CUDA fault remain unresolved; no silent-partition, startup-before-READY, CUDA-graph or throughput claim."
+    ]
+  },
+  "independent_cpu_dco_recheck_20261012": {
+    "checked_utc": "2026-10-12T00:53:47.406Z",
+    "commit": "c3962352b23d8d4db61364d46c66f67ca00c66dd",
+    "image": "sha256:6e1e0957d986ff6c803db9c92e39216459f92cc138e2ce545ff0ec58b3522244",
+    "all_six_input_hashes_verified": true,
+    "dco": {
+      "manual_signoff_and_provenance_check_passed": true,
+      "signoff_matches_commit_author": true,
+      "explicit_user_certification_recorded": true,
+      "ai_attribution_present": true,
+      "apache_2_license_and_four_spdx_headers_preserved": true,
+      "github_cryptographic_signature": "unsigned",
+      "limits": "DCO sign-off is not a cryptographic signature. This is a manual consistency audit, not upstream DCO CI or independent legal verification of the contributor's rights."
+    },
+    "initial_cpu_attempt": {
+      "passed": 54,
+      "failed": 1,
+      "skipped": 1,
+      "seconds": 61.8,
+      "failed_test": "test_shm_broadcast",
+      "worker_exit": -9,
+      "container_oom_killed": true,
+      "memory_gib": 3,
+      "memory_plus_swap_gib": 3,
+      "scope": "Added no-swap cap was stricter than the recorded recipe. Failure retained; no test or candidate code changed."
+    },
+    "recorded_limits_cpu_attempt": {
+      "passed": 55,
+      "failed": 0,
+      "skipped": 1,
+      "warnings": 14,
+      "seconds": 71.14,
+      "exit_code": 0,
+      "container_oom_killed": false,
+      "memory_gib": 3,
+      "memory_plus_swap_gib": 6,
+      "cpus": 2,
+      "network": "none",
+      "gpu_devices": false,
+      "cuda_available": false,
+      "timeout_seconds": 180,
+      "fixture_adapter": "Same six pinned source/fixture inputs and complete three-file pytest invocation as the recorded CPU recipe."
+    },
+    "serving_identities_configuration_and_start_times_unchanged": true,
+    "remaining_owned_test_containers": 0,
+    "remote_staging_removed": true,
+    "full_stdout_and_stderr_retained": true,
+    "gpu_tests_rerun": false,
+    "upstream_ci_run": false,
+    "new_public_post_or_push": false,
+    "scope": "Independent agent rerun of the published candidate; does not substitute for or reconstruct the human's personal test execution."
+  },
+  "additional_private_evidence_manifests": [
+    {
+      "directory": "logs/incidents/2026-10-01-vllm-worker-failure/direct-exit-gpu-20261007",
+      "path": "SHA256SUMS",
+      "files": 167,
+      "sha256": "10543f5cd2c0f01e6efe3a0c62dee13361c875afffe53215602a807cd940bbf2"
+    },
+    {
+      "directory": "logs/incidents/2026-10-01-vllm-worker-failure/direct-exit-gpu-20261007-attempt1",
+      "path": "SHA256SUMS",
+      "files": 107,
+      "sha256": "90e25d320ffd204e16b20e43cb97ebd72bfdfa94e01797ec1186a26dbf57e093"
+    },
+    {
+      "directory": "logs/incidents/2026-10-01-vllm-worker-failure/direct-exit-gpu-20261007-attempt2",
+      "path": "SHA256SUMS",
+      "files": 154,
+      "sha256": "e9023f75f191f33fa9c1e3b18167d6f3ff81e3e328484e1d0ec5d8c39d48ade4"
+    },
+    {
+      "directory": "logs/incidents/2026-10-01-vllm-worker-failure/coordinator-gpu-20261011",
+      "path": "SHA256SUMS",
+      "files": 57,
+      "sha256": "c8f287e516c94a39b5849ca49d1c052986a8796c6524765401a450df2499c454"
+    },
+    {
+      "directory": "logs/incidents/2026-10-01-vllm-worker-failure/coordinator-qualification-20261011",
+      "path": "SHA256SUMS",
+      "files": 7,
+      "sha256": "88bb8bb7db06b4ed1104ab31a9214106d61d563512c46aa60c51f8fdb99bfa23"
+    },
+    {
+      "directory": "logs/incidents/2026-10-01-vllm-worker-failure/dependent-pr-20261014-15596992",
+      "path": "SHA256SUMS",
+      "files": 57,
+      "sha256": "be883f8efedb9c98c502cb0260efe491824240bd63896d932b9c3545b74bb739"
+    },
+    {
+      "directory": "logs/incidents/2026-10-01-vllm-worker-failure/cpu-dco-20261012-d3ecc914",
+      "path": "SHA256SUMS",
+      "files": 19,
+      "sha256": "e9ea2cbdf8049978ba111408f78fdffa5135e6ae2b2d021dfa1ecd024f27aa2d"
+    }
+  ]
+}

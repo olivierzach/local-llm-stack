@@ -1,5 +1,17 @@
 # Troubleshooting Notes
 
+## 2026-10-01: GLM CUDA Fault Followed by a Coordinator Hang
+
+These are separate failures: the original CUDA unknown error remains unresolved;
+the remote-worker hang has a tested upstream follow-up proposal that is not
+installed in normal serving. Error logging is enabled on the current workers.
+
+See the [central investigation and runbook](docs/GLM53_CUDA_INVESTIGATION.md)
+for evidence, test limits, reproduction tools, logging configuration and exact-plan
+recovery. **Collect both workers' logs before removing containers.** Keep raw logs
+and private inspection outside the repository; do not apply the generic restart
+commands below to this two-node deployment without checking its current owner.
+
 ## 2026-07-02: Containers Created, `/v1/models` Works, Chat Returns 500
 
 Observed after first startup:

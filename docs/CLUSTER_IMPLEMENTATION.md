@@ -78,6 +78,11 @@ The following records describe the earlier September 12 maintenance campaign:
 
 ## Remaining work, in order
 
+While GLM remains in use, the next non-disruptive slice is the
+[local-first observation and recovery-readiness plan](LOCAL_FIRST_OPERATIONS_PLAN.md).
+It proposes Mac-side operation, read-only remote evidence and explicit recovery
+gaps; it does not authorize generation, restarts, failover or GPU tests.
+
 1. Source reconciliation is complete; see its receipt above. Treat the declared system package baseline as optional maintenance for build, audio and diagnostic workflows; it is not a prerequisite for the currently running GLM service.
 2. Schedule 66f1 single-node model, Vector and Loop acceptance after releasing TP2;
    do not interrupt the user's active OMP testing to run it.

@@ -6,6 +6,10 @@ The [focused goal and source review](GLM53_TP_GOAL.md) record the selected artif
 This adds a separate `local-glm53-flash` alias; existing
 DeepSeek, Qwen and single-node recipes remain available.
 
+The [CUDA fault and worker-hang investigation](GLM53_CUDA_INVESTIGATION.md)
+records the unresolved CUDA fault, separate proposed hang fix, diagnostic method,
+live logging plan, reproducible logging profiles and private-evidence policy.
+
 ## Selected recipe
 
 | Setting | Qualified configuration |
@@ -45,11 +49,20 @@ e8f1 coordinates the live service, with 66f1 as its worker. Both nodes' existing
 `spark-context-guard/local-glm53-flash` in the existing Mac OMP provider, or
 `local-glm53-flash` in FamChat's model picker. Other model defaults were preserved.
 
-The saved live plan exists on both nodes:
+As of 2026-10-03, error logging is enabled through a separate operational
+deployment. Its exact saved live plan exists on both nodes:
 
 ```text
-~/projects/local-llm-stack-cluster/state/glm53-20260913/e8f1-04/plan.json
+~/projects/local-llm-stack-cluster/state/glm53-cuda-logging-20261003/plan.json
 ```
+
+The original non-logging plan is retained beside it as `original-plan.json`;
+`restore.py` provides ownership-checked rollback. See the
+[current diagnostic operating state](GLM53_CUDA_INVESTIGATION.md#current-diagnostic-operating-state)
+before stopping, recreating or re-rendering this deployment. The new
+source-controlled `cuda-log` profiles are for future deployments and do not
+replace this exact live recovery identity. The controller-hang patch is not
+installed.
 
 The model occupies both GPUs. DeepSeek TP2 is paused; its weights, recipes and
 routes are preserved. Use the exact saved GLM plan when stopping it before
