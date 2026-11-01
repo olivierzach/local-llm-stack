@@ -172,7 +172,6 @@ For the qualified recipe this reports **524K**, OMP's decimal display of
 The updater preserves unrelated model settings and saves a private backup.
 Already-open sessions may need to be restarted/resumed to reload their model
 metadata; no inference-server restart is required.
-
 ### Why this image retains FP8 KV
 
 The pinned FlashInfer sparse backend's SM12x compatibility check accepts
