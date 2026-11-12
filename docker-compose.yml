@@ -547,6 +547,28 @@ services:
     networks:
       - llm
 
+
+  ltx-video:
+    build:
+      context: ./ltx-video
+    profiles: ["ltx"]
+    restart: unless-stopped
+    ipc: host
+    shm_size: "16gb"
+    gpus: all
+    ports:
+      - "${BIND_HOST:-127.0.0.1}:${LTX_PORT:-8013}:8001"
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+      HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
+      HF_HOME: /workspace/cache/huggingface
+      LTX_MODEL: ${LTX_MODEL:-Lightricks/LTX-Video-0.9.8-13B-distilled}
+      NVIDIA_VISIBLE_DEVICES: all
+    volumes:
+      - ./data/huggingface:/workspace/cache/huggingface
+      - ./models:/models
+    networks:
+      - llm
 networks:
   llm:
     driver: bridge
