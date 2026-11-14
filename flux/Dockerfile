@@ -12,7 +12,7 @@ RUN python -m pip install --no-cache-dir --upgrade pip && \
         transformers==5.22.2 \
         accelerate==1.15.0 \
         safetensors==0.8.0 \
-        sentencepiece \
+        sentencepiece==0.2.3 \
         fastapi==0.162.5 \
         "uvicorn[standard]==0.54.0" \
         huggingface-hub==2.4.0
