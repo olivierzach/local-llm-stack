@@ -547,6 +547,28 @@ services:
     networks:
       - llm
 
+
+  flux-dev:
+    build:
+      context: ./flux
+    profiles: ["flux"]
+    restart: unless-stopped
+    ipc: host
+    shm_size: "16gb"
+    gpus: all
+    ports:
+      - "${BIND_HOST:-127.0.0.1}:${FLUX_PORT:-8020}:8001"
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+      HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
+      HF_HOME: /workspace/cache/huggingface
+      FLUX_MODEL: ${FLUX_MODEL:-black-forest-labs/FLUX.1-dev}
+      NVIDIA_VISIBLE_DEVICES: all
+    volumes:
+      - ./data/huggingface:/workspace/cache/huggingface
+      - ./models:/models
+    networks:
+      - llm
 networks:
   llm:
     driver: bridge
