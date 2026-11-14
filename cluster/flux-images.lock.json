@@ -3,7 +3,7 @@
   "images": [
     {
       "tag": "local-llm-stack-flux-dev:latest",
-      "id": "sha256:eac3a49b223dbfb3f0dadc53a17ff868e989c8f1cf6262d7df0a74e7b0cd6708",
+      "id": "sha256:7057e53ee2b2ec45ccdf6b7c18316afab9c2261c2a73570db34f71b0ca5d074c",
       "registry": null
     }
   ]
