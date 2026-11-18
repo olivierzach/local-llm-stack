@@ -10,6 +10,7 @@ RUN python -m pip install --no-cache-dir --upgrade pip && \
         diffusers==0.42.1 \
         transformers==5.22.2 \
         sentencepiece==0.2.3 \
+        protobuf==7.36.1 \
         accelerate==1.15.0 \
         safetensors==0.8.0 \
         einops==0.8.2 \

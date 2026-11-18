@@ -10,7 +10,7 @@ through Diffusers `LTXConditionPipeline`. The opt-in Compose service is
 - Model: `Lightricks/LTX-Video-0.9.8-13B-distilled`.
 - Revision: `7c64400e1861cc0d7b98d570a1926d5408ec60cd`, selected by
   `LTX_MODEL_REVISION`. Keep this revision paired with the cached model.
-- Candidate image: `${LTX_IMAGE:-local-llm-stack-ltx-video:prepare-20261117}`.
+- Candidate image: `${LTX_IMAGE:-local-llm-stack-ltx-video:prepare-20261117-r2}`.
   Before admission, verify the selected image's exact ID against
   `cluster/ltx-images.lock.json` and the preparation receipt on the selected
   host. A tag alone is not identity or acceptance evidence. `LTX_IMAGE` may be
@@ -33,15 +33,14 @@ a separate inference lock because Diffusers mutates shared scheduler state.
 The installed Diffusers 0.42.1 accepts the existing `image=` conditioning keyword;
 this gateway retains that API.
 
-**Required runtime repair:** the original LTX image's offline tokenizer check
-failed because SentencePiece was missing (the subsequent fallback also reported
-missing tiktoken). The cached tokenizer supplies a SentencePiece model, so the
-Dockerfile now pins `sentencepiece==0.2.3`; tiktoken is not required for that
-path. Candidate preparation must incorporate the pinned wheel into the existing
-runtime and repeat offline `AutoTokenizer.from_pretrained` against the cached
-tokenizer before admission. Pipeline/config imports alone did not expose this
-blocker. Record the repaired image ID and tokenizer result in the preparation
-receipt; this document does not assert the repair has been verified.
+**Required runtime repair:** the original image could start HTTP but failed
+the offline tokenizer check because SentencePiece was absent. Adding
+`sentencepiece==0.2.3` exposed its generated Protobuf code's incompatibility
+with the inherited `protobuf==6.33.5`. The Dockerfile pins the compatible pair
+`sentencepiece==0.2.3` and `protobuf==7.36.1`; tiktoken and runtime-version
+check suppression are not fixes. Both wheels must be checksum-verified and
+installed offline. Repeat actual cached-tokenizer loading before admission;
+pipeline/config imports alone did not expose these blockers.
 
 ## Preparation boundary: no downtime or generation
 

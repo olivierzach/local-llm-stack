@@ -549,7 +549,7 @@ services:
 
 
   ltx-video:
-    image: ${LTX_IMAGE:-local-llm-stack-ltx-video:prepare-20261117}
+    image: ${LTX_IMAGE:-local-llm-stack-ltx-video:prepare-20261117-r2}
     pull_policy: never
     build:
       context: ./ltx-video
