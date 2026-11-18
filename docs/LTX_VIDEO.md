@@ -1,171 +1,197 @@
-# LTX-Video service: bring-up and shutdown
+# LTX-Video: preparation, admission and recovery
 
-Standalone text/image-to-video service using the Lightricks **LTX-Video
-0.9.8-13B-distilled** model via Diffusers. It runs as its own container
-(`ltx-video`) under the opt-in `ltx` Compose profile — **separate from the
-DeepSeek/TP2 LLM serving** in this repo.
+Standalone text/image-to-video gateway using **LTX-Video 0.9.8-13B-distilled**
+through Diffusers `LTXConditionPipeline`. The opt-in Compose service is
+`ltx-video` (profile `ltx`), separate from DeepSeek TP2. Its existing API is
+`POST /video`, returning **GIF**, not MP4. No Fam-Chat integration is implied.
 
-- Model: `Lightricks/LTX-Video-0.9.8-13B-distilled`
-- Image: `local-llm-stack-ltx-video:latest` (build from `ltx-video/Dockerfile`)
-- Runtime: `serve.py` → FastAPI `LTXConditionPipeline` gateway
-- Host port: `${LTX_PORT:-8013}` (container `8001`)
-- Source cache: `data/huggingface` (works from the worktree root)
-- Parity: identical worktree + image + weights are present on **both** sparks
-  (66f1 and e8f1); run the service on whichever node is free.
+## Pinned inputs and safe defaults
 
-> **Memory contract (critical):** LTX-13B needs on the order of 26 GB+ of GPU
-> unified memory. The DeepSeek TP2 serving pins ~78% of the same unified pool
-> on both nodes, so **the two cannot run simultaneously**. Bringing LTX up
-> requires first stopping (or shrinking) the DeepSeek serving, and vice-versa.
-> This is a deliberate sequential switch-over, not co-residency.
+- Model: `Lightricks/LTX-Video-0.9.8-13B-distilled`.
+- Revision: `7c64400e1861cc0d7b98d570a1926d5408ec60cd`, selected by
+  `LTX_MODEL_REVISION`. Keep this revision paired with the cached model.
+- Candidate image: `${LTX_IMAGE:-local-llm-stack-ltx-video:prepare-20261117}`.
+  Before admission, verify the selected image's exact ID against
+  `cluster/ltx-images.lock.json` and the preparation receipt on the selected
+  host. A tag alone is not identity or acceptance evidence. `LTX_IMAGE` may be
+  set to that verified local image ID.
+- Cache: `${LTX_CACHE:-./data/huggingface}` mounted at
+  `/workspace/cache/huggingface`. Candidate worktrees should set `LTX_CACHE`
+  to the **existing original cache directory**, not create another empty cache
+  or download weights. Preserve original caches and their symlink targets.
+- Endpoint: `127.0.0.1:${LTX_PORT:-8013}` → container port `8001`.
+  This service is loopback-only, independent of the stack's `BIND_HOST`.
+- `restart: "no"`: GPU admission is manual; do not enable automatic restart
+  alongside TP2 after a reboot.
 
----
+The pipeline is **lazy**: importing the app, starting Uvicorn or fetching
+`/openapi.json` does not load model weights. The first valid generation request
+loads the pinned snapshot with `local_files_only=True`, then moves it to CUDA.
+An absent/partial snapshot fails instead of downloading. Initialization is
+published only after the CUDA move succeeds. Pipeline calls are serialized by
+a separate inference lock because Diffusers mutates shared scheduler state.
+The installed Diffusers 0.42.1 accepts the existing `image=` conditioning keyword;
+this gateway retains that API.
 
-## Prerequisites (one-time, already done in `feat/ltx-video`)
+**Required runtime repair:** the original LTX image's offline tokenizer check
+failed because SentencePiece was missing (the subsequent fallback also reported
+missing tiktoken). The cached tokenizer supplies a SentencePiece model, so the
+Dockerfile now pins `sentencepiece==0.2.3`; tiktoken is not required for that
+path. Candidate preparation must incorporate the pinned wheel into the existing
+runtime and repeat offline `AutoTokenizer.from_pretrained` against the cached
+tokenizer before admission. Pipeline/config imports alone did not expose this
+blocker. Record the repaired image ID and tokenizer result in the preparation
+receipt; this document does not assert the repair has been verified.
 
-1. Weights present in `data/huggingface/hub/models--Lightricks--LTX-Video-0.9.8-13B-distilled` (~45 GB, 21 `.safetensors` shards).
-2. Image built and tagged `local-llm-stack-ltx-video:latest`.
+## Preparation boundary: no downtime or generation
 
-If either is missing, provision it:
+Source preparation, CPU regression tests, cache/image identity checks and an
+isolated CPU-only app/OpenAPI smoke are **not GPU generation acceptance**.
+CPU regressions check serialization, failed-load state, lock release and input
+rejection. They do not establish model quality, GPU memory sufficiency or real
+text/image generation. Record actual checks and receipts separately; no test
+pass is asserted here.
 
-```bash
-# from the worktree root (e.g. /home/statsparrot/projects/local-llm-stack-ltx)
-./scripts/download-model.sh Lightricks/LTX-Video-0.9.8-13B-distilled   # ~45 GB into data/huggingface
-docker compose --profile ltx build ltx-video                            # build the image
+Until a fresh downtime window is approved:
+
+- Do not stop/restart DeepSeek or TTS, load the LTX pipeline or POST a valid
+  generation request to a GPU-capable service.
+- Do not pull images, download models, run broad Compose commands or start the
+  GPU-configured service just to prove HTTP liveness.
+- Preserve the current serving owner, routes, caches and recovery receipts.
+- Leave real text-to-video, image-to-video and restoration acceptance deferred.
+
+## Canonical DeepSeek recovery contract
+
+Use the **canonical main-source** recovery guide, not this feature worktree's
+historical TP instructions:
+
+`/Users/statsparrot/projects/local-llm-stack/docs/RELOCATION_RECOVERY.md`
+
+The recorded current identity is:
+
+| Item | Value |
+|---|---|
+| Owner | `deepseek-tp2-mia-512k-e8f1-d0d964379529` |
+| Full digest | `d0d9643795291234c6ca9f45825b3646b8b771728f017a2c27531381dad97327` |
+| Saved plan | `/Users/statsparrot/projects/local-llm-stack/data/cluster/recovery-mia-ablgud4w/started/plan.json` |
+| Client route | `http://10.10.10.2:4010/v1` |
+| Backend | `http://10.10.20.2:8124/v1` |
+| Alias | `local-deepseek-v4-flash-mia` |
+
+Recheck actual ownership against that contract before disruption. A newer owner,
+missing receipt, unreachable peer or render mismatch is a stop boundary, not
+permission to force recovery. Generic `make down` / `make up` and broad Compose
+`down` do **not** implement current TP2 recovery. Do not replay older GLM/Mia
+plans, alter reservations, republish routes or start a lone TP rank.
+
+## Future approved GPU window only
+
+### 1. Drain and release the exact serving owner
+
+Obtain fresh downtime/GPU admission approval. Follow the canonical recovery
+contract's identity/receipt comparison and authorized exact-plan teardown.
+Account for both TP2 peers and every other GPU consumer. Record TTS state and
+only stop speech units if that operation is explicitly authorized; preserve the
+state needed for later restoration. Keep private recovery guides and receipts
+available. This guide does not authorize any stop.
+
+Verify both exact-owned TP2 containers/reservations have been released, and
+inspect actual available memory/remaining GPU processes. LTX and the current
+TP2 serving are a **sequential switch-over**, not qualified co-residents. Busy
+or unknown ownership is not a reason to bypass admission.
+
+### 2. Start only the prepared LTX service
+
+On the selected Spark, from the staged
+`/home/statsparrot/projects/local-llm-stack-ltx-prepare-20261117` worktree, with
+`LTX_IMAGE` verified and `LTX_CACHE` pointing to the original cache:
+
+```sh
+docker compose --profile ltx up -d --no-deps --no-build --pull never ltx-video
+docker compose --profile ltx logs --tail 100 ltx-video
+curl --fail --silent --show-error http://127.0.0.1:8013/openapi.json
 ```
 
-To mirror these to the other spark over the QSFP fabric:
+Always use the explicit service target and these no-dependency/no-build/no-pull
+flags. A bare profile `up` also selects unprofiled services. Do not use it.
+Adjust the URL if `LTX_PORT` is overridden.
 
-```bash
-# image over the direct spark-to-spark cable
-python3 scripts/sync-spark-images.py \
-  --lock cluster/ltx-images.lock.json \
-  --peer <e8f1|66f1> \
-  --fabric-inventory ../local-llm-stack/cluster/inventory.json \
-  --apply
-# weights: rsync -a --checksum the model dir over the same fabric (-e ssh ...-o BindInterface=<rail>)
-```
+OpenAPI proves **HTTP liveness only**. There is no startup model-ready log to
+wait for. The `[ltx] built pipeline ...` message occurs during the first valid
+request and precedes the CUDA move; it is not generation acceptance either.
 
----
+### 3. Accept real text and image generation separately
 
-## Bring-up
+Only within the approved GPU window, issue a bounded text request:
 
-### 1. Free the GPU (take DeepSeek down) — ONLY when you have an approved window
-
-```bash
-# from the main stack directory
-DOCKER_COMPOSE="sudo docker compose" make down        # stop the DeepSeek/TP2 serving
-#   -- or, to keep other services but stop only the LLM serving, stop the specific vLLM container(s)
-```
-
-Verify unified memory is actually free:
-
-```bash
-nvidia-smi                    # DeepSeek process gone / memory released
-grep MemAvailable /proc/meminfo
-```
-
-### 2. Start the LTX service (from the worktree root)
-
-```bash
-cd /home/statsparrot/projects/local-llm-stack-ltx
-docker compose --profile ltx up -d ltx-video
-```
-
-> Use the explicit service target `ltx-video`. `--profile ltx up` with no target
-> also selects unprofiled services (including GPU-consuming `vllm-fast`), which
-> would contend for memory.
-
-### 3. Watch it come up
-
-```bash
-docker compose --profile ltx logs -f ltx-video
-```
-
-Wait for the log line `[ltx] pipeline on CUDA in ...s` — this confirms the model
-loaded into GPU memory. The first load rebuilds/loads the pipeline and can take
-a minute or two.
-
-### 4. Sanity-check the endpoint
-
-```bash
-curl -s http://127.0.0.1:8013/docs      # FastAPI OpenAPI reachable
-```
-
-Then generate a short text-to-video test:
-
-```bash
-curl -sS -X POST http://127.0.0.1:8013/video \
+```sh
+curl --fail-with-body --silent --show-error \
+  -D text-video.headers \
   -H 'Content-Type: application/json' \
-  -d '{"prompt":"a red ball bouncing","num_frames":25,"width":384,"height":384,"num_steps":30}' \
-  -o out.gif
+  -d '{"prompt":"a red ball bouncing","num_frames":25,"width":384,"height":384,"num_steps":30,"seed":0}' \
+  http://127.0.0.1:8013/video -o text-video.gif
 ```
 
-Validating the response:
+For image conditioning, create a private JSON request containing a real base64
+PNG in `start_image` (not a filename, URL or data-URL prefix), the intended
+prompt, `num_frames: 25`, `width: 384`, `height: 384`, `num_steps: 30` and a fixed
+seed. Send that prepared payload:
 
-```bash
-file out.gif          # GIF image data
+```sh
+curl --fail-with-body --silent --show-error \
+  -D image-video.headers \
+  -H 'Content-Type: application/json' --data-binary @image-video-request.json \
+  http://127.0.0.1:8013/video -o image-video.gif
 ```
 
-Optional image-to-video (send a base64 PNG):
+Both cases are required for real API acceptance. Preserve HTTP status, response
+headers (`Content-Type: image/gif`, `X-Frames`, `X-Seconds`), latency, exact
+source/image/model identity and decoded output dimensions/frame count. Decode
+and visually inspect the GIFs for meaningful text and image-conditioned
+motion; a file extension, HTTP 200 or CPU-instrumented output is insufficient.
+The GIF uses 25 fps (40 ms per frame). Keep artifacts private.
 
-```bash
-curl -sS -X POST http://127.0.0.1:8013/video \
-  -H 'Content-Type: application/json' \
-  -d '{"prompt":"pan across the scene","start_image":"<BASE64_PNG>","num_frames":49}' \
-  -o out2.gif
+Request constraints: positive height/width divisible by 32; 9–601 requested
+frames; 1–100 steps; seed in PyTorch's `[-2^63, 2^64-1]` range. Use `8n+1`
+frame counts for LTX's temporal layout. Nonconforming temporal counts retain
+the installed pipeline's behavior; the gateway does not rewrite conditioning
+or invent a new frame API. Allowed dimensions/frame counts do not guarantee
+that a request fits GPU memory.
+
+### 4. Targeted teardown and exact restoration
+
+On every host where LTX was started for this attempt, from that same candidate
+worktree/project:
+
+```sh
+docker compose --profile ltx stop ltx-video
+docker compose --profile ltx rm -f ltx-video
 ```
 
----
+Do not run Compose `down`, remove cache volumes or affect unrelated services.
+Confirm the LTX container/process is gone and memory is released before
+restoring TP2. On failure, preserve evidence and clean only this attempt's
+confirmed service/owner; an unreachable host is not proof of cleanup.
 
-## Shutdown
-
-### Stop the LTX service
-
-```bash
-cd /home/statsparrot/projects/local-llm-stack-ltx
-docker compose --profile ltx down            # removes the ltx-video container
-```
-
-### Restore DeepSeek serving
-
-```bash
-# from the main stack directory
-DOCKER_COMPOSE="sudo docker compose" make up         # bring the LLM/TP2 serving back
-```
-
-Verify serving returned (from the repo runbook):
-
-```bash
-curl -sS http://localhost:8001/v1/models            # or the port/alias in use
-```
-
----
-
-## Useful verification / notes
-
-- **Which spark runs it:** with parity on both nodes, start `ltx-video` on the
-  node whose GPU is idle in the takedown window. Confirm no DeepSeek process is
-  on that node first (`ps aux | grep -i deepseek`, `nvidia-smi`).
-- **Full parity check** (per-node):
-  - worktree: `git -C <worktree> rev-parse --short HEAD` → `4b4e887` on both
-  - image: `docker images --format '{{.ID}}' local-llm-stack-ltx-video:latest`
-    → `a3c8b42eaf7e` on both
-  - weights: `du -sh data/huggingface/hub/models--Lightricks--LTX-Video-0.9.8-13B-distilled` → 45 GB, 0 dangling symlinks
-- **Licensing:** LTX-Video weights are open-weights (LTX Open Weights License),
-  free for commercial use under <$10M annual revenue; a commercial license
-  applies above that or when embedding weights in a sold product.
-- **Service output:** returns GIF at 25 fps (frame duration 40 ms), matching the
-  generation frame rate. Latency depends on steps/frame count.
-
----
+Return to the canonical recovery contract for exact-plan preflight, current
+Mia TP2 launch and acceptance on **both** peers. Require matching owner/digest,
+healthy TP2, real inference and tool/client acceptance through the existing
+4010 route; `/v1/models` alone is not restoration. Do not republish unchanged
+routes. Restore only speech units stopped for this attempt, after TP2 inference
+passes and subject to the existing memory guards. Record final DeepSeek/TTS
+state and any deferred acceptance explicitly.
 
 ## Troubleshooting
 
-| Symptom | Likely cause / fix |
+| Symptom | Action |
 |---|---|
-| `RuntimeError: CUDA out of memory` on load | DeepSeek serving not actually freed; check `nvidia-smi`, fully stop serving, retry |
-| Model re-downloads at first request | `HF_HOME`/cache not resolving to `data/huggingface`; ensure the service mounts `./data/huggingface:/workspace/cache/huggingface` and runs from the worktree root |
-| `docker compose ... up -d ltx-video` also starts vLLM | `make up`/unprofiled services selected; use the explicit `ltx-video` target |
-| Endpoint on 8013 refused | container not up or crashed (`docker compose --profile ltx ps a`, check logs) |
-| Slow first request | pipeline building from cache; subsequent requests reuse the loaded pipeline |
+| Missing local snapshot/shards | Stop; compare `LTX_CACHE`, model/revision and cache receipt. Offline failure is intentional; no automatic download fallback. |
+| CUDA out of memory | Stop LTX with the targeted commands; account for ownership/memory and follow the approved recovery path. Do not force-stop an unrelated workload. |
+| Candidate image missing/mismatched | Stop before launch; resolve staged image identity with the preparation owner. Do not build/pull during admission. |
+| Port refused | Inspect only `ltx-video` status/logs and the configured loopback port. Startup HTTP liveness is separate from model readiness. |
+| First valid request slow | Lazy pipeline load/CUDA transfer happens on that request; later requests reuse it. Concurrent requests wait for serialized inference. |
+
+Licensing remains governed by the model's LTX Open Weights License, including
+its commercial-use conditions; inspect the applicable model license for the
+intended use.

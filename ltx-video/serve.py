@@ -2,8 +2,8 @@
 
 Opt-in Compose service (profile "ltx"), separate from the DeepSeek serving
 stack. Loads the LTX model on demand and generates a short video from a text
-prompt and optional start image. Swap the serving window before running:
-  docker compose --profile ltx up -d ltx-video
+prompt and optional start image. After explicit GPU admission, start only:
+  docker compose --profile ltx up -d --no-deps --no-build --pull never ltx-video
 """
 import base64
 import io
@@ -19,10 +19,13 @@ app = FastAPI(title="ltx-video")
 
 MODEL_ID = os.environ.get(
     "LTX_MODEL", "Lightricks/LTX-Video-0.9.8-13B-distilled")
+MODEL_REVISION = os.environ.get(
+    "LTX_MODEL_REVISION", "7c64400e1861cc0d7b98d570a1926d5408ec60cd")
 FPS = 25
 
 _lock = threading.Lock()
 _pipe = None
+_infer_lock = threading.Lock()
 
 
 def _load():
@@ -39,10 +42,11 @@ def _load():
         t0 = time.time()
         # No hand-constructed components: from_pretrained resolves the repo's
         # own model_index.json (AutoencoderKLLTXVideo, LTXVideoTransformer3DModel,
-        # T5EncoderModel). cache_dir defaults off HF_HOME -> ../hub so the
-        # downloaded weights are found on disk.
+        # T5EncoderModel). Resolve only the pinned snapshot in the existing
+        # HF_HOME cache; an absent/partial cache must fail without downloading.
         pipe = LTXConditionPipeline.from_pretrained(
-            MODEL_ID, torch_dtype=torch.bfloat16)
+            MODEL_ID, revision=MODEL_REVISION,
+            torch_dtype=torch.bfloat16, local_files_only=True)
         print(f"[ltx] built pipeline in {time.time()-t0:.1f}s", flush=True)
         pipe.to("cuda")
         _pipe = pipe
@@ -53,10 +57,11 @@ class Req(BaseModel):
     prompt: str
     start_image: str | None = None
     num_frames: int = Field(default=121, ge=9, le=601)
-    height: int = Field(default=384)
-    width: int = Field(default=672)
+    height: int = Field(default=384, gt=0)
+    width: int = Field(default=672, gt=0)
     num_steps: int = Field(default=30, ge=1, le=100)
-    seed: int = Field(default=0)
+    # Match torch.Generator.manual_seed's accepted integer range.
+    seed: int = Field(default=0, ge=-9223372036854775808, le=18446744073709551615)
 
 
 def _div32(name, value):
@@ -89,7 +94,10 @@ def generate(req: Req):
     if start_img is not None:
         kwargs["image"] = start_img
     try:
-        out = pipe(**kwargs)
+        # Diffusers mutates shared scheduler state during denoising. Keep
+        # requests serialized even after the lazy load lock has been released.
+        with _infer_lock:
+            out = pipe(**kwargs)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"generation failed: {exc}")
     frames = list(out.frames[0])
