@@ -549,23 +549,28 @@ services:
 
 
   flux-dev:
+    image: ${FLUX_IMAGE:-local-llm-stack-flux-dev:prepare-20261117}
+    pull_policy: never
     build:
       context: ./flux
     profiles: ["flux"]
-    restart: unless-stopped
+    restart: "no"
     ipc: host
     shm_size: "16gb"
     gpus: all
     ports:
-      - "${BIND_HOST:-127.0.0.1}:${FLUX_PORT:-8020}:8001"
+      - "127.0.0.1:${FLUX_PORT:-8020}:8001"
     environment:
       HF_TOKEN: ${HF_TOKEN:-}
       HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
       HF_HOME: /workspace/cache/huggingface
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
       FLUX_MODEL: ${FLUX_MODEL:-black-forest-labs/FLUX.1-dev}
+      FLUX_REVISION: ${FLUX_REVISION:-}
       NVIDIA_VISIBLE_DEVICES: all
     volumes:
-      - ./data/huggingface:/workspace/cache/huggingface
+      - ${FLUX_CACHE:-./data/huggingface}:/workspace/cache/huggingface
       - ./models:/models
     networks:
       - llm

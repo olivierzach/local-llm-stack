@@ -1,13 +1,12 @@
 """FLUX.1-dev text-to-image HTTP gateway (Diffusers FluxPipeline).
 
-Opt-in Compose service (profile "flux"), isolated from the DeepSeek serving
-stack. Generates a PNG from a text prompt. Requires the weights to be cached
-locally first:  ./scripts/download-model.sh black-forest-labs/FLUX.1-dev
-Swap the serving window first:
-  docker compose --profile flux up -d flux-dev
+Opt-in Compose service (profile "flux"). No model is loaded until /generate.
+Generation requires explicit GPU admission and a locally cached, pinned
+snapshot; neither startup nor generation downloads model files.
 """
 import os
 import io
+import re
 import threading
 import time
 from pathlib import Path
@@ -17,32 +16,46 @@ from fastapi import FastAPI, HTTPException, Response
 
 app = FastAPI(title="flux-dev")
 
-MODEL_ID = os.environ.get(
-    "FLUX_MODEL", "black-forest-labs/FLUX.1-dev")
+DEFAULT_MODEL_ID = "black-forest-labs/FLUX.1-dev"
+DEFAULT_REVISION = "3de623fc3c33e44ffbe2bad470d0f45bccf2eb21"
+MODEL_ID = os.environ.get("FLUX_MODEL") or DEFAULT_MODEL_ID
+MODEL_REVISION = os.environ.get("FLUX_REVISION") or (
+    DEFAULT_REVISION if MODEL_ID == DEFAULT_MODEL_ID else None)
 
 _lock = threading.Lock()
 _pipe = None
 _infer_lock = threading.Lock()
 
 
-def _model_cache_dir() -> Path:
-    import huggingface_hub.constants as c
-    # HF_HUB_CACHE is a str like /path/to/hub; wrap for path ops.
-    return Path(c.HF_HUB_CACHE) / "models--black-forest-labs--FLUX.1-dev"
+def _local_snapshot() -> Path:
+    """Resolve the exact cached pipeline manifest, never a moving ref."""
+    if not MODEL_REVISION or not re.fullmatch(r"[0-9a-fA-F]{40}", MODEL_REVISION):
+        raise HTTPException(
+            status_code=503,
+            detail=f"Set FLUX_REVISION to a full commit hash for {MODEL_ID}.")
+    from huggingface_hub import hf_hub_download
+    from huggingface_hub.errors import LocalEntryNotFoundError
 
-
-def _local_cache_ok() -> bool:
-    """True if the gated weights are already on disk in the HF cache (hub/)."""
-    d = _model_cache_dir()
-    # A populated cache has refs/main (and blobs with the safetensors).
-    return d.is_dir() and (d / "refs").is_dir()
+    try:
+        manifest = hf_hub_download(
+            repo_id=MODEL_ID, filename="model_index.json",
+            revision=MODEL_REVISION, local_files_only=True)
+    except (LocalEntryNotFoundError, OSError) as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Local snapshot {MODEL_ID}@{MODEL_REVISION} is unavailable. "
+                   "Verify the existing HF cache mount and pinned model files; "
+                   "runtime downloads are disabled.") from exc
+    # Keep the snapshot path, not the resolved blob's parent. Diffusers checks
+    # the remaining components while loading; this is not a completeness audit.
+    return Path(manifest).parent
 
 
 def _load():
     """Load FluxPipeline once under a lock, publishing only on success.
 
-    Uses local_files_only=True so an absent/partial cache fails fast with a
-    clear error instead of triggering a ~24GB online download.
+    Resolves a pinned local snapshot before importing the model runtime.
+    Diffusers also uses local_files_only=True for missing component files.
     """
     global _pipe
     if _pipe is not None:
@@ -50,18 +63,19 @@ def _load():
     with _lock:
         if _pipe is not None:
             return _pipe
-        if not _local_cache_ok():
-            raise HTTPException(
-                status_code=503,
-                detail="FLUX.1-dev weights are not cached. Run: "
-                       "./scripts/download-model.sh black-forest-labs/FLUX.1-dev "
-                       "(requires a valid HF_TOKEN for this gated model) "
-                       "before starting generation.")
+        snapshot = _local_snapshot()
         import torch
         from diffusers import FluxPipeline
         t0 = time.time()
-        pipe = FluxPipeline.from_pretrained(
-            MODEL_ID, torch_dtype=torch.bfloat16, local_files_only=True)
+        try:
+            pipe = FluxPipeline.from_pretrained(
+                str(snapshot), torch_dtype=torch.bfloat16, local_files_only=True)
+        except OSError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Cannot load local snapshot {MODEL_ID}@{MODEL_REVISION}. "
+                       "Verify all pinned component files in the existing cache; "
+                       "runtime downloads are disabled.") from exc
         print(f"[flux] built pipeline in {time.time()-t0:.1f}s", flush=True)
         pipe.to("cuda")
         _pipe = pipe
