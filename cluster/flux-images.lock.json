@@ -2,8 +2,8 @@
   "version": 1,
   "images": [
     {
-      "tag": "local-llm-stack-flux-dev:latest",
-      "id": "sha256:7057e53ee2b2ec45ccdf6b7c18316afab9c2261c2a73570db34f71b0ca5d074c",
+      "tag": "local-llm-stack-flux-dev:prepare-20261117",
+      "id": "sha256:64025b7296145b0d74b4c014bca22edb75a162240de6720c32b762005fd89330",
       "registry": null
     }
   ]

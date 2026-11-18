@@ -49,12 +49,29 @@ No download is part of this preparation or runtime path.
 
 ## Preparation status and no-GPU boundary
 
-The pre-downtime inventory records the pinned snapshot on both Sparks (66f1 and
-e8f1), all indexed shards present and no dangling links or `.incomplete` files.
-The original GPU image is also present on both hosts. The former assertion that
-missing weights/token were the sole blocker is obsolete. Snapshot presence and
-an existing image are not a new candidate image receipt, complete byte-hash
-parity proof, or generation acceptance.
+Verified preparation on 2026-11-17:
+
+- Both Sparks' retained Flux/LTX cache blobs passed content-address hash and
+  safetensors payload-range checks; all indexed shards exist. This verifies the
+  retained cache identities, not an independent upstream signature.
+- Nine focused Flux cache/pin regressions passed in the candidate runtime.
+- On 66f1, the candidate served OpenAPI and rejected invalid HTTP requests
+  without importing Torch/Diffusers or loading a pipeline.
+- Actual offline pipeline imports, cached CLIP/T5 tokenization and four
+  meta-device component/config-to-checkpoint shape comparisons passed on 66f1.
+  The comparison accounts for the installed Transformers CLIP prefix conversion
+  and tied T5 embeddings. No weight tensors were materialized or CUDA initialized.
+- The canonical current DeepSeek render matches all seven recovery input
+  sections of the postmove saved plan. No teardown or recovery was executed.
+
+The image lock records the prepared runtime built from the retained original
+image, with gateway source from commit `0dae276`. Candidate-specific `.env`
+files on both Sparks select the immutable image ID and original cache path;
+no credentials were copied. Preparation receipts live on the Mini under
+`/Users/statsparrot/projects/local-llm-stack/data/cluster/generation-prep-20261117/`
+and on each Spark under
+`~/projects/local-llm-stack/data/generation-prep-20261117/`.
+Image/source mirroring is recorded there separately from GPU acceptance.
 
 Preparation may inspect source/configuration, audit existing cached files,
 prepare a distinct offline candidate from the exact existing image, and stage
