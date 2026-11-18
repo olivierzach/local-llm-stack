@@ -46,10 +46,28 @@ pipeline/config imports alone did not expose these blockers.
 
 Source preparation, CPU regression tests, cache/image identity checks and an
 isolated CPU-only app/OpenAPI smoke are **not GPU generation acceptance**.
-CPU regressions check serialization, failed-load state, lock release and input
-rejection. They do not establish model quality, GPU memory sufficiency or real
-text/image generation. Record actual checks and receipts separately; no test
-pass is asserted here.
+Fifteen focused CPU regressions passed for serialization, failed-load state,
+lock release and input rejection. They do not establish model quality,
+GPU memory sufficiency or real text/image generation.
+
+On 66f1, the repaired candidate passed actual offline pipeline imports and
+cached T5 tokenization with SentencePiece 0.2.3 / Protobuf 7.36.1. Its three
+meta-device component/config-to-checkpoint comparisons passed, accounting for
+tied T5 embeddings, without materializing weight tensors or initializing CUDA.
+The HTTP smoke returned OpenAPI and rejected invalid requests without model
+runtime imports. Both hosts' retained Flux/LTX blobs passed content-address
+hash and safetensors payload-range checks, with all indexed shards present.
+These checks verify retained cache identities, not an upstream signature.
+
+The image lock selects the repaired `-r2` candidate, whose source/build inputs
+are recorded at commit `6edba7e`; the first candidate exposed the Protobuf
+incompatibility and is not the admission candidate. Host-specific ignored
+`.env` files select the immutable image ID and original cache directory.
+Private preparation receipts: Mini
+`/Users/statsparrot/projects/local-llm-stack/data/cluster/generation-prep-20261117/`
+and each Spark `~/projects/local-llm-stack/data/generation-prep-20261117/`.
+The current canonical DeepSeek render exactly matches the postmove saved plan;
+no stop/start, reservation change or GPU generation was performed.
 
 Until a fresh downtime window is approved:
 

@@ -2,8 +2,8 @@
   "version": 1,
   "images": [
     {
-      "tag": "local-llm-stack-ltx-video:latest",
-      "id": "sha256:a3c8b42eaf7eec71a887bcc6b0840d243481a8e19a74d7ce2ac669c0307645d2",
+      "tag": "local-llm-stack-ltx-video:prepare-20261117-r2",
+      "id": "sha256:0f6e3d1b7609644a00033109c3c0a0157028e1c04419b08807d1ab9a36eca4b0",
       "registry": null
     }
   ]
