@@ -31,3 +31,4 @@ Start here:
 24. [Current Cluster Status And Remaining Work](CLUSTER_IMPLEMENTATION.md)
 25. [Source Reconciliation And Deployment Hygiene](SOURCE_RECONCILIATION.md)
 26. [Local-First Operations Without Interrupting GLM](LOCAL_FIRST_OPERATIONS_PLAN.md)
+27. [Flux/LTX GPU Qualification And Production Recovery](GENERATION_QUALIFICATION.md)
