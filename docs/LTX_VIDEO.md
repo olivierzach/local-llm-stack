@@ -95,7 +95,7 @@ The recorded current identity is:
 |---|---|
 | Owner | `deepseek-tp2-mia-512k-e8f1-d0d964379529` |
 | Full digest | `d0d9643795291234c6ca9f45825b3646b8b771728f017a2c27531381dad97327` |
-| Saved plan | `/Users/statsparrot/projects/local-llm-stack/data/cluster/recovery-mia-ablgud4w/started/plan.json` |
+| Saved plan | `/Users/statsparrot/projects/local-llm-stack/data/cluster/generation-window-Leqfzilp/restored/plan.json` |
 | Client route | `http://10.10.10.2:4010/v1` |
 | Backend | `http://10.10.20.2:8124/v1` |
 | Alias | `local-deepseek-v4-flash-mia` |
@@ -251,6 +251,10 @@ timings, sampled memory, logs and cleanup receipts are under
 `/Users/statsparrot/projects/local-llm-stack/data/cluster/generation-window-Leqfzilp/spark-<host>-wired-ltx/`
 and the corresponding Spark-local
 `~/projects/local-llm-stack/data/generation-window-Leqfzilp/ltx/`.
-The parent window records DeepSeek/client restoration separately. Maximum
-frame counts, larger dimensions, sustained traffic and concurrency remain
-outside this qualification.
+The parent window also restored the exact DeepSeek deployment and Standard
+speech on both hosts. All four Context Guard/managed gateway paths passed
+real text, streaming, tool and context-accounting checks; OMP, Fam Chat,
+WebUI's configured provider and an explicitly enabled optional OpenClaw Mia
+route passed. Authenticated WebUI browser chat was owner-deferred.
+Maximum frame counts, larger dimensions, sustained traffic and concurrency
+remain outside this qualification.
