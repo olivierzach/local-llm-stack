@@ -113,8 +113,8 @@ shutdown commands into this worktree.
 The currently recorded owner is
 `deepseek-tp2-mia-512k-e8f1-d0d964379529`, full digest
 `d0d9643795291234c6ca9f45825b3646b8b771728f017a2c27531381dad97327`.
-The postmove saved-plan receipt is
-`/Users/statsparrot/projects/local-llm-stack/data/cluster/recovery-mia-ablgud4w/started/plan.json`.
+The latest accepted recovery saved-plan receipt is
+`/Users/statsparrot/projects/local-llm-stack/data/cluster/generation-window-Leqfzilp/restored/plan.json`.
 Revalidate its live ownership and matching source before any disruption; do not
 substitute an older promotion receipt or another owner. Preserve the receipt
 and current routes. An unknown/unreachable node is not a released GPU.
@@ -224,6 +224,10 @@ timings, repeatability, memory samples, logs and cleanup receipts are under
 `/Users/statsparrot/projects/local-llm-stack/data/cluster/generation-window-Leqfzilp/spark-<host>-wired-flux/`.
 The matching Spark-local receipt root is
 `~/projects/local-llm-stack/data/generation-window-Leqfzilp/flux/`.
-DeepSeek/client restoration is a separate gate in the parent window receipt.
+The parent window also restored the exact DeepSeek deployment and Standard
+speech on both hosts. All four Context Guard/managed gateway paths passed
+real text, streaming, tool and context-accounting checks; OMP, Fam Chat,
+WebUI's configured provider and an explicitly enabled optional OpenClaw Mia
+route passed. Authenticated WebUI browser chat was owner-deferred.
 Maximum dimensions, arbitrary prompts, sustained load and concurrency were
 not qualified by these six requests.
