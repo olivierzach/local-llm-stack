@@ -6,6 +6,10 @@ from DeepSeek TP2, TTS, LTX-Video and Fam-Chat; no new routes or authentication
 are added. The unauthenticated API is **loopback-only**, regardless of the
 shared Compose `BIND_HOST` setting.
 
+**GPU generation qualified on both Sparks on 2026-11-19.** See the bounded
+acceptance record below. This does not authorize concurrent serving with
+DeepSeek, automatic startup, or Fam-Chat integration.
+
 ## Pinned inputs and configuration
 
 - Model: `black-forest-labs/FLUX.1-dev`
@@ -191,3 +195,35 @@ no-GPU import/OpenAPI liveness; then, only in an approved window, actual PNG
 acceptance, memory/timing, exact Flux shutdown and restored TP2/TTS receipts.
 The preparation owner finalizes locks and evidence. No GPU generation or
 restoration acceptance is implied by this runbook or by staging the candidate.
+
+## GPU acceptance — 2026-11-19
+
+The owner-approved `generation-window-Leqfzilp` run used the unchanged pinned
+candidate image on each Spark, sequentially after exact-owner TP2 teardown
+and speech shutdown. Each host returned three valid PNGs: 512×512 at four
+steps, then 1024×1024 at 30 steps, followed by an identical-seed repeat.
+The full-quality image was visually inspected: a detailed red fox in snow,
+matching the synthetic prompt.
+
+| Observation | Spark 66f1 | Spark e8f1 |
+|---|---:|---:|
+| First request, including lazy model load (s) | 233.539 | 247.545 |
+| Warm 1024×1024, 30 steps (s) | 50.753 | 50.807 |
+| Same-seed repeat (s) | 50.961 | 51.105 |
+| Minimum sampled host available memory (GiB) | 78.52 | 78.78 |
+| Maximum sampled GPU-process memory (MiB) | 37193 | 37193 |
+
+The quality and repeat PNGs were byte-identical on both hosts:
+`f924371b9de115d2b5b95cf642e5fc66301b0fb4f1a12701005e885f15da3ea5`.
+Memory was sampled every two seconds; these are observed samples, not exact
+allocation peaks or a co-residency qualification.
+
+Both named Flux containers were stopped and removed, with no remaining GPU
+processes after each host's run. Private PNGs, request/response metadata,
+timings, repeatability, memory samples, logs and cleanup receipts are under
+`/Users/statsparrot/projects/local-llm-stack/data/cluster/generation-window-Leqfzilp/spark-<host>-wired-flux/`.
+The matching Spark-local receipt root is
+`~/projects/local-llm-stack/data/generation-window-Leqfzilp/flux/`.
+DeepSeek/client restoration is a separate gate in the parent window receipt.
+Maximum dimensions, arbitrary prompts, sustained load and concurrency were
+not qualified by these six requests.
