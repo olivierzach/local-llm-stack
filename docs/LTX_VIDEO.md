@@ -5,6 +5,10 @@ through Diffusers `LTXConditionPipeline`. The opt-in Compose service is
 `ltx-video` (profile `ltx`), separate from DeepSeek TP2. Its existing API is
 `POST /video`, returning **GIF**, not MP4. No Fam-Chat integration is implied.
 
+**GPU generation qualified on both Sparks on 2026-11-19.** The bounded
+text/image/repeat/default-size results below do not authorize co-residency
+with DeepSeek, automatic startup, or production application integration.
+
 ## Pinned inputs and safe defaults
 
 - Model: `Lightricks/LTX-Video-0.9.8-13B-distilled`.
@@ -212,3 +216,41 @@ state and any deferred acceptance explicitly.
 Licensing remains governed by the model's LTX Open Weights License, including
 its commercial-use conditions; inspect the applicable model license for the
 intended use.
+
+## GPU acceptance — 2026-11-19
+
+The owner-approved `generation-window-Leqfzilp` used the pinned `-r2` candidate
+on each Spark, one service at a time after exact-owner DeepSeek/TTS shutdown.
+Each host returned four successfully decoded GIFs at 25 fps:
+
+- Text-to-video and its same-seed repeat: 384×384, 25 frames, 30 steps.
+- Image-to-video: the accepted Flux fox PNG conditioned a 384×384, 25-frame,
+  30-step clip. The generated subject retained the source image's identity.
+- Default request dimensions/count: 672×384, 121 frames, 30 steps.
+
+All requested frames were present, every decoded frame was distinct, and
+every frame duration was 40 ms. Text-repeat bytes matched on each host;
+all corresponding outputs also matched byte-for-byte across the two hosts.
+The ball clip showed changing position across inspected frames. The short
+fox clip retained its conditioning image with limited motion; this does not
+establish strong walking-prompt adherence or general model-quality guarantees.
+
+| Observation | Spark 66f1 | Spark e8f1 |
+|---|---:|---:|
+| First text request, including lazy model load (s) | 255.547 | 228.024 |
+| Warm text repeat (s) | 39.114 | 38.797 |
+| Image-conditioned clip (s) | 40.861 | 40.373 |
+| Default 121-frame clip (s) | 143.267 | 142.600 |
+| Minimum sampled host available memory (GiB) | 72.21 | 72.32 |
+| Maximum sampled GPU-process memory (MiB) | 43033 | 43033 |
+
+Memory samples were taken every two seconds, not an exact allocation-peak
+measurement. Both named LTX containers were stopped and removed; no GPU
+processes remained after either run. Private requests, outputs, hashes,
+timings, sampled memory, logs and cleanup receipts are under
+`/Users/statsparrot/projects/local-llm-stack/data/cluster/generation-window-Leqfzilp/spark-<host>-wired-ltx/`
+and the corresponding Spark-local
+`~/projects/local-llm-stack/data/generation-window-Leqfzilp/ltx/`.
+The parent window records DeepSeek/client restoration separately. Maximum
+frame counts, larger dimensions, sustained traffic and concurrency remain
+outside this qualification.
