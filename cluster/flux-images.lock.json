@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "images": [
+    {
+      "tag": "local-llm-stack-flux-dev:prepare-20261117",
+      "id": "sha256:64025b7296145b0d74b4c014bca22edb75a162240de6720c32b762005fd89330",
+      "registry": null
+    }
+  ]
+}
