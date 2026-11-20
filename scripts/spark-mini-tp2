@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+"""Non-serving TP2 mini experiment admission; see docs/QWEN_MINI_TP2.md.
+
+validate and plan are CPU-only (no SSH). reserve/status/release use the real
+Spark controller, never launch processes, stop services, or publish routes.
+"""
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import re
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tools"))
+from spark_cluster.cli import remote, save_json
+from spark_cluster.config import canonical, read, require, validate_inventory
+
+RECIPE = ROOT / "cluster/workloads/qwen3-4b-tp2-mini.json"
+
+
+def digest(value):
+    return hashlib.sha256(canonical(value).encode()).hexdigest()
+
+
+def validate_recipe(recipe):
+    expected = {
+        "version": 1, "release": "live-tp2-mini-v1",
+        "workload": "qwen3-4b-tp2-mini", "serving": False,
+        "model": "Qwen/Qwen3-4B-Instruct-2507",
+        "model_revision": "cdbee75f17c01a7cc42f958dc650907174af0554",
+        "dtype": "bfloat16", "tensor_parallel_size": 2,
+        "ranks": ["66f1", "e8f1"], "spark_decode": False,
+        "controller_actions": ["reserve-workload", "release-workload"],
+    }
+    for key, value in expected.items():
+        require(type(recipe.get(key)) is type(value) and recipe[key] == value,
+                "unsupported experiment contract: " + key)
+    require("kind" not in recipe and "alias" not in recipe,
+            "this is not a serving recipe")
+    minimum = recipe.get("min_available_mib")
+    require(type(minimum) is int and minimum >= 24576, "invalid memory admission floor")
+
+
+def validate_plan(plan):
+    require(set(plan) == {"identity", "owner", "digest"}, "invalid saved plan fields")
+    identity = plan["identity"]
+    require(set(identity) == {"recipe", "nodes", "job", "lab_revision"}, "invalid identity")
+    validate_recipe(identity["recipe"])
+    validate_inventory({"version": 1, "nodes": identity["nodes"]})
+    require(set(identity["nodes"]) == {"66f1", "e8f1"}, "requires both Sparks")
+    for key in ("66f1", "e8f1"):
+        require(identity["nodes"][key]["hostname"] == "spark-" + key, "rank host mismatch")
+    require(re.fullmatch(r"[a-z0-9-]{1,24}", identity["job"]) is not None, "invalid job ID")
+    require(re.fullmatch(r"[a-f0-9]{40}", identity["lab_revision"]) is not None,
+            "lab revision must be a full immutable commit SHA")
+    require(plan["digest"] == digest(identity), "saved plan digest mismatch")
+    require(plan["owner"] == "disagg-mini-tp2-" + identity["job"] + "-" + plan["digest"][:12],
+            "saved plan owner mismatch")
+
+
+def requests(plan):
+    identity = plan["identity"]
+    return [{"node": identity["nodes"][key], "owner": plan["owner"],
+             "digest": plan["digest"],
+             "min_available_mib": identity["recipe"]["min_available_mib"]}
+            for key in identity["recipe"]["ranks"]]
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("action", choices=("validate", "plan", "reserve", "status", "release"))
+    parser.add_argument("--inventory", type=Path, default=ROOT / "cluster/inventory.json")
+    parser.add_argument("--recipe", type=Path, default=RECIPE)
+    parser.add_argument("--job")
+    parser.add_argument("--lab-revision")
+    parser.add_argument("--output", type=Path, help="fresh private run directory for plan")
+    parser.add_argument("--saved-plan", type=Path)
+    parser.add_argument("--ranks-stopped", action="store_true",
+                        help="confirm both rank processes are stopped before release")
+    args = parser.parse_args()
+    if args.action in ("reserve", "status", "release") or args.saved_plan:
+        require(args.saved_plan is not None, "operation requires --saved-plan")
+        require(args.action != "plan", "plan requires fresh inputs")
+        plan = read(args.saved_plan)
+        validate_plan(plan)
+    else:
+        recipe = read(args.recipe)
+        validate_recipe(recipe)
+        inventory = read(args.inventory)
+        validate_inventory(inventory)
+        identity = {"recipe": recipe, "nodes": {key: inventory["nodes"][key]
+                    for key in recipe["ranks"]},
+                    "job": args.job or "cpu-validation",
+                    "lab_revision": args.lab_revision or "0" * 40}
+        sha = digest(identity)
+        plan = {"identity": identity, "digest": sha,
+                "owner": "disagg-mini-tp2-" + identity["job"] + "-" + sha[:12]}
+        validate_plan(plan)
+    if args.action == "validate":
+        print(json.dumps({"valid": True, "serving": False, "network_access": False,
+                          "qualification": "CPU recipe/identity validation only"}))
+        return
+    if args.action == "plan":
+        require(args.job and args.lab_revision and args.lab_revision != "0" * 40
+                and args.output is not None, "plan requires --job, --lab-revision and --output")
+        args.output.mkdir(parents=True, exist_ok=False, mode=0o700)
+        save_json(args.output / "plan.json", plan)
+        for rank, request in enumerate(requests(plan)):
+            save_json(args.output / f"rank{rank}.json", request)
+        print(json.dumps({"plan": str(args.output / "plan.json"), "owner": plan["owner"],
+                          "rank_requests": [str(args.output / f"rank{rank}.json") for rank in (0, 1)]}))
+        return
+    if args.action == "release":
+        require(args.ranks_stopped, "stop BOTH ranks first; then pass --ranks-stopped")
+    errors = []
+    for rank, request in enumerate(requests(plan)):
+        try:
+            action = {"reserve": "reserve-workload", "status": "doctor",
+                      "release": "release-workload"}[args.action]
+            result = remote(request["node"], {**request, "action": action})
+            if args.action == "status":
+                lease = result.get("reservation") or {}
+                result["owned_workload"] = all(lease.get(k) == v for k, v in
+                    {"owner": plan["owner"], "digest": plan["digest"], "phase": "workload"}.items())
+                if not result["owned_workload"]:
+                    errors.append(f"rank{rank}: expected workload lease is absent or mismatched")
+            print(json.dumps({"rank": rank, "action": args.action, "result": result}), flush=True)
+        except Exception as exc:
+            errors.append(f"rank{rank}: {exc}")
+            # Never launch or auto-release after a partial/ambiguous admission.
+            # Retain the saved identity and explicitly recover both hosts.
+            if args.action == "reserve":
+                break
+    require(not errors, "; ".join(errors) + "; retain saved plan; do not launch on partial admission")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as exc:
+        print(f"spark-mini-tp2: {exc}", file=sys.stderr)
+        sys.exit(1)
