@@ -1,4 +1,4 @@
-"""CPU-only gateway regressions; run in the existing LTX dependency environment.
+"""CPU-only gateway regressions; install tools/requirements.txt to run locally.
 
 No real Torch/Diffusers import, CUDA access, model loading, or network is needed.
 The instrumented pipelines test orchestration, not model generation quality.
