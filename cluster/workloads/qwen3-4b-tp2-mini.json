@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "release": "live-tp2-mini-v1",
+  "workload": "qwen3-4b-tp2-mini",
+  "serving": false,
+  "model": "Qwen/Qwen3-4B-Instruct-2507",
+  "model_revision": "cdbee75f17c01a7cc42f958dc650907174af0554",
+  "dtype": "bfloat16",
+  "tensor_parallel_size": 2,
+  "ranks": ["66f1", "e8f1"],
+  "spark_decode": false,
+  "consumer": "live_mini.py CodeNeedle split",
+  "min_available_mib": 24576,
+  "exclusive_resources": ["spark-66f1 GPU", "spark-e8f1 GPU", "Mac mini Metal GPU"],
+  "collides_with": ["DeepSeek TP2", "Mac mini production Qwen worker"],
+  "controller_actions": ["reserve-workload", "release-workload"],
+  "operator_runbook": "docs/QWEN_MINI_TP2.md",
+  "lab_repository": "https://github.com/olivierzach/disagg-lab",
+  "lab_branch": "experiment/spark-prefill-mini-decode",
+  "lab_runbook": "experiments/mini/tp2-reproduction.md",
+  "qualification": "Experimental launch recipe only; no TP2 hardware, correctness, latency or quality acceptance claimed. Not a sparkctl serving recipe."
+}
