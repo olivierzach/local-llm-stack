@@ -4,9 +4,6 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("fastapi", reason="Flux gateway dependency; run in the prepared image")
-pytest.importorskip("huggingface_hub", reason="Exercise the real offline HF cache resolver")
-
 from fastapi import HTTPException
 from huggingface_hub import constants
 

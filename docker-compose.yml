@@ -521,33 +521,6 @@ services:
     networks:
       - llm
 
-  training:
-    build:
-      context: ./training
-    profiles: ["training"]
-    restart: unless-stopped
-    ipc: host
-    shm_size: "16gb"
-    gpus: all
-    labels:
-      io.spark.legacy-root-sha256: ${SPARK_LEGACY_ROOT_SHA256:-}
-      io.spark.legacy-transaction: ${SPARK_LEGACY_TRANSACTION:-}
-    ports:
-      - "${BIND_HOST:-127.0.0.1}:${JUPYTER_PORT:-8888}:8888"
-    environment:
-      HF_TOKEN: ${HF_TOKEN:-}
-      HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
-      HF_HOME: /workspace/data/huggingface
-    volumes:
-      - ./data:/workspace/data
-      - ./models:/workspace/models
-      - ./training:/workspace/training
-      - ./evals:/workspace/evals
-    command: ["jupyter", "lab", "--ip=0.0.0.0", "--port=8888", "--no-browser", "--allow-root", "--NotebookApp.token=${JUPYTER_TOKEN:-change-me-jupyter-token}"]
-    networks:
-      - llm
-
-
   flux-dev:
     image: ${FLUX_IMAGE:-local-llm-stack-flux-dev:prepare-20261117}
     pull_policy: never
@@ -574,6 +547,33 @@ services:
       - ./models:/models
     networks:
       - llm
+
+  training:
+    build:
+      context: ./training
+    profiles: ["training"]
+    restart: unless-stopped
+    ipc: host
+    shm_size: "16gb"
+    gpus: all
+    labels:
+      io.spark.legacy-root-sha256: ${SPARK_LEGACY_ROOT_SHA256:-}
+      io.spark.legacy-transaction: ${SPARK_LEGACY_TRANSACTION:-}
+    ports:
+      - "${BIND_HOST:-127.0.0.1}:${JUPYTER_PORT:-8888}:8888"
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+      HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
+      HF_HOME: /workspace/data/huggingface
+    volumes:
+      - ./data:/workspace/data
+      - ./models:/workspace/models
+      - ./training:/workspace/training
+      - ./evals:/workspace/evals
+    command: ["jupyter", "lab", "--ip=0.0.0.0", "--port=8888", "--no-browser", "--allow-root", "--NotebookApp.token=${JUPYTER_TOKEN:-change-me-jupyter-token}"]
+    networks:
+      - llm
+
 networks:
   llm:
     driver: bridge
