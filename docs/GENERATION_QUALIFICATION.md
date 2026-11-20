@@ -15,12 +15,12 @@ qualified launch or recovery procedure.
 
 Source and operational runbooks live in this repository:
 
-- [Flux branch and runbook](https://github.com/olivierzach/local-llm-stack/blob/feat/flux-dev/docs/FLUX_DEV.md)
-- [LTX branch and runbook](https://github.com/olivierzach/local-llm-stack/blob/feat/ltx-video/docs/LTX_VIDEO.md)
-- [DeepSeek recovery contract](https://github.com/olivierzach/local-llm-stack/blob/feat/flux-dev/docs/FLUX_DEV.md#future-approved-serving-window-not-preparation-commands)
+- [Flux runbook](FLUX_DEV.md)
+- [LTX runbook](LTX_VIDEO.md)
+- [DeepSeek recovery contract](FLUX_DEV.md#future-approved-serving-window-not-preparation-commands)
 
-The service branches are separate from `main`; publication is not a merge,
-controller migration, route change or authorization for another GPU window.
+Merging source into `main` does not deploy a service, migrate its controller,
+change routes, or authorize another GPU window.
 
 ## Reproducible model and image identities
 
@@ -49,6 +49,12 @@ Before the window, both retained caches passed content-address and safetensors
 range/shard checks. Nine Flux and fifteen LTX focused CPU regressions passed in
 the prepared runtimes. Those preparation checks are distinct from the actual
 GPU results below. Cache identities are not independent upstream signatures.
+
+The CI/local CPU test environment is declared in `tools/requirements.txt`.
+In the combined checkout, run
+`python -m pytest tests/test_flux.py tests/test_ltx_video.py`.
+Torch, Diffusers, model weights and CUDA are not needed for these regressions;
+missing gateway test dependencies must not silently skip their coverage.
 
 The LTX candidate pins SentencePiece 0.2.3 with Protobuf 7.36.1: the original
 runtime lacked SentencePiece, and its inherited Protobuf 6.33.5 was incompatible
