@@ -574,6 +574,34 @@ services:
     networks:
       - llm
 
+
+  ltx-video:
+    image: ${LTX_IMAGE:-local-llm-stack-ltx-video:prepare-20261117-r2}
+    pull_policy: never
+    build:
+      context: ./ltx-video
+    profiles: ["ltx"]
+    # GPU admission is manual; never restart beside DeepSeek TP2 after boot.
+    restart: "no"
+    ipc: host
+    shm_size: "16gb"
+    gpus: all
+    ports:
+      - "127.0.0.1:${LTX_PORT:-8013}:8001"
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+      HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
+      HF_HOME: /workspace/cache/huggingface
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      LTX_MODEL: ${LTX_MODEL:-Lightricks/LTX-Video-0.9.8-13B-distilled}
+      LTX_MODEL_REVISION: ${LTX_MODEL_REVISION:-7c64400e1861cc0d7b98d570a1926d5408ec60cd}
+      NVIDIA_VISIBLE_DEVICES: all
+    volumes:
+      - ${LTX_CACHE:-./data/huggingface}:/workspace/cache/huggingface
+      - ./models:/models
+    networks:
+      - llm
 networks:
   llm:
     driver: bridge

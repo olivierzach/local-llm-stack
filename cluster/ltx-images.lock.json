@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "images": [
+    {
+      "tag": "local-llm-stack-ltx-video:prepare-20261117-r2",
+      "id": "sha256:0f6e3d1b7609644a00033109c3c0a0157028e1c04419b08807d1ab9a36eca4b0",
+      "registry": null
+    }
+  ]
+}
